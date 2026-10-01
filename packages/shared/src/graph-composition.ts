@@ -105,6 +105,12 @@ type DraftGraph = {
   load?: z.infer<typeof loadParametersSchema>;
 };
 
+// Producer precedence is intentionally not checked inside this function:
+// the reconciliation below requires every embedded reference to be declared,
+// and the ready path first forwards the graph to the reviewed
+// graphExecutionTopologySchema, which rejects any producer that does not
+// precede its consumer in connection traversal. Drafts omit precedence only
+// because no linear rank exists while editing.
 function validateComposition(graph: DraftGraph, ctx: z.RefinementCtx): void {
   const catalogs = new Map<string, Map<string, OutputType>>();
   graph.nodes.forEach((node, index) => {
