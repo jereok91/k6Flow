@@ -16,7 +16,7 @@ The repository currently contains the product brief and visual references but no
 
 ## Out of scope
 - Graph contracts, API/OpenAPI, authentication, history/retention policy, K6 execution, metrics dashboard, editor, recorder, reverse proxy/HTTPS deployment, and Docker Engine access.
-- Changes to the user-provided `doc/ptomt_init/promot-init.md`, `doc/ptomt_init/infoProyect.md`, `.gitignore`, or UX reference assets.
+- Changes to the user-provided `doc/ptomt_init/promot-init.md`, `doc/ptomt_init/infoProyect.md`, `.gitignore` content, or UX reference assets. The root `.gitignore` may be committed unchanged as separately authorized.
 - Push, pull request, or merge.
 
 ## Constraints and resolved choices
@@ -25,6 +25,7 @@ The repository currently contains the product brief and visual references but no
 - Strict TDD: **enabled by explicit user choice in this session**. Source: direct user selection. Exact test runners: `pnpm test` and `go test ./...`; record observed RED before implementation and GREEN afterward for behavior-bearing changes.
 - Work branch: `feat/k6flow-phase-0-foundations` (created before project writes).
 - Local work-unit commits: explicitly authorized; no push/PR/merge authorization.
+- `.gitignore`: user explicitly authorized adding the existing root file unchanged to the next work-unit commit; preserve its current `.atl/` rule and do not add patterns.
 - Generated-output scope: the user explicitly approved tool-generated `node_modules/**`, `apps/web/node_modules/**`, `apps/web/.next/**`, `apps/web/next-env.d.ts`, `apps/web/tsconfig.tsbuildinfo`, and `apps/orchestrator/server`. These outputs must remain excluded from commits. This does not expand manually authored edit surfaces.
 - Existing worktree state to preserve: modified `doc/ptomt_init/promot-init.md`; untracked `.gitignore`, `doc/ptomt_init/infoProyect.md`, and generated `.codegraph/` index.
 - No unresolved choice blocks Phase 0. Ask before implementing the deferred choices in their relevant phase: authentication/roles, retention, WebSocket routing, Playwright vs Puppeteer, Docker socket mitigation, and reverse proxy.
@@ -36,6 +37,7 @@ The repository currently contains the product brief and visual references but no
 - [x] Create the Go orchestrator skeleton and tested `/healthz` behavior.
 - [x] Add behavior-level tests before implementation and capture RED/GREEN evidence under strict TDD.
 - [x] Keep the web service intentionally minimal; do not fabricate operational metrics or unfinished product interactions.
+- [ ] Track the existing root `.gitignore` unchanged, preserving `.atl/`; user explicitly authorized this after noting it was not added.
 - **Acceptance:** `pnpm test` and `go test ./...` pass; both service skeletons are independently buildable; no later-phase behavior is implied.
 - **TDD evidence:** RED — JS returned 501 instead of 200 and omitted JSON; Go returned 404 instead of readiness 200 and method-rejection 405. GREEN — two JS tests and all Go tests/subtests passed. Triangulation covers repeated probes, unknown routes, health subpaths, and unsupported methods.
 - **Verification:** `pnpm install` passed (esbuild/sharp build-script warnings); `pnpm test` passed (2 tests); `pnpm --filter @k6flow/web build` passed; `cd apps/orchestrator && go test ./...` passed; `cd apps/orchestrator && go build ./...` passed.
@@ -43,8 +45,8 @@ The repository currently contains the product brief and visual references but no
 - **Generated artifact disposition:** `apps/orchestrator/server` was created by `go build`; user approved retaining it uncommitted. Dependency/build outputs likewise remain uncommitted.
 - **Rollback boundary:** remove the K6F0-01 web/Go workspace files and root workspace manifests/lockfile; do not touch initialization docs or existing user files.
 - **Route:** delegated direct writer (multi-file source change); parent owns task document and commits.
-- **Verification evidence:** all listed TDD, tests, and builds passed; parent review/spot-check and native assessment pending.
-- **Commit:** pending.
+- **Verification evidence:** writer-reported TDD, tests, and builds passed. Independent verifier reran `pnpm test` (2 passed) and `cd apps/orchestrator && go test ./...` (passed, cached) and confirmed assertions match the committed handlers. Native `assess` returned `Review controller assess does not accept intendedUntracked`; `inspect` cannot resolve the current stop with the tool's required fields (`exclude` rejects the supplied empty array; `select` requires at least one eligible path). No native assessment plan or review authority was created.
+- **Commit:** `0b27fe7` (`feat(platform): add minimal web and Go health skeleton`); follow-up `.gitignore` tracking commit pending.
 
 ### K6F0-02 — Wire Compose, CI, and Phase 0 documentation
 - [ ] Add web, orchestrator, and PostgreSQL Compose services with health checks; keep the orchestrator internal-only and K6/recorder out of permanent services.
@@ -63,5 +65,5 @@ The repository currently contains the product brief and visual references but no
 
 ## Progress
 - Exploration completed: no application scaffold exists; UX references and architecture/phase constraints are mapped.
-- Current status: K6F0-01 code, strict-TDD checks, and builds completed; parent staged only the 14 authored manifests/source/test files, excluding generated outputs. The generated executable `apps/orchestrator/server` is approved to remain uncommitted.
-- Next step: stage this evidence record, commit the work unit, run native risk assessment and the required parent spot-check, then proceed to K6F0-02.
+- Current status: K6F0-01 code is committed as `0b27fe7`; writer and independent test verification passed. The user explicitly authorized tracking the root `.gitignore` unchanged; its separate local config commit is pending. Approved generated outputs, including `apps/orchestrator/server`, remain uncommitted. OpenCode CLI is available with models, but the native assessment/inspect failure occurs at argument validation before model selection; another model cannot substitute for native review.
+- Next step: commit `.gitignore` unchanged as authorized, then resolve native assess/inspect availability before marking K6F0-01 complete or beginning K6F0-02.
