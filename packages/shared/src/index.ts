@@ -29,3 +29,11 @@ export type {
   CheckJsonPathSegment, CheckNumericOperator, ResponseCheck,
   CheckFailurePolicy, CheckParameters,
 } from "./check-parameters";
+export {
+  csvPoolAttachmentSchema, csvPoolOutputSchema, csvPoolAllocationSchema,
+  csvPoolCapacityPolicySchema, csvPoolParametersSchema,
+} from "./csv-pool-parameters";
+export type {
+  CsvPoolAttachment, CsvPoolOutput, CsvPoolAllocation,
+  CsvPoolCapacityPolicy, CsvPoolParameters,
+} from "./csv-pool-parameters";

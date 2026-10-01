@@ -14,7 +14,8 @@ Define shared graph, REST and versioned WebSocket contracts before runtime imple
 - HTTP URL/header/query values are whole literals or references, never interpolation/segments. Bodies: none, text, structured JSON. Forms/multipart deferred; reference-shaped literal JSON stays data.
 - Scenario authentication: configured HTTP request, uniquely named required JSON-path/header/cookie outputs, explicit string/JSON types. Missing required output/type mismatch declares stop-current-VU-iteration. No Basic Auth/OAuth2, cookie-jar or runtime assumptions approved.
 - Checks: explicit response reference; unique independent names; numeric status/duration-ms comparisons; text/header existence, literal equality/inequality and contains; structured JSON-path existence/deep literal equality. Fixed record-failure-and-continue, including missing field/type mismatch. No regex, callbacks or executable expressions.
-- Runtime ambiguity (header case/repetition, cookies, transport/invalid JSON) and graph-wide producer/type compatibility remain deferred. REST/WS/recorder/pool/load decisions require focused human approval.
+- CSV pool: external attachment identity only; CSV-order distinct stable row per VU, reused across that VU's iterations; reject insufficient capacity before execution. Required named headers map to unique string outputs without conversion or trimming. These are declarations, not ingestion or allocation implementation.
+- Runtime ambiguity (header case/repetition, cookies, transport/invalid JSON), CSV dialect/encoding/malformed-row handling and graph-wide producer/type compatibility remain deferred. REST/WS/recorder/load decisions require focused human approval.
 - Generated install surfaces: `node_modules/**`, `apps/web/node_modules/**`, `packages/shared/node_modules/**`. Explicit verification writes/downloads: `node_modules/.go-cache/**`, `node_modules/.go-mod-cache/**`; human subsequently approved generated `node_modules/.vite/**` writes to retain `pnpm test`. Never delete, stage or commit caches/dependencies/`.codegraph/`. Only previously authorized repository-local Git exclusions; no tracked/global ignore changes.
 
 ## Stable work units
@@ -24,7 +25,7 @@ Define shared graph, REST and versioned WebSocket contracts before runtime imple
   - [x] K6F1-03a — Literal/reference values and standalone HTTP parameters.
   - [x] K6F1-03b — Standalone HTTP authentication/extraction declarations.
   - [x] K6F1-03c — Structured checks. Closed by human decision 2026-10-01 on independent verification (verifier `mupoy5sv-t-6jgx` PASS) without native approval. P2 resolved; independent PASS, committed `5c8ceb0` + correction `3578524`; native review escalated to `native_stop_required` (validator rejected `R3-001`). Not approved; provider defect reported upstream (#4997 occurrence comment).
-  - [ ] K6F1-03d — CSV pool contract. Pending allocation/attachment/exhaustion choices; forecast 200–300.
+  - [ ] K6F1-03d — Standalone CSV pool contract. Writer and independent checks PASS (300 tests); 226 source/tests/docs additions. Local commit and candidate-specific review pending.
   - [ ] K6F1-03e — Global load/thresholds. Pending executor/predicate choices; forecast 230–350.
   - [ ] K6F1-03f — Typed draft/executable composition, producer outputs, compatibility and embedded-reference reconciliation; forecast 300–400.
 - [ ] K6F1-04 — Runs/health REST schemas and OpenAPI agreement; pending semantics, forecast 300–400.
@@ -74,4 +75,19 @@ Next safe action: bounded maintainer/support handoff of recorded lineage/revisio
 
 2026-10-01 update: clean-worktree probe (memory #177) let the validator run; durable STATUS then showed `escalated` / `native_stop_required`, cause `targeted_validator_rejected` (`R3-001`), while the capture envelope reported no mutation. Human consented to report: occurrence comment posted on upstream issue #4997 (equivalent dirty-path rctx2 defect, open, no published fix in 3.7.0). Lineage preserved; no ack/reset/recovery/START. Next: human decides how 03c closes without native approval before CSV pool choices (03d).
 
-2026-10-01 closure: human accepted 03c as closed on independent verification evidence; native lineage `review-e61153f9ce10f509` remains escalated (`native_stop_required`) due to upstream tooling defect #4997 and is not claimed as approval. Next: focused human CSV pool choices for 03d.
+2026-10-01 closure: human accepted 03c as closed on independent verification evidence; native lineage `review-e61153f9ce10f509` remains escalated (`native_stop_required`) due to upstream tooling defect #4997 and is not claimed as approval. Human subsequently selected continuation with 03d and approved the four CSV policies above; provider diagnosis is a paused follow-up.
+
+## K6F1-03d — Active work unit
+Base commit: `48c873f6494e552f9d3f1166a3373830ac267801`. Route: delegated worker (five nontrivial source/test/documentation surfaces), using the existing feature branch. TDD is strict, sourced from this feature's accepted verification contract; exact runner `pnpm test`.
+- [x] Map authoritative CSV requirements and obtain allocation, attachment, exhaustion and column/output decisions.
+- [x] Implement strict standalone declaration schema, inferred exports, behavioral RED/GREEN tests and additive API/decision documentation.
+- [x] Obtain required independent verification after native assessment.
+- [ ] Create one local Conventional Commit work unit and resolve its native review route under the user-owned switch; record the actual outcome before closing 03d.
+
+Allowed writer surfaces: `packages/shared/src/csv-pool-parameters.ts`, `packages/shared/src/csv-pool-parameters.test.ts`, additive `packages/shared/src/index.ts`, CSV sections in `docs/api/graph.md` and `docs/DECISIONES.md`. Parent alone owns this task document. No CSV bytes, filesystem access, upload handlers, runtime allocator or capacity evaluation; no output catalogs, graph integration or reference/type reconciliation (03f). CSV source-header duplication, dialect/encoding and malformed rows remain ingestion decisions, not schema defaults. Credentials must not be logged. Generated verification writes are limited to previously authorized `node_modules/**` surfaces. Prior contracts and protected files remain unchanged.
+
+Writer `mups2ksl-10-zp44` completed the five surfaces with 226 additions/0 deletions excluding tracking/generated outputs. Observed behavioral RED: `pnpm test`, 2 failed/230 passed (duplicate outputs and shared allocation accepted by a compilable stub); then GREEN: 294 Vitest + 6 deployment = 300 passed, including 65 CSV tests. Isolated lint/Go vet and tracked/new-file whitespace checks passed. Parent task-document hash stayed `6b306bd3937de4ede35165d130136f6c6e2aba48d1c154547910445ae7e880d0` throughout writing. Model `gpt-6.1-sol`, effort unavailable. Historical RED is writer-observed, not independently reproduced.
+
+Fresh native assessment returned unassessable because undeclared untracked files prevented risk calculation; its plan treats the candidate as high and requires an independent verifier. Parent readback confirms explicit policies, exact output-name uniqueness and preservation of strings; attachment identities remain opaque, not resolver/security checks.
+
+Independent verifier `mupshipe-11-c8id` PASS: fresh `pnpm test` spot-check 294 Vitest + 6 deployment = 300 tests, including 65 CSV; isolated lint/Go vet and all whitespace checks passed, no blocker findings. Five candidate hashes and prior graph/value/HTTP/auth/check modules stayed unchanged; task-document hash `6ec854169dd0f74408edfc27ebf7b0616cf2c32d73686cdb0a7ad3bc039836a0` and index hash were preserved. Actual source/tests/docs 226 additions/0 deletions. No runtime, Docker/network service, ignored-output byte preservation or clean-cache/hosted-CI claim. Verification is complete; parent-owned local work-unit commit and candidate-specific review remain pending.

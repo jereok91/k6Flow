@@ -108,6 +108,26 @@ Rollback only check modules/tests, additive check exports, the checks guide sect
 and these notes (including its HTTP deferred-check wording update); preserve all
 reviewed contracts, parent tracking and unrelated surfaces.
 
+## Phase 1 — standalone CSV pool declarations (K6F1-03d)
+
+Use strict version 1 `csvPoolParametersSchema` and inferred types without changing
+reviewed graph/value/HTTP/auth/check contracts. See [the CSV guide](api/graph.md#standalone-csv-pool-declarations-k6f1-03d).
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| External attachment identity only | Human-approved source boundary; strict opaque nonblank `{ id }`, not inline CSV or URL/path/secret alternative fields. Identity validation supplies no resolver or security guarantee. |
+| Explicit stable CSV-order distinct row per VU | Each VU keeps its assigned row across iterations; no sharing, wrapping, random allocation or iteration rotation. Assignment is not implemented. |
+| Explicit reject-before-execution capacity policy | A future consumer must fail before execution when distinct rows cannot cover required VUs; standalone validation neither counts rows nor proves capacity/readiness. |
+| Nonempty required header-to-string mappings | Exact named headers map to unique structural output identities; required/string literals prevent optional outputs, conversion or trimming. Repeated source-header mappings with different output names are allowed, without deciding duplicate actual CSV-header handling. |
+| Phase 6 ingestion and security obligations | SharedArray loading, column presence, capacity and assignment remain future work. Consumers must avoid CSV/credential logs and minimize retention; neither control is enforced here. |
+
+CSV dialect/encoding, duplicate actual headers, malformed rows and VU assignment
+mechanics remain deferred, with no implicit defaults. K6F1-03f owns output catalogs,
+type compatibility, reference reconciliation and execution readiness.
+Runtime harness: N/A; pure declarations add no ingestion, process or network boundary.
+Rollback only CSV modules/tests, additive CSV exports, the CSV guide section and
+these notes; preserve reviewed contracts, parent tracking and unrelated surfaces.
+
 ## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later

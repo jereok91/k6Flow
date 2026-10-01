@@ -210,3 +210,45 @@ Producer output support, graph precedence/reference reconciliation and response
 compatibility belong to K6F1-03f. Header case matching/repeated headers, ambiguous
 responses, runtime coercion, invalid response JSON and transport handling remain
 unresolved; no first/last selection, conversion or transport policy is supplied.
+
+## Standalone CSV pool declarations (K6F1-03d)
+
+`csvPoolParametersSchema` / `CsvPoolParameters` validate version 1 declarations
+only. They do not load CSV, resolve attachments, check capacity or assign rows.
+Existing graph schemas are unchanged; `user-pool` is still a structural node kind.
+
+```ts
+const pool = {
+  version: 1,
+  attachment: { id: "dummy-csv-attachment" },
+  allocation: "csv-order-distinct-row-per-vu",
+  onInsufficientCapacity: "reject-before-execution",
+  outputs: [
+    { header: "dummy_label", name: "label", expectedType: "string", required: true },
+  ],
+};
+```
+
+| Field / export | Declaration contract |
+|----------------|----------------------|
+| `attachment` / `csvPoolAttachmentSchema` | Strict `{ id }` external attachment identity; nonblank exact string, opaque and unresolved. No inline CSV, URL, filesystem-path or secret alternative fields. Identity syntax itself is not a resolver/security guarantee. |
+| `allocation` / `csvPoolAllocationSchema` | Required literal `csv-order-distinct-row-per-vu`: distinct rows assigned to VUs in stable CSV order; the same VU reuses its assigned row across iterations. No sharing, random assignment or per-iteration rotation. |
+| `onInsufficientCapacity` / `csvPoolCapacityPolicySchema` | Required literal `reject-before-execution`; a future consumer must reject insufficient distinct-row capacity before starting execution, never wrap or share rows. Validation does not evaluate capacity or establish readiness. |
+| `outputs` / `csvPoolOutputSchema` | Nonempty ordered array of strict `{ header, name, expectedType, required }` mappings. Named headers are nonblank exact strings; output names reuse structural output identity and must be unique. Every mapping requires `expectedType: "string"` and `required: true`. |
+
+All fields are required; unknown fields fail at every object level. Validation
+preserves strings and mapping order without coercion, trimming, defaults or input
+mutation. A future consumer must expose the selected cell as its original string,
+without conversion or trimming. There is no optional-output or positional-column
+policy. Distinct output names may map the same named source header; that does not
+decide how duplicate headers in an actual CSV file are handled.
+
+Phase 6 owns SharedArray CSV loading, required-column presence validation,
+capacity validation and assignment. VU identity/assignment mechanics, CSV dialect,
+encoding, duplicate actual CSV headers and malformed-row handling remain deferred.
+Required headers are declared here, not checked against actual attachment data.
+Consumers must not log CSV contents or credentials and must minimize retention;
+this schema implements neither logging controls nor retention enforcement.
+K6F1-03f owns producer output catalogs, type compatibility, embedded-reference
+reconciliation and execution readiness. Passing this standalone schema proves
+none of those properties and does not authorize an actual run.
