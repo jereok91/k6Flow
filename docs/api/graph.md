@@ -98,7 +98,7 @@ K6F1-03f must reconcile parameter-embedded references with `node.references` and
 validate producer existence, precedence, supported outputs and type compatibility.
 Standalone validation proves none of those. No HTTP execution, serialization,
 query/header encoding, content-type insertion or transport behavior is implemented.
-Forms, multipart/files, checks and load remain deferred. Authentication/extraction
+Forms, multipart/files and load remain deferred. Authentication/extraction
 now have the independent validation boundary below, not a runtime implementation.
 
 ## Standalone target authentication (K6F1-03b)
@@ -157,3 +157,56 @@ same-name cookies require future runtime decisions; no first/last match or cooki
 jar is assumed. Invalid response JSON and transport/login status handling also
 remain undefined. No JWT decoding/minting, secret binding, Bearer-prefix
 concatenation, cookie persistence or runner/resolver is introduced.
+
+## Standalone response checks (K6F1-03c)
+
+`checkParametersSchema` / `CheckParameters` validate version 1 declarations only.
+They neither resolve a response nor run k6 `check()` or iteration control flow.
+
+```ts
+const checks = {
+  version: 1,
+  response: { producerNodeId: "request", output: "response" },
+  checks: [
+    { name: "status OK", kind: "status", operator: "eq", expected: 200 },
+    { name: "fast", kind: "duration-ms", operator: "lt", expected: 500 },
+    { name: "text", kind: "body-text",
+      predicate: { operator: "contains-literal", expected: "ready" } },
+    { name: "trace", kind: "header", header: "X-Trace",
+      predicate: { operator: "exists" } },
+    { name: "user", kind: "json-path", path: ["users", 0, "id"],
+      predicate: { operator: "deep-eq", expected: 7 } },
+  ],
+  onCheckFailure: "record-failure-and-continue",
+};
+```
+
+| Boundary | Contract |
+|----------|----------|
+| `response` | Required strict producer/output identity; no implicit latest response. `response` above is illustrative, not a declared supported producer output. |
+| `checks` / `responseCheckSchema` | Nonempty ordered array of independent checks with exact unique nonblank names; unknown contract fields fail. |
+| `status`, `duration-ms` | Required finite numeric `expected`; `checkNumericOperatorSchema` permits `eq`, `ne`, `lt`, `lte`, `gt`, `gte`. Duration unit is milliseconds. No coercion or status-range policy. |
+| `body-text`, `header` | Strict `predicate`: `exists` without expected data, or `eq` / `ne` / `contains-literal` with string `expected` (literal equality, inequality or containment). Header requires an exact HTTP-token `header` name, preserving case. |
+| `json-path` | Structured `path`; predicate is `exists` without expected data or `deep-eq` with literal `JsonValue`. No text parsing of expected JSON. |
+| `onCheckFailure` / `checkFailurePolicySchema` | Required literal `record-failure-and-continue`; no configurable abort policy. |
+
+`checkJsonPathSegmentSchema` reuses the reviewed auth path definition unchanged:
+strings select exact object keys, nonnegative safe integers select array indices,
+and an empty path selects the JSON root. String `"0"` is not numeric index `0`.
+Prototype-sensitive keys are data; future resolution must use own JSON properties.
+Reference-looking equality objects remain literal data. Strings containing regex,
+expressions or interpolation syntax remain literal strings/keys, never executable.
+There are no regex predicates, callbacks, scripts, secret bindings or templates.
+
+The declared execution intent is one independent result per named check. A failed
+comparison, absent selected field or incompatible actual type records failure and
+continues the iteration, without suppressing later checks. Existence tests presence,
+not truthiness: present JSON null/false/zero are data. Text/header checks require
+strings, numeric checks numbers, and JSON checks valid JSON data; deep equality is
+structural JSON equality, not reference identity or serialized-text equality.
+This validator inspects declarations only, not actual responses or check results.
+
+Producer output support, graph precedence/reference reconciliation and response
+compatibility belong to K6F1-03f. Header case matching/repeated headers, ambiguous
+responses, runtime coercion, invalid response JSON and transport handling remain
+unresolved; no first/last selection, conversion or transport policy is supplied.

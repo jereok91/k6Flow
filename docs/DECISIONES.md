@@ -88,6 +88,26 @@ Runtime harness: N/A; pure validation adds no process/network boundary.
 Rollback only `auth-parameters.ts`, its tests, additive auth exports, the auth guide
 section and these notes; preserve existing HTTP/value/graph contracts and tracking.
 
+## Phase 1 — standalone structured response checks (K6F1-03c)
+
+Use strict version 1 `checkParametersSchema` and inferred types independently of
+reviewed graph/HTTP/value/auth contracts. See [the checks guide](api/graph.md#standalone-response-checks-k6f1-03c).
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Explicit consuming response producer/output | Reuse structural identity; no implicit latest response or supported-output claim. K6F1-03f owns compatibility and precedence. |
+| Unique named independent checks | Exact identities and stable duplicate issue paths preserve individual results; no runtime result envelope yet. |
+| Structured numeric/text/JSON predicates | Human-approved comparisons only; finite numeric literals, literal text equality/inequality/containment and literal JSON equality data. No regex, code, interpolation or secret binding. |
+| Reuse reviewed path segments | Root/key/index semantics match auth without modifying reviewed source; reference-looking JSON remains data. |
+| Fixed record-failure-and-continue declaration | Failed checks, absent fields and incompatible actual types fail independently without aborting iteration; validation implements no check execution/control flow. |
+
+Header matching/repetition, response ambiguity, runtime coercion, invalid response
+JSON and transport behavior remain deferred. No response resolver or graph binding.
+Runtime harness: N/A; validation-only declarations add no process/network boundary.
+Rollback only check modules/tests, additive check exports, the checks guide section
+and these notes (including its HTTP deferred-check wording update); preserve all
+reviewed contracts, parent tracking and unrelated surfaces.
+
 ## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later

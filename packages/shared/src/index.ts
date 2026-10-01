@@ -21,3 +21,11 @@ export type {
   AuthJsonPathSegment, AuthOutputSelector, AuthOutputType, AuthOutput,
   AuthMethod, AuthOutputFailurePolicy, AuthParameters,
 } from "./auth-parameters";
+export {
+  checkJsonPathSegmentSchema, checkNumericOperatorSchema, responseCheckSchema,
+  checkFailurePolicySchema, checkParametersSchema,
+} from "./check-parameters";
+export type {
+  CheckJsonPathSegment, CheckNumericOperator, ResponseCheck,
+  CheckFailurePolicy, CheckParameters,
+} from "./check-parameters";
