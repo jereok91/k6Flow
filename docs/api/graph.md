@@ -301,3 +301,43 @@ composition, producer/reference compatibility and readiness; K6F1-04 owns REST/g
 load precedence and status mapping. Phase 5 owns translation, Phase 6 CSV capacity
 and row allocation. Engine-specific duration representability, graceful-stop and
 startup-delay settings remain undecided, not silently defaulted or bounded here.
+
+## Typed draft and ready graph composition (K6F1-03f)
+
+`graphDraftCompositionSchema` / `GraphDraftComposition` and
+`graphReadyCompositionSchema` / `GraphReadyComposition` bind the reviewed
+parameter contracts to structural node kinds. Declaration and validation only:
+no runtime resolution, response-value validation, script translation, executors,
+REST precedence, CSV ingestion, recorder or UI behavior is introduced.
+
+| Kind | `parameters` | Exposed outputs |
+|------|--------------|-----------------|
+| `authentication` | `authParametersSchema` | Declared extraction outputs only, typed `string`/`json` as declared. No raw auth response. |
+| `http-request` | `httpParametersSchema` | Exactly one built-in output `response` of type `http-response`, exposed even while draft parameters are omitted. |
+| `response-validation` | `checkParametersSchema` | None; it consumes but never produces. |
+| `user-pool` | `csvPoolParametersSchema` | Declared CSV outputs, always type `string`. |
+
+The output name `response` is reserved: declared authentication or CSV outputs
+named `response` reject in both draft and ready graphs.
+
+| Export | Guarantees |
+|--------|------------|
+| `graphDraftCompositionSchema` | All structural draft guarantees plus kind-typed optional `parameters` (present payloads must be fully valid; invalid partial payloads reject, never retained), optional valid `load`, exact reference reconciliation and catalog/type compatibility. Producer precedence is not enforceable while editing and is not checked. |
+| `graphReadyCompositionSchema` | All draft guarantees plus the reviewed linear execution topology, required valid `parameters` on every node, earlier-producer precedence and a required top-level `load` (`loadParametersSchema`). |
+
+Reference reconciliation: declared `node.references` must equal exactly the set
+of references embedded in supported parameter slots — HTTP URL/header/query
+values, text and JSON bodies, authentication request fields, and the checks
+`response` identity. Order and duplicates are ignored; identities are compared
+exactly, without normalization. Dangling declared or undeclared embedded
+references reject; reference-shaped literal JSON remains data, never a binding.
+
+Compatibility: the producer must exist, expose the referenced output in its
+catalog and, in ready graphs, rank earlier by connection order via the reviewed
+topology. String outputs supply string consumers and count as JSON data; JSON
+outputs supply JSON consumers but never string consumers; `http-response`
+outputs feed the response-validation `response` consumer only, and nothing else
+supplies that slot. References are inspected only in supported slots.
+
+Neither schema validates actual response values, extraction, CSV data or load
+execution; passing ready composition is declaration-level readiness, not a run.

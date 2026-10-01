@@ -44,3 +44,5 @@ export {
 export type {
   LoadStage, LoadProfile, LoadThreshold, LoadThresholdPolicy, LoadParameters,
 } from "./load-parameters";
+export { graphDraftCompositionSchema, graphReadyCompositionSchema } from "./graph-composition";
+export type { GraphDraftComposition, GraphReadyComposition } from "./graph-composition";

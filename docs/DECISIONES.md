@@ -152,6 +152,26 @@ Runtime harness: N/A; typed declarations are not proof of a k6 execution.
 Rollback only load modules/tests, additive load exports, the load guide section and
 these notes; preserve reviewed contracts, parent tracking and unrelated surfaces.
 
+## Phase 1 — typed graph composition (K6F1-03f)
+
+Bind reviewed parameter contracts to structural node kinds additively; existing
+modules stay unchanged. See [the composition guide](api/graph.md#typed-draft-and-ready-graph-composition-k6f1-03f).
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Structural kinds retained with kind-typed `parameters` | Ready graphs must pass the reviewed execution topology, which only admits `authentication`, `http-request`, `response-validation` and `user-pool`; each kind gains optional (draft) or required (ready) parameters validated by its reviewed schema, without altering those modules. |
+| Built-in reserved `response` output | Every `http-request` exposes exactly one `http-response` output, even without parameters; declared authentication/CSV outputs may not use the name. Checks consume only `http-response` through their existing `response` identity; authentication exposes declared extraction outputs only, never a raw response. |
+| Exact-set reference reconciliation | Declared `node.references` equal references embedded in supported slots (URL/header/query values, text/JSON bodies, authentication request fields, checks `response`); order and duplicates ignored, exact comparison without normalization, dangling or undeclared references reject in draft and ready. Counting the checks `response` identity lets the reviewed topology enforce its precedence uniformly. |
+| Slot/type compatibility, precedence only when ready | String outputs feed string consumers and count as JSON data; JSON outputs never feed string consumers; `http-response` feeds checks only. Producer existence, catalog membership and type match hold in drafts; connection-order precedence is enforceable only on the reviewed linear topology, so it is a ready-graph guarantee. |
+| Draft/ready readiness split | Draft nodes may omit whole parameter objects and `load`; present payloads must be fully valid. Ready graphs require every parameter, the linear topology and a top-level global `load`. |
+
+Declaration only: no runtime resolution, response-value validation, script
+translation, executors, REST precedence, CSV ingestion, recorder or UI.
+Runtime harness: N/A; composition validators are pure declarations. Rollback only
+the composition modules/tests, additive exports, the composition guide section
+and these notes; preserve reviewed contracts, parent tracking and unrelated
+surfaces.
+
 ## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later
