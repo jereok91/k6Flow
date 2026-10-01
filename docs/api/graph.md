@@ -252,3 +252,52 @@ this schema implements neither logging controls nor retention enforcement.
 K6F1-03f owns producer output catalogs, type compatibility, embedded-reference
 reconciliation and execution readiness. Passing this standalone schema proves
 none of those properties and does not authorize an actual run.
+
+## Standalone global load and thresholds (K6F1-03e)
+
+`loadParametersSchema` / `LoadParameters` validate strict version 1 declarations:
+**one global profile**, not per-node overrides or concurrent scenarios. Existing
+structural graph schemas remain unchanged; this does not prove execution readiness.
+
+```ts
+const load = {
+  version: 1,
+  profile: { kind: "constant-vus", vus: 2, durationMs: 1000 },
+  thresholds: [
+    { metric: "http_req_duration", aggregator: "p95", unit: "ms",
+      operator: "lt", expected: 500.5 },
+    { metric: "http_req_failed", aggregator: "rate", unit: "fraction",
+      operator: "lte", expected: 0.01 },
+  ],
+  thresholdPolicy: "final-pass-fail",
+};
+// Alternative profile; stages retain this order, including ramp-down to zero.
+const staged = { kind: "staged-vus", startVus: 0,
+  stages: [{ durationMs: 1000, targetVus: 2 }, { durationMs: 500, targetVus: 0 }] };
+```
+
+| Field / export | Declaration contract |
+|----------------|----------------------|
+| `profile` / `loadProfileSchema` | Tagged `constant-vus` with positive safe-integer `vus` and `durationMs`, or `staged-vus` with explicit nonnegative safe-integer `startVus` and nonempty ordered `stages`. |
+| Stage / `loadStageSchema` | Strict `{ durationMs, targetVus }`; positive safe-integer milliseconds and nonnegative safe-integer VUs. Across startup and targets, at least one load value must be positive; all-zero profiles fail. Startup and ramp-down targets may be zero. |
+| `thresholds` / `loadThresholdSchema` | Required ordered array, possibly empty. Empty means no threshold criteria, not missing defaults. Repeated metrics and identical declarations are allowed. |
+| `http_req_duration` | Only Trend aggregators `avg`, `p90`, `p95`, `p99`; required `unit: "ms"`, finite `expected >= 0`. Fractional milliseconds are allowed; no conversion. |
+| `http_req_failed` | Only `aggregator: "rate"`; required `unit: "fraction"`, finite `expected` in inclusive `[0, 1]`, not percent. |
+| `operator` | Six numeric comparisons: `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, reusing `checkNumericOperatorSchema`. No DSL strings or predicate evaluation. |
+| `thresholdPolicy` / `loadThresholdPolicySchema` | Required literal `final-pass-fail`: assess overall threshold pass/fail at execution end. No early abort or abort delays. |
+
+Every shown field is required; all contract object levels reject unknown fields.
+Validation preserves data/order without mutation, coercion, normalization or defaults.
+`LoadStage`, `LoadProfile`, `LoadThreshold`, `LoadThresholdPolicy` and `LoadParameters`
+are public schema-inferred types; metric/aggregator/unit pairings are typed together.
+No IDs or labels are needed. Iteration/arrival-rate executors, custom metrics, tag
+filters, checks-success metrics, arbitrary percentiles, callbacks and JavaScript
+are unsupported. Response checks retain their separate fixed
+`record-failure-and-continue` policy; thresholds do not change that declaration.
+
+No statistics aggregation, predicate execution, script translation or k6 run occurs.
+Typed metric configuration is not evidence that k6 executed. K6F1-03f owns graph
+composition, producer/reference compatibility and readiness; K6F1-04 owns REST/global
+load precedence and status mapping. Phase 5 owns translation, Phase 6 CSV capacity
+and row allocation. Engine-specific duration representability, graceful-stop and
+startup-delay settings remain undecided, not silently defaulted or bounded here.

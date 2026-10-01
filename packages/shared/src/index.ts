@@ -37,3 +37,10 @@ export type {
   CsvPoolAttachment, CsvPoolOutput, CsvPoolAllocation,
   CsvPoolCapacityPolicy, CsvPoolParameters,
 } from "./csv-pool-parameters";
+export {
+  loadStageSchema, loadProfileSchema, loadThresholdSchema,
+  loadThresholdPolicySchema, loadParametersSchema,
+} from "./load-parameters";
+export type {
+  LoadStage, LoadProfile, LoadThreshold, LoadThresholdPolicy, LoadParameters,
+} from "./load-parameters";

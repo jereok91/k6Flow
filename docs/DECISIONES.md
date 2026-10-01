@@ -128,6 +128,30 @@ Runtime harness: N/A; pure declarations add no ingestion, process or network bou
 Rollback only CSV modules/tests, additive CSV exports, the CSV guide section and
 these notes; preserve reviewed contracts, parent tracking and unrelated surfaces.
 
+## Phase 1 — standalone global load and thresholds (K6F1-03e)
+
+Use strict version 1 `loadParametersSchema` and inferred types without changing
+reviewed contracts. See [the load guide](api/graph.md#standalone-global-load-and-thresholds-k6f1-03e).
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| One tagged global profile | Human-approved constant-VU duration or staged/ramping VUs; no per-node overrides, concurrent scenarios, iterations or arrival-rate executors. |
+| Explicit safe-integer milliseconds and VUs | Durations and constant VUs are positive; staged startup/targets are nonnegative with some positive load. Nonempty stages retain input order, including ramp-down to zero; no defaults, coercion or quantity/unit alternatives. |
+| Structured HTTP thresholds with explicit units | Latency Trend avg/p90/p95/p99 uses finite nonnegative milliseconds, including fractions. Failure Rate uses finite fractions `[0,1]`. Strict metric/aggregator/unit pairings prevent conversion ambiguity; no custom metrics, tags or arbitrary percentiles. |
+| Explicit possibly empty threshold list | Empty declares no threshold criteria. Repeated metrics are valid, consistent with k6 threshold arrays; no unique metric, ID or label requirement. |
+| Six numeric operators and fixed final pass/fail | Reuse eq/ne/lt/lte/gt/gte without evaluating predicates. End-of-execution intent excludes early abort/delay; response checks remain record-failure-and-continue. |
+
+Parent-provided primary evidence: [Grafana threshold guide](https://grafana.com/docs/k6/latest/using-k6/thresholds/)
+for final pass/fail, Trend milliseconds and abort distinctions; [k6 v0.55.0 parser](https://raw.githubusercontent.com/grafana/k6/v0.55.0/metrics/thresholds_parser.go)
+for corresponding numeric comparators. This is not installed-runner/version proof.
+Engine-specific duration representability, graceful-stop and startup-delay settings
+remain later decisions. REST precedence/status mapping belongs to K6F1-04; graph
+composition/readiness to K6F1-03f, translation to Phase 5, CSV capacity/allocation to
+Phase 6. No aggregation, metrics WS or executor implementation is introduced.
+Runtime harness: N/A; typed declarations are not proof of a k6 execution.
+Rollback only load modules/tests, additive load exports, the load guide section and
+these notes; preserve reviewed contracts, parent tracking and unrelated surfaces.
+
 ## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later
