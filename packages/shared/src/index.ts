@@ -13,3 +13,11 @@ export {
   httpMethodSchema, httpNamedValueSchema, httpBodySchema, httpParametersSchema,
 } from "./http-parameters";
 export type { HttpMethod, HttpNamedValue, HttpBody, HttpParameters } from "./http-parameters";
+export {
+  authJsonPathSegmentSchema, authOutputSelectorSchema, authOutputTypeSchema,
+  authOutputSchema, authMethodSchema, authOutputFailurePolicySchema, authParametersSchema,
+} from "./auth-parameters";
+export type {
+  AuthJsonPathSegment, AuthOutputSelector, AuthOutputType, AuthOutput,
+  AuthMethod, AuthOutputFailurePolicy, AuthParameters,
+} from "./auth-parameters";

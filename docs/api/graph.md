@@ -98,4 +98,62 @@ K6F1-03f must reconcile parameter-embedded references with `node.references` and
 validate producer existence, precedence, supported outputs and type compatibility.
 Standalone validation proves none of those. No HTTP execution, serialization,
 query/header encoding, content-type insertion or transport behavior is implemented.
-Forms, multipart/files, authentication, extraction, checks and load remain deferred.
+Forms, multipart/files, checks and load remain deferred. Authentication/extraction
+now have the independent validation boundary below, not a runtime implementation.
+
+## Standalone target authentication (K6F1-03b)
+
+`authParametersSchema` / `AuthParameters` describe a scenario's external-target
+login, **not K6Flow user authentication**. Only tagged HTTP login is supported.
+The request reuses `HttpParameters` unchanged, including whole literal/reference
+values. This is independently usable validation, not graph execution readiness.
+
+```ts
+const auth = {
+  method: { kind: "http", request: {
+    method: "POST",
+    url: { kind: "literal", value: "https://example.test/login" },
+    body: { kind: "none" },
+  } },
+  outputs: [
+    { name: "token", required: true, expectedType: "string",
+      selector: { kind: "json-path", path: ["session", "token"] } },
+    { name: "profile", required: true, expectedType: "json",
+      selector: { kind: "json-path", path: ["users", 0, "profile"] } },
+    { name: "trace", required: true, expectedType: "string",
+      selector: { kind: "header", name: "X-Trace" } },
+    { name: "session", required: true, expectedType: "string",
+      selector: { kind: "cookie", name: "session_id" } },
+  ],
+  onOutputFailure: "stop-current-vu-iteration",
+};
+```
+
+| Field / export | Wire contract |
+|----------------|---------------|
+| `method` / `authMethodSchema` | Strict `{ kind: "http", request: <HTTP parameters> }`; future variants require explicit contracts. Basic Auth/OAuth2 are not supported. |
+| `outputs` / `authOutputSchema` | Nonempty ordered array; exact unique nonblank `name` identities reuse the graph reference's `output` schema. No trimming or normalization. Every output requires literal `required: true`. |
+| `selector` / `authOutputSelectorSchema` | Strict `json-path` with `path`, or `header`/`cookie` with `name`. Named header/cookie selectors require HTTP token syntax and preserve case. This does not tighten existing request-header validation. |
+| `path` / `authJsonPathSegmentSchema` | Array of exact object-key strings or nonnegative safe integer array indices. Empty path selects the entire JSON value; empty string selects an empty key. String `"0"` is an object key, number `0` an array index. |
+| `expectedType` / `authOutputTypeSchema` | Required `string` or `json` consumer category. Header/cookie outputs require `string`. JSON-path outputs may declare either; `json` means the existing finite `JsonValue` domain, including strings and null, not JSON serialization text. |
+| `onOutputFailure` / `authOutputFailurePolicySchema` | Required literal `stop-current-vu-iteration`: missing required output or wrong type ends only this VU iteration; other VUs continue. This validator stores policy and does not perform extraction or stop anything. |
+
+All contract objects reject unknown fields; no coercion, defaults or input
+mutation occurs. JSON-path strings are literal keys: `$.token`, `x()` or
+`{{token}}` inside a segment are not evaluated. There is no JavaScript,
+JSONPath-expression, traversal operator, template or host-filesystem access.
+Prototype-sensitive keys such as `__proto__` are ordinary JSON keys; a future
+resolver must access only own JSON data properties, never inherited properties,
+getters or host prototypes. Numeric segments address arrays only, not object keys.
+
+Expected types establish declarations for K6F1-03f compatibility checks: string
+outputs can supply string consumers and are JSON data; a general JSON output does
+not guarantee a string consumer. Actual response values are not validated here.
+Graph binding, producer precedence and reference reconciliation remain K6F1-03f.
+
+Optional outputs are unsupported until their missing-value behavior is decided.
+Repeated response-header selection, case matching, cookie parsing and ambiguous
+same-name cookies require future runtime decisions; no first/last match or cookie
+jar is assumed. Invalid response JSON and transport/login status handling also
+remain undefined. No JWT decoding/minting, secret binding, Bearer-prefix
+concatenation, cookie persistence or runner/resolver is introduced.

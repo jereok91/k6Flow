@@ -68,6 +68,26 @@ Runtime harness: N/A; validation-only changes add no process/network boundary.
 Rollback only standalone values/HTTP modules and tests, their additive exports,
 the HTTP guide section and these decision notes; keep existing graph contracts.
 
+## Phase 1 — target authentication and extraction declarations (K6F1-03b)
+
+Use standalone `authParametersSchema` for scenario external-target login, not
+K6Flow user authentication. See [the auth wire contract](api/graph.md#standalone-target-authentication-k6f1-03b).
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Tagged HTTP-only method with reused request schema | Human-approved configurable request; preserve reviewed HTTP/value/graph behavior. No Basic Auth/OAuth2 variants or credentials in examples. |
+| Unique required named outputs | Reuse graph output identity; nonempty outputs and explicit `required: true` avoid inventing optional-output behavior. Names compare exactly. |
+| Structured JSON keys/indices or named header/cookie | No expression evaluator; token syntax validates selector names. Keys are data, including prototype-sensitive names; future resolution must use own JSON properties only. Empty path denotes the JSON root. |
+| Explicit `string` / `json` expected category | Align with existing parameter consumers; JSON includes strings and null. Header/cookie declarations must be string; compatibility validation belongs to K6F1-03f. No serialization or coercion. |
+| Literal `stop-current-vu-iteration` failure policy | Human-approved missing/type-failure outcome affects this iteration only, not other VUs. Validation declares it without implementing control flow. |
+
+Optional outputs, repeated header/cookie matching, cookie ambiguity, invalid JSON,
+transport/login failure handling and cookie persistence remain runtime decisions.
+No token transformation, secret binding, extraction engine or graph composition.
+Runtime harness: N/A; pure validation adds no process/network boundary.
+Rollback only `auth-parameters.ts`, its tests, additive auth exports, the auth guide
+section and these notes; preserve existing HTTP/value/graph contracts and tracking.
+
 ## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later
