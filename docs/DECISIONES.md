@@ -1,4 +1,37 @@
-# Phase 0 decisions
+# Foundation decisions
+
+## Phase 1 — shared validation foundation (K6F1-01)
+
+Use private `@k6flow/shared` for runtime validation and schema-inferred types.
+It exports TypeScript source; no build artifacts or service runtime are introduced.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Zod 4.6.5, exact dependency pin | Human-approved validator supplies validation and inferred types from one schema. |
+| TypeScript 5.9.3 | Reuses the web toolchain version; shared strict, no-emit checking runs through root lint, including shared tests. |
+| Numeric literal `version: 1` | Minimal technical discriminator, without coercion or defaults; unsupported versions fail validation. |
+| Strict `{ version: 1 }` foundation | Unknown fields fail; this is not a graph, REST or WebSocket payload. Future schemas must explicitly define their own fields. |
+| Shared Vitest discovery | Adds shared tests while preserving web tests and the separate deployment-contract runner. |
+
+### Dependency selection evidence
+
+Read-only npm registry query on 2026-10-01:
+`https://registry.npmjs.org/zod/latest` returned stable version `4.6.5`.
+Tarball: `https://registry.npmjs.org/zod/-/zod-4.6.5.tgz`.
+Registry integrity:
+`sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==`.
+This records the selection source, not an independent security assessment.
+
+### Boundary and verification
+
+Run `pnpm test`, `pnpm lint` and `git diff --check` from the root.
+Web typechecking disables incremental output to keep validation read-only.
+Runtime harness: N/A; validation adds no process or network boundary.
+Rollback the shared package, workspace/test/typecheck wiring, lockfile changes
+and these Phase 1 notes together; preserve all Phase 0 behavior and decisions.
+Graph semantics, REST behavior and WebSocket routing remain outside this unit.
+
+## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later
 product contracts. The original product and UX inputs under `doc/` are preserved.

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "vitest run && node --experimental-strip-types --test tests/phase-0-compose.test.ts",
-    "typecheck": "pnpm --filter @k6flow/web typecheck",
+    "typecheck": "pnpm --filter @k6flow/shared typecheck && pnpm --filter @k6flow/web typecheck --incremental false",
     "lint": "pnpm typecheck && cd apps/orchestrator && go vet ./..."
   },
   "devDependencies": {
