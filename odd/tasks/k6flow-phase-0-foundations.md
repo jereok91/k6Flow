@@ -28,8 +28,8 @@ Establish a runnable Next.js/Go/pnpm/PostgreSQL base with Compose, CI and operat
 - [x] Implement CI and English startup/architecture/decision docs.
 - [x] Observe deployment TDD and independently verify local runtime acceptance.
 - [x] Complete final spot check: eight tests passed with zero skips/failures.
-- [ ] Complete local work-unit commit and native candidate review.
-- **Status:** in progress; local verification complete, commit/native review pending.
+- [x] Complete local work-unit commit and native candidate review.
+- **Status:** implementation, local verification and acknowledged native review complete; awaiting human Phase 0 approval.
 - **Route:** single delegated writer (multi-file trigger), independent verifier after native assessment unavailable/high; parent owns tracking, commits and native lifecycle.
 - **Source surfaces:** `.dockerignore`, `.github/workflows/ci.yml`, `README.md`, `apps/orchestrator/Dockerfile`, `apps/web/Dockerfile`, `apps/web/next.config.ts`, `apps/web/package.json`, `deploy/docker-compose.yml`, `deploy/docker-compose.dev.yml`, `docs/ARQUITECTURA.md`, `docs/DECISIONES.md`, `package.json`, `pnpm-lock.yaml`, `scripts/check-phase-0-compose.sh`, `tests/phase-0-compose.test.ts`.
 - **TDD:** four initial deployment tests failed on missing files; final eight tests passed (two web/six deployment). Narrowed overbroad generated-server exclusion after actual runtime build failure; three writer harness runs passed afterward.
@@ -40,10 +40,14 @@ Establish a runnable Next.js/Go/pnpm/PostgreSQL base with Compose, CI and operat
 - **Old resources:** `7ac02bc2301c`, `ebf0c52bde15` exited/unlabeled/no mounts; ownership unproven, left untouched.
 - **Assessment:** untracked declaration prevented native risk plan; treated high/unassessable and ran independent verification. Verification grants no native approval.
 - **Rollback:** remove/revert only this unit's source surfaces together; retain human env, original docs, tracking and generated outputs.
-- **Commit/native review:** pending.
+- **Commit:** `2e39d7bc1d3ff0a820f91e585b15ad9624e225c6` (`feat(platform): add verified Compose deployment and CI foundations`), 17 files, 641 additions/80 deletions including tracking and human-staged dummy env example.
+- **Review:** `review-c364a7270a48f7df`, four native reviewers admitted, approved and exactly acknowledged; authority burned. Target `sha256:5b9365b2e45fbecdce67e74b184f85c1a23bdae91f357cd3c87a8003e1bdf7ad`; consumed revision `sha256:ead38597c9c67407dbdeb1af539b6ee1aae93be040357daf7c30e1caec5fc86a`. Native count: 721 changed lines, high tier; no correction opened.
+- **Bound trees:** base `95f158ccf80b9ae0b71c9050c10f30b6f2e3c0aa`, candidate `9e1b4c6c368d1c64fb452cf0577f8574f7ece127`, matching the authorized committed range and 17 paths.
+- **Resolved inspection blocker:** intended-untracked selection for `.codegraph/.gitignore`; exclusion submission lost the explicit base and widened to 30 paths, so no widened START occurred. Read-only scout `mup9cj7a-a-cniy` confirmed fresh inspect clears retained selection. With explicit human approval, added `/.codegraph/` only to repository-local `.git/info/exclude`; fresh inspect then preserved the exact range and permitted review. Tracked `.gitignore`, global configuration and review authority were not repaired/reset.
+- **Nonblocking review advisories:** `R2-001` at `README.md:71`, `R2-002` at `tests/phase-0-compose.test.ts:42`, `R3-stopped-resource-collision` at `scripts/check-phase-0-compose.sh:62`, `R4-cleanup-timeout` at `scripts/check-phase-0-compose.sh:21-47`. Separate later work; none reopens this review.
 
 ## Delivery strategy
-User chose `stacked-to-main` for future review slices, then explicitly accepted one coherent size exception: 578 authored changed lines plus 25 generated lockfile lines, 603 total. Tests depend on Compose/Docker/CI/harness together; do not split into broken intermediate states or rewrite/minify to reduce lines. Parent task document excluded from worker count. No publishing authorized. Slice base `3668187` to deployment commit (identity pending).
+User chose `stacked-to-main` for future review slices, then explicitly accepted one coherent size exception: 578 authored changed lines plus 25 generated lockfile lines, 603 total. Tests depend on Compose/Docker/CI/harness together; do not split into broken intermediate states or rewrite/minify to reduce lines. Parent task document excluded from worker count. No publishing authorized. Slice: `36681874636e1d2c5c0c613d53c939d02d257c20` to `2e39d7bc1d3ff0a820f91e585b15ad9624e225c6`.
 
 ## Next step
-Reconcile exact candidate paths and human env policy disposition, commit authorized coherent unit, assess/review against recorded base, then stop for human Phase 0 review. All local checks passed; hosted CI and clean-cache builds remain unverified.
+Stop for human Phase 0 review. Phase 1 contracts require explicit approval; no push, PR or merge authorized. All recorded local checks passed and deployment native review is acknowledged; hosted CI and clean-cache builds remain unverified. Post-review task-document progress is bookkeeping, distinct from the immutable deployment candidate.
