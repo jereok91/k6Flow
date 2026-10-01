@@ -172,6 +172,26 @@ the composition modules/tests, additive exports, the composition guide section
 and these notes; preserve reviewed contracts, parent tracking and unrelated
 surfaces.
 
+## Phase 1 — runs/health REST contract declarations (K6F1-04)
+
+Declare strict version 1 runs REST request/response schemas, a pure idempotency
+derivation and a hand-written OpenAPI 3.1 document without handlers or runtime.
+See [the runs guide](api/runs.md).
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Async lifecycle with idempotent start | `POST /api/runs` answers `202` + runId; an identical `Idempotency-Key` and payload replays `200` with the existing runId while an absent key always creates; stop answers `202`, unknown runId `404`, premature summary `409`. Dedupe is a pure derivation over caller-supplied records, never a store. |
+| Exact five-status closed set | `pending`/`running`/`finished`/`failed`/`stopped`; `finished` means normal completion including threshold evaluation (only that final summary carries `thresholdsPassed`), `failed` is reserved for engine/infra errors. |
+| Opaque compiled script with REST override | The payload carries an already compiled script string, never a graph, parsed k6 options or evaluated thresholds; REST `vus`/`durationMs` always override script-embedded options; `cpuMillis`/`memoryMiB` are required positive safe integers; attachments are opaque ids without byte upload. |
+| Static bearer auth and explicit version | Every `/api/*` route requires `Authorization: Bearer <token>` (`401` otherwise) and all API bodies carry the literal `version: 1`; the public unversioned `/healthz` remains process-only and untouched. |
+
+Declaration only: no handlers, servers, idempotency store, schedulers or threshold
+evaluation; the cumulative final summary stays separate from the K6F1-05 windowed
+WebSocket topic. Runtime harness: N/A; pure declarations add no process/network
+boundary. Rollback only the runs-rest module/tests, additive index exports,
+`api/runs.md`, `api/openapi.yaml` and these notes; preserve reviewed contracts,
+parent tracking and unrelated surfaces.
+
 ## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later
