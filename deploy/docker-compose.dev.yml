@@ -1,0 +1,13 @@
+services:
+  web:
+    build:
+      target: development
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ../apps/web/app:/workspace/apps/web/app:ro
+  orchestrator:
+    build:
+      target: development
+    volumes:
+      - ../apps/orchestrator:/src:ro

@@ -4,12 +4,15 @@
   "private": true,
   "packageManager": "pnpm@10.32.1",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.22.0"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run && node --experimental-strip-types --test tests/phase-0-compose.test.ts",
+    "typecheck": "pnpm --filter @k6flow/web typecheck",
+    "lint": "pnpm typecheck && cd apps/orchestrator && go vet ./..."
   },
   "devDependencies": {
-    "vitest": "4.0.18"
+    "vitest": "4.0.18",
+    "yaml": "2.8.2"
   }
 }

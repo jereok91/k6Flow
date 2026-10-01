@@ -1,69 +1,49 @@
 # K6Flow — Phase 0 Foundations
 
-## Objective
-Build only the Phase 0 foundations for the K6Flow monorepo. Preserve the initialization documents and defer every later phase until the user reviews this phase.
+## Objective and scope
+Establish a runnable Next.js/Go/pnpm/PostgreSQL base with Compose, CI and operating documentation. Stop for human Phase 0 review before contracts or product implementation. Authority: `doc/ptomt_init/infoProyect.md`, `doc/ptomt_init/promot-init.md`; later UI follows `doc/UX_UI/`.
 
-## Problem and rationale
-The repository currently contains the product brief and visual references but no application scaffold, service code, database wiring, CI, or architecture decision log. Establish a runnable and testable base without inventing unresolved product choices or pretending later functionality exists.
+## Constraints
+- Preserve user initialization documents, UX assets, `.gitignore` including `.atl/`, and generated outputs.
+- Branch `feat/k6flow-phase-0-foundations`; local commits authorized, no push/PR/merge.
+- Strict TDD explicitly selected by user; runners `pnpm test`, `go test ./...`. Observe RED then GREEN for new behavior.
+- Generated-only approved surfaces: `node_modules/**`, `apps/web/node_modules/**`, `apps/web/.next/**`, `apps/web/next-env.d.ts`, `apps/web/tsconfig.tsbuildinfo`, `apps/orchestrator/server`; exclude from commits along with `.codegraph/`.
+- Human owns `deploy/.env.example`: agent reads/writes denied by policy; human created it. Only existence check and authorized Compose consumption occurred. Do not bypass policy to inspect/stage it.
+- Defer auth, contracts, retention, WebSocket routing, recorder choice, Docker Engine access, proxy and product views. Permanent services only web, internal Go and PostgreSQL.
 
-## Scope
-- Monorepo structure for Next.js/React/TypeScript web and Go orchestrator; recorder remains on-demand and is not a permanent Compose service.
-- pnpm workspace (recommended explicitly by the brief) and baseline lint/test/build checks.
-- Minimal web and orchestrator services with health checks; PostgreSQL is the selected database.
-- Minimal Compose/development Compose wiring, health checks, and secret-free `.env.example`.
-- Basic CI and architecture/decision documentation.
-- UX/UI is an end-to-end constraint for later UI phases: follow `doc/UX_UI/` references, including the dark, dense engineering visual language. Phase 0 does not implement the dashboard/editor/run/recording product views.
+## Tasks
+### K6F0-01 — Workspace and service skeletons
+- [x] Create minimal web/Go services and workspace, tested health handlers and unchanged root ignore file.
+- **Commits:** `0b27fe7`, `1746e08`.
+- **TDD:** web RED 501/missing JSON, Go RED 404 versus 200/405; GREEN web tests and Go subtests, including repeat probes and invalid paths/methods.
+- **Checks:** writer install/test/web build/Go test/build passed; install script warnings for esbuild/sharp. Independent web/Go tests passed and matched handlers.
+- **Runtime:** N/A before Compose; direct handler tests; container acceptance delegated to K6F0-02.
+- **Review:** approved and acknowledged, authority burned under `review-d12c0c5df9607853`; human authorized docs added in `3668187` within complete review range.
+- **Reviewed base for next unit:** `36681874636e1d2c5c0c613d53c939d02d257c20`.
+- **Historical review failures:** created no authority; correctly scoped committed-range inspect preceded success. Underlying projection-drift cause unproven.
+- **Route/rollback:** delegated multi-file writer; remove only skeleton/workspace behavior, preserve user docs and generated outputs.
 
-## Out of scope
-- Graph contracts, API/OpenAPI, authentication, history/retention policy, K6 execution, metrics dashboard, editor, recorder, reverse proxy/HTTPS deployment, and Docker Engine access.
-- Changes to the user-provided `doc/ptomt_init/promot-init.md`, `doc/ptomt_init/infoProyect.md`, `.gitignore` content, or UX reference assets. The root `.gitignore` may be committed unchanged as separately authorized.
-- Push, pull request, or merge.
+### K6F0-02 — Deployment, CI and documentation
+- [x] Implement production/dev Compose, Dockerfiles, process health checks and internal-only Go/DB.
+- [x] Implement CI and English startup/architecture/decision docs.
+- [x] Observe deployment TDD and independently verify local runtime acceptance.
+- [x] Complete final spot check: eight tests passed with zero skips/failures.
+- [ ] Complete local work-unit commit and native candidate review.
+- **Status:** in progress; local verification complete, commit/native review pending.
+- **Route:** single delegated writer (multi-file trigger), independent verifier after native assessment unavailable/high; parent owns tracking, commits and native lifecycle.
+- **Source surfaces:** `.dockerignore`, `.github/workflows/ci.yml`, `README.md`, `apps/orchestrator/Dockerfile`, `apps/web/Dockerfile`, `apps/web/next.config.ts`, `apps/web/package.json`, `deploy/docker-compose.yml`, `deploy/docker-compose.dev.yml`, `docs/ARQUITECTURA.md`, `docs/DECISIONES.md`, `package.json`, `pnpm-lock.yaml`, `scripts/check-phase-0-compose.sh`, `tests/phase-0-compose.test.ts`.
+- **TDD:** four initial deployment tests failed on missing files; final eight tests passed (two web/six deployment). Narrowed overbroad generated-server exclusion after actual runtime build failure; three writer harness runs passed afterward.
+- **Writer checks:** install, tests, lint/typecheck/Go vet, web build, Go test/vet/build, both Compose configs, diff whitespace and runtime harness passed.
+- **Independent verifier:** `mup7qz42-5-1bm8` passed `pnpm test`, `pnpm lint`, Go tests, both Compose configs, `git diff --check` and `bash scripts/check-phase-0-compose.sh`. Both three-service stacks healthy, external web/internal Go probes passed, no published Go/DB ports; disposable project resources cleaned. Source checks found no socket/privileged/K6/recorder or severe blocker.
+- **Final spot check:** `mup8615z-7-gpkk` passed `pnpm test`: two web plus six deployment tests, zero failures/skips. Non-blocking MODULE_TYPELESS_PACKAGE_JSON warning. No source changes.
+- **Limitations:** hosted GitHub CI unexecuted; builds used cache, clean-cache reproducibility untested. Tests approximate Docker ignore and shallow dev merge; actual runtime supplements them. README cleanup 60-second claim omits additional image-operation budgets (low discrepancy).
+- **Old resources:** `7ac02bc2301c`, `ebf0c52bde15` exited/unlabeled/no mounts; ownership unproven, left untouched.
+- **Assessment:** untracked declaration prevented native risk plan; treated high/unassessable and ran independent verification. Verification grants no native approval.
+- **Rollback:** remove/revert only this unit's source surfaces together; retain human env, original docs, tracking and generated outputs.
+- **Commit/native review:** pending.
 
-## Constraints and resolved choices
-- Architecture authority: `doc/ptomt_init/infoProyect.md` and `doc/ptomt_init/promot-init.md`; the latter's final note explicitly selects PostgreSQL.
-- Technologies: Next.js, React, TypeScript, Go, PostgreSQL, Docker Compose, and pnpm workspaces as recommended by the brief. Do not add product frameworks beyond what Phase 0 needs.
-- Strict TDD: **enabled by explicit user choice in this session**. Source: direct user selection. Exact test runners: `pnpm test` and `go test ./...`; record observed RED before implementation and GREEN afterward for behavior-bearing changes.
-- Work branch: `feat/k6flow-phase-0-foundations` (created before project writes).
-- Local work-unit commits: explicitly authorized; no push/PR/merge authorization.
-- `.gitignore`: user explicitly authorized adding the existing root file unchanged to the next work-unit commit; preserve its current `.atl/` rule and do not add patterns.
-- Generated-output scope: the user explicitly approved tool-generated `node_modules/**`, `apps/web/node_modules/**`, `apps/web/.next/**`, `apps/web/next-env.d.ts`, `apps/web/tsconfig.tsbuildinfo`, and `apps/orchestrator/server`. These outputs must remain excluded from commits. This does not expand manually authored edit surfaces.
-- Existing worktree state to preserve: modified `doc/ptomt_init/promot-init.md`; untracked `.gitignore`, `doc/ptomt_init/infoProyect.md`, and generated `.codegraph/` index.
-- No unresolved choice blocks Phase 0. Ask before implementing the deferred choices in their relevant phase: authentication/roles, retention, WebSocket routing, Playwright vs Puppeteer, Docker socket mitigation, and reverse proxy.
+## Delivery strategy
+User chose `stacked-to-main` for future review slices, then explicitly accepted one coherent size exception: 578 authored changed lines plus 25 generated lockfile lines, 603 total. Tests depend on Compose/Docker/CI/harness together; do not split into broken intermediate states or rewrite/minify to reduce lines. Parent task document excluded from worker count. No publishing authorized. Slice base `3668187` to deployment commit (identity pending).
 
-## Task checklist
-
-### K6F0-01 — Establish the web and Go workspace skeleton
-- [x] Create the root JS workspace and minimal Next.js web app.
-- [x] Create the Go orchestrator skeleton and tested `/healthz` behavior.
-- [x] Add behavior-level tests before implementation and capture RED/GREEN evidence under strict TDD.
-- [x] Keep the web service intentionally minimal; do not fabricate operational metrics or unfinished product interactions.
-- [ ] Track the existing root `.gitignore` unchanged, preserving `.atl/`; user explicitly authorized this after noting it was not added.
-- **Acceptance:** `pnpm test` and `go test ./...` pass; both service skeletons are independently buildable; no later-phase behavior is implied.
-- **TDD evidence:** RED — JS returned 501 instead of 200 and omitted JSON; Go returned 404 instead of readiness 200 and method-rejection 405. GREEN — two JS tests and all Go tests/subtests passed. Triangulation covers repeated probes, unknown routes, health subpaths, and unsupported methods.
-- **Verification:** `pnpm install` passed (esbuild/sharp build-script warnings); `pnpm test` passed (2 tests); `pnpm --filter @k6flow/web build` passed; `cd apps/orchestrator && go test ./...` passed; `cd apps/orchestrator && go build ./...` passed.
-- **Runtime harness:** N/A for this source-only skeleton before Compose exists; handler behavior is tested directly, and container/runtime health integration is K6F0-02.
-- **Generated artifact disposition:** `apps/orchestrator/server` was created by `go build`; user approved retaining it uncommitted. Dependency/build outputs likewise remain uncommitted.
-- **Rollback boundary:** remove the K6F0-01 web/Go workspace files and root workspace manifests/lockfile; do not touch initialization docs or existing user files.
-- **Route:** delegated direct writer (multi-file source change); parent owns task document and commits.
-- **Verification evidence:** writer-reported TDD, tests, and builds passed. Independent verifier reran `pnpm test` (2 passed) and `cd apps/orchestrator && go test ./...` (passed, cached) and confirmed assertions match the committed handlers. Native `assess` returned `Review controller assess does not accept intendedUntracked`; `inspect` cannot resolve the current stop with the tool's required fields (`exclude` rejects the supplied empty array; `select` requires at least one eligible path). No native assessment plan or review authority was created.
-- **Commit:** `0b27fe7` (`feat(platform): add minimal web and Go health skeleton`); follow-up `.gitignore` tracking commit pending.
-
-### K6F0-02 — Wire Compose, CI, and Phase 0 documentation
-- [ ] Add web, orchestrator, and PostgreSQL Compose services with health checks; keep the orchestrator internal-only and K6/recorder out of permanent services.
-- [ ] Add development Compose, Dockerfiles as needed, and a secret-free `.env.example`.
-- [ ] Add baseline CI and architecture/decision documentation without altering initialization/reference assets.
-- [ ] Validate the documented local startup path and health checks.
-- **Acceptance:** documented Compose startup brings up healthy web/orchestrator/PostgreSQL; orchestrator has no published host port; no K6/recorder permanent services; CI commands and tests pass; `.env.example` has no real secret values.
-- **Route:** delegated direct writer (multi-file source change); parent owns task document and commits.
-- **Verification evidence:** pending.
-- **Commit:** pending.
-
-## Delivery and review workload
-- Strategy: `ask-on-risk` (ODD default); assess the prospective work-unit commit under native RDD before delivery reporting.
-- Forecast: approximately 250–400 authored changed lines across Phase 0, excluding generated files; refine before each commit. If the forecast exceeds about 400, pause and resolve the chain strategy before committing.
-- Phase gate: stop after Phase 0 and request user review before any Phase 1 contract work.
-
-## Progress
-- Exploration completed: no application scaffold exists; UX references and architecture/phase constraints are mapped.
-- Current status: K6F0-01 code is committed as `0b27fe7`; writer and independent test verification passed. The user explicitly authorized tracking the root `.gitignore` unchanged; its separate local config commit is pending. Approved generated outputs, including `apps/orchestrator/server`, remain uncommitted. OpenCode CLI is available with models, but the native assessment/inspect failure occurs at argument validation before model selection; another model cannot substitute for native review.
-- Next step: commit `.gitignore` unchanged as authorized, then resolve native assess/inspect availability before marking K6F0-01 complete or beginning K6F0-02.
+## Next step
+Reconcile exact candidate paths and human env policy disposition, commit authorized coherent unit, assess/review against recorded base, then stop for human Phase 0 review. All local checks passed; hosted CI and clean-cache builds remain unverified.
