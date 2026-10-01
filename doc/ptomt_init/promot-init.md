@@ -215,3 +215,5 @@ Trabaja **una fase a la vez** y detente al final de cada una para que yo revise 
 - Al terminar cada fase: resume lo hecho, lo que falta, riesgos detectados y qué necesitas de mí para la siguiente.
 
 **Empieza ahora por la Fase 0.** Antes de escribir código, confírmame que entendiste la arquitectura con un resumen breve en tus propias palabras y hazme las preguntas que necesites sobre las decisiones pendientes de la sección 9.
+
+- NOTA: Final la base de datos que debo usar es PostgreSQL
