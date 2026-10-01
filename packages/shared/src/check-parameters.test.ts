@@ -99,6 +99,13 @@ describe("standalone response checks", () => {
         path: [], predicate: { operator: "deep-eq", expected } }).success).toBe(false);
     });
 
+  it.each([["X-Trace", true], ["Content-Type", true],
+    ["bad:name", false], ["X-Trace\n", false]])(
+    "validates header token %j without method-name restriction", (header, success) => {
+      expect(shared.responseCheckSchema.safeParse({ name: "header", kind: "header",
+        header, predicate: { operator: "exists" } }).success).toBe(success);
+    });
+
   it("requires header identity and rejects extra JSON contract fields", () => {
     for (const header of [undefined, "", "bad name"]) {
       expect(shared.responseCheckSchema.safeParse({ name: "header", kind: "header",

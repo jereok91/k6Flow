@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { authJsonPathSegmentSchema } from "./auth-parameters";
-import { httpMethodSchema } from "./http-parameters";
+import { httpMethodSchema as checkHeaderNameSchema } from "./http-parameters";
 import { jsonValueSchema, producerOutputReferenceSchema } from "./parameter-values";
 import { versionEnvelopeSchema } from "./version";
 
@@ -24,7 +24,8 @@ export const responseCheckSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("duration-ms"), ...numeric }),
   z.strictObject({ kind: z.literal("body-text"), name, predicate: textPredicateSchema }),
   z.strictObject({ kind: z.literal("header"), name,
-    header: httpMethodSchema, predicate: textPredicateSchema }),
+    // Reuse HTTP token syntax, not a method-name enumeration.
+    header: checkHeaderNameSchema, predicate: textPredicateSchema }),
   z.strictObject({ kind: z.literal("json-path"), name,
     path: z.array(checkJsonPathSegmentSchema), predicate: jsonPredicateSchema }),
 ]);
