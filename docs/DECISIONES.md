@@ -31,6 +31,23 @@ Rollback the shared package, workspace/test/typecheck wiring, lockfile changes
 and these Phase 1 notes together; preserve all Phase 0 behavior and decisions.
 Graph semantics, REST behavior and WebSocket routing remain outside this unit.
 
+## Phase 1 — graph structure and reference invariants (K6F1-02)
+
+Use separate draft-structure and execution-topology validators; neither establishes
+full execution readiness. See [the graph contract](api/graph.md) for the shape.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Strict version 1 structural objects | Required identified nodes, directed connections and explicit producer/output references; malformed fields, duplicate IDs/connections and dangling identities fail even in drafts. |
+| Retain unfinished draft topology | Empty/disconnected drafts and references to existing self/later producers are storable; traversal constraints apply only at the execution-topology boundary. |
+| One linear path per VU | Human-approved no-branch/no-cycle contract; iterative connection traversal rejects forks, merges and disconnected components without relying on array order. |
+| Earlier-producer references | Execution topology requires producer rank before consumer rank; output strings are opaque names, not proof of output support. |
+| Structural-only exports | `graphDraftStructureSchema` and `graphExecutionTopologySchema` explicitly avoid a broad executable schema; parameters, load and output semantics remain K6F1-03. |
+
+Runtime harness: N/A; these pure validators introduce no process/network boundary.
+Rollback only `packages/shared/src/graph.ts`, its tests and graph exports,
+`docs/api/graph.md` and this decision section; preserve the foundation and tracking.
+
 ## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later
