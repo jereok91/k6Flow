@@ -48,6 +48,26 @@ Runtime harness: N/A; these pure validators introduce no process/network boundar
 Rollback only `packages/shared/src/graph.ts`, its tests and graph exports,
 `docs/api/graph.md` and this decision section; preserve the foundation and tracking.
 
+## Phase 1 — standalone values and HTTP parameters (K6F1-03a)
+
+Use additive standalone schemas and inferred types; preserve graph behavior.
+See [the HTTP wire contract](api/graph.md#standalone-http-parameters-k6f1-03a).
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Human-selected whole literal/reference values | No interpolation or segments; references cannot add a URL path or token prefix. Expected string/JSON kind belongs to the consuming field, not an unchecked reference annotation. |
+| Strict `kind` tags and nested `reference` identity | Engineering wire discriminators; reuse the graph identity schema without changing graph objects or claiming producer/output validation. |
+| None, text and structured JSON bodies | Human-approved initial formats; JSON references replace the whole value. Nested reference-looking literal objects are data, not expressions. Forms/multipart/files remain deferred. |
+| Finite plain JSON data | Reject executable/native values, cycles, accessors and lossy non-JSON properties; validation neither invokes getters nor performs interpolation. |
+| Optional ordered header/query arrays and body | Preserve absence, duplicates and input order without defaults/transforms. Method accepts HTTP token syntax including extension methods; runtime encoding and method semantics are not implemented. |
+
+K6F1-03f owns parameter/graph reference reconciliation and output compatibility
+once producer contracts exist. This unit provides no auth/extraction/check/load
+contracts, transport, URL security policy or execution-readiness guarantee.
+Runtime harness: N/A; validation-only changes add no process/network boundary.
+Rollback only standalone values/HTTP modules and tests, their additive exports,
+the HTTP guide section and these decision notes; keep existing graph contracts.
+
 ## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later

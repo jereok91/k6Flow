@@ -50,3 +50,52 @@ retained while editing. Missing producers and dangling endpoints still fail;
 omit an unfinished reference/connection rather than store a missing identity.
 Repeated producer/output references are permitted; binding and output semantics
 are deferred. Validation issues have stable paths/order for identical input.
+
+## Standalone HTTP parameters (K6F1-03a)
+
+`httpParametersSchema` / `HttpParameters` validate independent parameters, not
+nodes or executable graphs. Existing structural graph schemas remain unchanged.
+
+```ts
+const parameters = {
+  method: "GET",
+  url: { kind: "literal", value: "https://example.test/${path}" },
+  headers: [{ name: "Authorization", value: { kind: "reference",
+    reference: { producerNodeId: "auth", output: "token" } } }],
+  query: [{ name: "q", value: { kind: "literal", value: "search" } }],
+  body: { kind: "none" },
+};
+```
+
+| Field / export | Wire contract |
+|----------------|---------------|
+| `method` / `httpMethodSchema` | Required nonempty HTTP token string; extension methods and original case retained. No method/body compatibility rule. |
+| `url` | Required `stringParameterValueSchema`: whole string literal or reference. No URL parsing, allowlist or SSRF guarantee. |
+| `headers`, `query` / `httpNamedValueSchema` | Optional ordered arrays of strict `{ name, value }` entries; nonempty string names, whole string values. Duplicates retained; no name normalization, header syntax or encoding policy. |
+| `body` / `httpBodySchema` | Optional strict `{ kind: "none" }`, `{ kind: "text", value: <string parameter> }` or `{ kind: "json", value: <JSON parameter> }`. Omission remains omission, not a default. |
+
+A parameter is exactly `{ kind: "literal", value: ... }` or
+`{ kind: "reference", reference: { producerNodeId, output } }`.
+`producerOutputReferenceSchema` reuses the graph's exact nonblank identity shape.
+Unknown fields fail in all contract objects; values are not coerced or trimmed.
+The consumer defines the expected kind: URL/header/query/text require a string;
+JSON requires `JsonValue`. References carry identities, not a claimed output type.
+
+`jsonParameterValueSchema` accepts a whole JSON literal or whole JSON reference.
+`jsonValueSchema` accepts null, booleans, finite numbers, strings, dense arrays
+and plain data objects (including null-prototype records). Cycles, undefined,
+functions, accessors, symbol/hidden properties and native/class instances fail.
+JSON object keys are data, not strict contract fields. Literal JSON objects that
+look like reference tags remain ordinary data, never nested dynamic bindings.
+
+Every reference replaces the **entire consuming value**. Literal `${path}`,
+`{{token}}` and `Bearer ${token}` remain exact text. There are no segments,
+selectors, templates, scripts or secret bindings; composing URL paths or adding
+`Bearer ` to a referenced token is unavailable. A producer would need to supply
+the whole required value; supported producer contracts are not established here.
+
+K6F1-03f must reconcile parameter-embedded references with `node.references` and
+validate producer existence, precedence, supported outputs and type compatibility.
+Standalone validation proves none of those. No HTTP execution, serialization,
+query/header encoding, content-type insertion or transport behavior is implemented.
+Forms, multipart/files, authentication, extraction, checks and load remain deferred.
