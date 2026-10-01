@@ -1,0 +1,80 @@
+openapi: 3.1.0
+info: { title: K6Flow runs REST contract, version: "1.0.0", description: "Declarations only: mirrors packages/shared Zod schemas; no handlers or runtime." }
+security: [{ bearerAuth: [] }]
+paths:
+  /api/runs:
+    post:
+      operationId: createRun
+      description: "202 accepted with runId; identical Idempotency-Key and payload replays 200 with the existing runId; absent key always creates"
+      parameters: [{ in: header, name: Idempotency-Key, required: false, schema: { type: string, minLength: 1 } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RunStartConfig" } } } }
+      responses:
+        "202": { description: "202 new run accepted asynchronously", content: { application/json: { schema: { $ref: "#/components/schemas/RunReference" } } } }
+        "200": { description: "200 idempotent replay with existing runId", content: { application/json: { schema: { $ref: "#/components/schemas/RunReference" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/runs/{runId}:
+    get:
+      operationId: getRun
+      parameters: [{ in: path, name: runId, required: true, schema: { type: string, minLength: 1 } }]
+      responses:
+        "200": { description: "200 current run state", content: { application/json: { schema: { $ref: "#/components/schemas/RunState" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/runs/{runId}/stop:
+    post:
+      operationId: stopRun
+      parameters: [{ in: path, name: runId, required: true, schema: { type: string, minLength: 1 } }]
+      responses:
+        "202": { description: "202 stop accepted asynchronously", content: { application/json: { schema: { $ref: "#/components/schemas/RunReference" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/runs/{runId}/summary:
+    get:
+      operationId: getRunSummary
+      parameters: [{ in: path, name: runId, required: true, schema: { type: string, minLength: 1 } }]
+      responses:
+        "200": { description: "200 cumulative final summary", content: { application/json: { schema: { $ref: "#/components/schemas/RunSummary" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/SummaryNotReady" }
+  /healthz:
+    get:
+      operationId: healthz
+      security: []
+      responses:
+        "200": { description: "200 process alive; public and unversioned, no bearer auth", content: { application/json: { schema: { type: object, required: [status], properties: { status: { const: ok } } } } } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+  responses:
+    Unauthorized: { description: "401 missing or invalid Authorization bearer token", content: { application/json: { schema: { $ref: "#/components/schemas/RunError" } } } }
+    NotFound: { description: "404 unknown runId", content: { application/json: { schema: { $ref: "#/components/schemas/RunError" } } } }
+    SummaryNotReady: { description: "409 premature summary: run not in a terminal state", content: { application/json: { schema: { $ref: "#/components/schemas/RunError" } } } }
+  schemas:
+    RunStatus: { type: string, enum: [pending, running, finished, failed, stopped] }
+    RunReference: { type: object, additionalProperties: false, required: [version, runId], properties: { version: { const: 1 }, runId: { type: string, minLength: 1 } } }
+    RunState: { type: object, additionalProperties: false, required: [version, runId, status], properties: { version: { const: 1 }, runId: { type: string, minLength: 1 }, status: { $ref: "#/components/schemas/RunStatus" } } }
+    RunAttachment: { type: object, additionalProperties: false, required: [id], properties: { id: { type: string, minLength: 1 } } }
+    RunStartConfig:
+      type: object
+      additionalProperties: false
+      required: [version, script, vus, durationMs, cpuMillis, memoryMiB]
+      properties: { version: { const: 1 }, script: { type: string, minLength: 1, description: "Opaque compiled script; REST vus/durationMs always override script-embedded options" },
+        vus: { type: integer, minimum: 1, maximum: 9007199254740991 }, durationMs: { type: integer, minimum: 1, maximum: 9007199254740991 },
+        cpuMillis: { type: integer, minimum: 1, maximum: 9007199254740991 }, memoryMiB: { type: integer, minimum: 1, maximum: 9007199254740991 },
+        attachments: { type: array, items: { $ref: "#/components/schemas/RunAttachment" } } }
+    RunTotals: { type: object, additionalProperties: false, required: [requests, errors, failedChecks], properties: { requests: { type: integer, minimum: 0, maximum: 9007199254740991 }, errors: { type: integer, minimum: 0, maximum: 9007199254740991 }, failedChecks: { type: integer, minimum: 0, maximum: 9007199254740991 } } }
+    RunLatency: { type: object, additionalProperties: false, required: [avgMs, p90Ms, p95Ms, p99Ms], properties: { avgMs: { type: number, minimum: 0 }, p90Ms: { type: number, minimum: 0 }, p95Ms: { type: number, minimum: 0 }, p99Ms: { type: number, minimum: 0 } } }
+    RunSummary:
+      type: object
+      additionalProperties: false
+      required: [version, runId, totals, latency, status]
+      properties: { version: { const: 1 }, runId: { type: string, minLength: 1 },
+        totals: { $ref: "#/components/schemas/RunTotals" }, latency: { $ref: "#/components/schemas/RunLatency" },
+        status: { enum: [finished, failed, stopped] }, thresholdsPassed: { type: boolean, description: "Present only when status is finished" } }
+      allOf:
+        - if: { properties: { status: { const: finished } }, required: [status] }
+          then: { required: [thresholdsPassed] }
+        - if: { properties: { status: { enum: [failed, stopped] } }, required: [status] }
+          then: { not: { required: [thresholdsPassed] } }
+    RunError: { type: object, additionalProperties: false, required: [version, code, message], properties: { version: { const: 1 }, code: { type: string, enum: [unauthorized, run-not-found, summary-not-terminal] }, message: { type: string, minLength: 1 } } }

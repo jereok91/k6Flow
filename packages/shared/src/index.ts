@@ -46,3 +46,13 @@ export type {
 } from "./load-parameters";
 export { graphDraftCompositionSchema, graphReadyCompositionSchema } from "./graph-composition";
 export type { GraphDraftComposition, GraphReadyComposition } from "./graph-composition";
+export {
+  runStatusSchema, runTerminalStatusSchema, idempotencyKeySchema, runStartConfigSchema,
+  runReferenceSchema, runStateSchema, runTotalsSchema, runLatencySchema, runSummarySchema,
+  runErrorCodeSchema, runErrorCatalogSchema, runErrorResponseSchema, deriveRunStartOutcome,
+} from "./runs-rest";
+export type {
+  RunStatus, RunTerminalStatus, RunStartConfig, RunReference, RunState, RunTotals,
+  RunLatency, RunSummary, RunErrorCode, RunErrorCatalog, RunErrorResponse,
+  RunStartDedupeRecord, RunStartDedupeOutcome,
+} from "./runs-rest";
