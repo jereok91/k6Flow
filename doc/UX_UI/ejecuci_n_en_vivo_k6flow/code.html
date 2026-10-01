@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="es"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"on-error":"#690005","on-tertiary-fixed":"#23005c","outline-variant":"#4a4455","primary-container":"#7c3aed","on-surface-variant":"#ccc3d8","on-tertiary":"#3c0091","background":"#10141a","on-secondary-container":"#00424e","primary-fixed":"#eaddff","on-secondary-fixed":"#001f26","surface-container-high":"#262a31","surface-container-lowest":"#0a0e14","tertiary-fixed-dim":"#d0bcff","error":"#ffb4ab","surface-dim":"#10141a","on-tertiary-fixed-variant":"#5516be","surface-container":"#1c2026","surface-container-highest":"#31353c","tertiary":"#d0bcff","on-tertiary-container":"#ece1ff","surface-container-low":"#181c22","on-secondary-fixed-variant":"#004e5c","on-surface":"#dfe2eb","tertiary-container":"#7645e0","primary-fixed-dim":"#d2bbff","on-background":"#dfe2eb","secondary":"#4cd7f6","on-secondary":"#003640","primary":"#d2bbff","surface-variant":"#31353c","on-error-container":"#ffdad6","on-primary-container":"#ede0ff","on-primary-fixed":"#25005a","error-container":"#93000a","surface-bright":"#353940","outline":"#958da1","inverse-primary":"#732ee4","surface-tint":"#d2bbff","secondary-container":"#03b5d3","on-primary":"#3f008e","secondary-fixed":"#acedff","on-primary-fixed-variant":"#5a00c6","inverse-on-surface":"#2d3137","secondary-fixed-dim":"#4cd7f6","inverse-surface":"#dfe2eb","tertiary-fixed":"#e9ddff","surface":"#10141a"},borderRadius:{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},spacing:{"space-lg":"1rem","gutter-desktop":"1.25rem","margin-tablet":"1.5rem","space-xs":"0.25rem","space-md":"0.75rem","margin-desktop":"2rem","space-sm":"0.5rem","margin":"1rem","space-xl":"1.5rem","gutter":"1rem"},fontFamily:{"label-code-sm":["JetBrains Mono"],"body-sm":["Geist"],"label-code-lg":["JetBrains Mono"],"metric-huge":["JetBrains Mono"],"label-code-md":["JetBrains Mono"],"display":["Geist"],"body-lg":["Geist"],"headline-sm":["Geist"],"headline-lg":["Geist"],"headline-md":["Geist"],"body-md":["Geist"],"display-mobile":["Geist"]},fontSize:{"label-code-sm":["11px",{"lineHeight":"16px","letterSpacing":"0.02em","fontWeight":"400"}],"body-sm":["12px",{"lineHeight":"18px","letterSpacing":"0.01em","fontWeight":"400"}],"label-code-lg":["13px",{"lineHeight":"20px","letterSpacing":"-0.01em","fontWeight":"500"}],"metric-huge":["32px",{"lineHeight":"40px","letterSpacing":"-0.03em","fontWeight":"600"}],"label-code-md":["12px",{"lineHeight":"18px","letterSpacing":"0em","fontWeight":"400"}],"display":["36px",{"lineHeight":"44px","letterSpacing":"-0.03em","fontWeight":"600"}],"body-lg":["15px",{"lineHeight":"24px","letterSpacing":"-0.005em","fontWeight":"400"}],"headline-sm":["16px",{"lineHeight":"24px","letterSpacing":"-0.01em","fontWeight":"500"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.02em","fontWeight":"600"}],"headline-md":["20px",{"lineHeight":"28px","letterSpacing":"-0.015em","fontWeight":"500"}],"body-md":["13px",{"lineHeight":"20px","letterSpacing":"0em","fontWeight":"400"}],"display-mobile":["28px",{"lineHeight":"36px","letterSpacing":"-0.02em","fontWeight":"600"}]}}}};</script></head><body class="bg-background font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container"><aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-lowest flex flex-col z-50 shadow-[0_1px_8px_rgba(0,0,0,0.3)]"><div class="h-16 flex items-center justify-between px-space-lg bg-surface-container-lowest"><div class="flex items-center gap-space-sm"><img alt="K6Flow Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1UQ17N6ixt4kbt8LdkhLnhuSMdi8rL88-752f7z-RAn-6gKBn3ksp-Xu8QB0on8FF1s01fZyIlr30O7eSmROOCG0shiUsVXeXLIREiuDQ3plQRCEld_MXl7oLUXHrXGPGsaMwu8cpha_UYv76zTf3cQgbfEQWsWxUKB1TONA25vec2KVXeAiOJLDN-n1yRvovs0fps3mbVrUALODZe1yfa2QUmtWq0Yzy8rZFrQEypbccpcVtY5gTz6TYts"/><div class="flex flex-col"><span class="font-headline-sm text-headline-sm font-semibold tracking-tight text-on-surface">K6Flow</span><span class="font-label-code-sm text-label-code-sm text-secondary">v2.4.0-cloud</span></div></div><button class="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors" type="button"><span class="material-symbols-outlined text-[18px]">dock_to_right</span></button></div><div class="px-space-md py-space-sm"><div class="flex items-center justify-between px-space-sm py-space-xs bg-surface-container-low rounded-lg"><span class="font-label-code-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">Workspace</span><div class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></span><span class="font-body-sm text-body-sm text-on-surface font-medium">Producción</span></div></div></div><nav class="flex-1 px-space-md py-space-xs flex flex-col gap-space-xs overflow-y-auto" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-[0_0_12px_rgba(124,58,237,0.35)]"><a class="flex items-center gap-space-md px-space-md py-space-sm rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="inicio" href="#"><span class="material-symbols-outlined text-[20px]">grid_view</span><span>Inicio</span></a><a class="flex items-center gap-space-md px-space-md py-space-sm rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="escenarios" href="#"><span class="material-symbols-outlined text-[20px]">account_tree</span><span>Escenarios</span></a><a class="flex items-center gap-space-md px-space-md py-space-sm rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="grabaciones" href="#"><span class="material-symbols-outlined text-[20px]">fiber_manual_record</span><span>Grabaciones</span></a><a aria-current="page" class="flex items-center justify-between px-space-md py-space-sm transition-colors bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-[0_0_12px_rgba(124,58,237,0.35)]" data-path="ejecuciones" href="#"><div class="flex items-center gap-space-md"><span class="material-symbols-outlined text-[20px]">play_circle</span><span>Ejecuciones</span></div><span class="px-1.5 py-0.5 rounded-lg bg-surface-container-high text-secondary font-label-code-sm text-label-code-sm">3</span></a><a class="flex items-center gap-space-md px-space-md py-space-sm rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="historial" href="#"><span class="material-symbols-outlined text-[20px]">history</span><span>Historial</span></a><a class="flex items-center gap-space-md px-space-md py-space-sm rounded-lg font-body-md text-body-md text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" data-path="configuracion" href="#"><span class="material-symbols-outlined text-[20px]">settings</span><span>Configuración</span></a></nav><div class="p-space-md bg-surface-container-lowest flex flex-col gap-space-sm"><div class="flex items-center justify-between px-space-sm py-space-xs bg-surface-container-low rounded-lg"><div class="flex items-center gap-space-sm text-on-surface-variant"><span class="material-symbols-outlined text-[18px]">dark_mode</span><span class="font-body-sm text-body-sm">Tema oscuro</span></div><button class="w-8 h-4 bg-primary-container rounded-full p-0.5 flex items-center justify-end" type="button"><span class="w-3 h-3 bg-on-primary-container rounded-full shadow-sm"></span></button></div><div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors"><div class="flex items-center gap-space-sm min-w-0"><div class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-secondary text-[18px]">terminal</span></div><div class="flex flex-col min-w-0"><span class="font-body-sm text-body-sm font-medium text-on-surface truncate">Alex R.</span><span class="font-label-code-sm text-label-code-sm text-on-surface-variant truncate">DevOps Engineer</span></div></div><button class="text-on-surface-variant hover:text-on-surface p-space-xs" type="button"><span class="material-symbols-outlined text-[18px]">more_vert</span></button></div></div></aside><div class="pl-64 min-h-screen flex flex-col bg-background"><header class="fixed top-0 left-64 right-0 h-16 bg-surface-container-lowest/80 backdrop-blur-xl z-40 shadow-[0_1px_8px_rgba(0,0,0,0.3)] flex items-center justify-between px-gutter-desktop"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant"><span class="font-label-code-sm text-label-code-sm text-on-surface-variant">k6</span><span class="material-symbols-outlined text-[14px]">chevron_right</span><span class="text-on-surface font-medium">Plataforma</span></div></div><div class="flex-1 max-w-md mx-space-xl"><div class="relative flex items-center"><span class="material-symbols-outlined absolute left-space-md text-[18px] text-on-surface-variant">search</span><input class="w-full h-9 pl-9 pr-12 bg-surface-container-low rounded-lg font-body-sm text-body-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:bg-surface-container transition-colors" placeholder="Buscar escenarios, pruebas, registros..." type="text"/><div class="absolute right-space-sm px-1.5 py-0.5 rounded-lg bg-surface-container-high text-on-surface-variant font-label-code-sm text-label-code-sm">/</div></div></div><div class="flex items-center gap-space-md"><button class="flex items-center gap-space-xs px-space-md py-space-sm bg-primary-container hover:bg-tertiary-container text-on-primary-container rounded-xl font-body-md text-body-md font-semibold transition-all shadow-[0_0_12px_rgba(124,58,237,0.35)]" type="button"><span class="material-symbols-outlined text-[18px]">add</span><span>Nueva prueba</span></button><button class="relative p-space-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors" type="button"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-2 right-2 w-2 h-2 rounded-full bg-secondary"></span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></header><main class="relative pt-16 w-full flex-1 bg-background"><div class="flex flex-col w-full">
+<!-- Subtle Top Test Progress Ribbon -->
+<div class="w-full bg-surface-container-lowest h-1.5 overflow-hidden">
+<div class="h-full bg-primary transition-all duration-1000 ease-out shadow-[0_0_8px_rgba(208,188,255,0.4)]" id="test-progress-bar" style="width: 30.2%;"></div>
+</div>
+<div class="p-gutter-desktop space-y-space-xl">
+<!-- Live Header & Context Bar -->
+<div class="bg-surface-container rounded-xl p-space-lg shadow-md relative overflow-hidden flex flex-col xl:flex-row xl:items-center justify-between gap-space-lg">
+<div class="absolute -right-20 -top-20 w-64 h-64 bg-primary-container/10 rounded-full blur-3xl pointer-events-none"></div>
+<!-- Left: Title, Badges, Protocol Stream info -->
+<div class="flex flex-col gap-space-xs z-10">
+<div class="flex flex-wrap items-center gap-space-sm">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container-high text-label-code-sm font-label-code-sm text-secondary font-medium">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+            EN VIVO
+          </span>
+<span class="px-2 py-0.5 rounded bg-primary-container/20 text-primary text-label-code-sm font-label-code-sm font-medium">
+            k6-core: v0.49.1
+          </span>
+<span class="text-on-surface-variant font-label-code-sm text-label-code-sm flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-secondary">sensors</span>
+            Telemetría conectada (gRPC 24ms)
+          </span>
+</div>
+<div class="flex flex-wrap items-baseline gap-space-md mt-1">
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight font-semibold">
+            Checkout &amp; Pagos API Peak Test
+          </h1>
+<span class="font-label-code-md text-label-code-md text-on-surface-variant">
+            ID: <span class="text-secondary font-medium">run-0824-prod-fra1</span>
+</span>
+</div>
+<div class="flex items-center gap-space-sm text-body-sm font-body-sm text-on-surface-variant">
+<span class="text-on-surface font-medium">Fase 2 de 4:</span>
+<span>Rampa ascendente constante</span>
+<span class="w-1 h-1 rounded-full bg-outline-variant"></span>
+<span class="font-label-code-sm text-label-code-sm text-tertiary">150/300 VUs objetivo</span>
+</div>
+</div>
+<!-- Right: Chronometer, Controls, Abort Button -->
+<div class="flex flex-wrap items-center gap-space-md z-10">
+<div class="flex items-center gap-space-md bg-surface-container-low px-space-md py-space-sm rounded-lg">
+<div class="flex flex-col">
+<span class="font-label-code-sm text-label-code-sm uppercase tracking-wider text-on-surface-variant">Transcurrido / Total</span>
+<div class="flex items-baseline gap-1">
+<span class="font-metric-huge text-headline-md text-secondary tracking-tight" id="live-timer">00:04:32</span>
+<span class="font-label-code-md text-label-code-md text-on-surface-variant">/ 00:15:00</span>
+</div>
+</div>
+<div class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-[18px]">timer</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs">
+<button class="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Pausar muestreo de métricas" type="button">
+<span class="material-symbols-outlined text-[18px]">pause</span>
+</button>
+<button class="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Descargar snapshot" type="button">
+<span class="material-symbols-outlined text-[18px]">download</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-md py-space-sm bg-error-container/40 hover:bg-error-container text-error rounded-lg font-headline-sm text-label-code-lg font-semibold transition-all hover:shadow-[0_0_12px_rgba(244,63,94,0.3)]" type="button">
+<span class="material-symbols-outlined text-[18px] text-error">stop_circle</span>
+<span>Detener prueba</span>
+</button>
+</div>
+</div>
+</div>
+<!-- KPI Metric Cards Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-gutter-desktop">
+<!-- Card 1: RPS -->
+<div class="bg-surface-container rounded-xl p-space-md shadow-sm relative flex flex-col justify-between overflow-hidden">
+<div class="flex items-center justify-between">
+<span class="font-body-md text-body-md text-on-surface-variant">Peticiones por Segundo</span>
+<span class="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-surface-container-high text-secondary font-label-code-sm text-label-code-sm">
+<span class="material-symbols-outlined text-[14px]">trending_up</span>
+            +14%
+          </span>
+</div>
+<div class="my-space-sm flex items-baseline justify-between">
+<span class="font-metric-huge text-metric-huge font-semibold text-on-surface tracking-tight" id="metric-rps">1,428</span>
+<span class="font-label-code-md text-label-code-md text-on-surface-variant">req/s</span>
+</div>
+<div class="h-10 w-full overflow-hidden mt-1">
+<svg class="w-full h-full text-secondary" preserveaspectratio="none" viewbox="0 0 200 40">
+<path d="M0,32 Q25,28 50,30 T100,18 T150,15 T200,6 L200,40 L0,40 Z" fill="currentColor" fill-opacity="0.12"></path>
+<path d="M0,32 Q25,28 50,30 T100,18 T150,15 T200,6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+</div>
+<div class="flex items-center justify-between text-label-code-sm font-label-code-sm text-on-surface-variant mt-space-xs pt-space-xs bg-surface-container-lowest/30 px-2 py-1 rounded">
+<span>Pico acumulado: 1,480</span>
+<span>Base: 1,250</span>
+</div>
+</div>
+<!-- Card 2: p95 Latency -->
+<div class="bg-surface-container rounded-xl p-space-md shadow-sm relative flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-body-md text-body-md text-on-surface-variant">Latencia p95</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-secondary font-label-code-sm text-label-code-sm">
+            Saludable
+          </span>
+</div>
+<div class="my-space-sm flex items-baseline justify-between">
+<span class="font-metric-huge text-metric-huge font-semibold text-on-surface tracking-tight" id="metric-p95">142</span>
+<span class="font-label-code-md text-label-code-md text-on-surface-variant">ms</span>
+</div>
+<div class="h-10 w-full overflow-hidden mt-1">
+<svg class="w-full h-full text-primary" preserveaspectratio="none" viewbox="0 0 200 40">
+<path d="M0,30 Q30,28 60,25 T120,22 T160,24 T200,18 L200,40 L0,40 Z" fill="currentColor" fill-opacity="0.15"></path>
+<path d="M0,30 Q30,28 60,25 T120,22 T160,24 T200,18" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+</div>
+<div class="flex items-center justify-between text-label-code-sm font-label-code-sm text-on-surface-variant mt-space-xs pt-space-xs bg-surface-container-lowest/30 px-2 py-1 rounded">
+<span>Umbral: &lt; 250 ms</span>
+<span class="text-secondary">Margen: 43.2%</span>
+</div>
+</div>
+<!-- Card 3: Error Rate -->
+<div class="bg-surface-container rounded-xl p-space-md shadow-sm relative flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-body-md text-body-md text-on-surface-variant">Tasa de Errores</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-secondary font-label-code-sm text-label-code-sm">
+            Bajo control
+          </span>
+</div>
+<div class="my-space-sm flex items-baseline justify-between">
+<span class="font-metric-huge text-metric-huge font-semibold text-secondary tracking-tight" id="metric-err">0.12%</span>
+<span class="font-label-code-md text-label-code-md text-on-surface-variant">14 / 11,430</span>
+</div>
+<div class="h-10 w-full overflow-hidden mt-1">
+<svg class="w-full h-full text-error" preserveaspectratio="none" viewbox="0 0 200 40">
+<path d="M0,38 L60,38 L62,28 L70,38 L140,38 L142,32 L150,38 L200,38" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+</div>
+<div class="flex items-center justify-between text-label-code-sm font-label-code-sm text-on-surface-variant mt-space-xs pt-space-xs bg-surface-container-lowest/30 px-2 py-1 rounded">
+<span>SLO objetivo: &lt; 1.00%</span>
+<span class="text-on-surface font-medium">14 fallos HTTP 5xx</span>
+</div>
+</div>
+<!-- Card 4: Virtual Users -->
+<div class="bg-surface-container rounded-xl p-space-md shadow-sm relative flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-body-md text-body-md text-on-surface-variant">Usuarios Virtuales (VUs)</span>
+<span class="flex items-center gap-1 font-label-code-sm text-label-code-sm text-primary">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
+            8 Pods inyección
+          </span>
+</div>
+<div class="my-space-sm flex items-baseline justify-between">
+<span class="font-metric-huge text-metric-huge font-semibold text-on-surface tracking-tight" id="metric-vus">150</span>
+<span class="font-label-code-md text-label-code-md text-on-surface-variant">/ 300 VUs</span>
+</div>
+<div class="space-y-1.5 mt-2">
+<div class="w-full bg-surface-container-lowest h-2 rounded-full overflow-hidden">
+<div class="bg-primary h-full rounded-full transition-all duration-500" style="width: 50%;"></div>
+</div>
+<div class="flex justify-between text-label-code-sm font-label-code-sm text-on-surface-variant">
+<span>Inicio: 10</span>
+<span>Rampa: 50%</span>
+<span>Objetivo: 300</span>
+</div>
+</div>
+<div class="flex items-center justify-between text-label-code-sm font-label-code-sm text-on-surface-variant mt-space-xs pt-space-xs bg-surface-container-lowest/30 px-2 py-1 rounded">
+<span>Cluster: k8s-eu-west-1</span>
+<span class="text-secondary">CPU 28%</span>
+</div>
+</div>
+</div>
+<!-- Middle Section: Real-time Live Charts (Dual column) -->
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-gutter-desktop">
+<!-- Left Chart: RPS & Network Throughput -->
+<div class="bg-surface-container rounded-xl p-space-lg shadow-sm flex flex-col justify-between">
+<div class="flex items-start justify-between pb-space-md">
+<div>
+<div class="flex items-center gap-space-xs">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">RPS &amp; Rendimiento de Red</h2>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Volumen de peticiones enviadas vs confirmaciones 2xx/3xx</p>
+</div>
+<div class="flex items-center gap-space-sm bg-surface-container-low px-2 py-1 rounded-lg">
+<div class="flex items-center gap-1 font-label-code-sm text-label-code-sm text-secondary">
+<span class="w-2.5 h-0.5 bg-secondary inline-block"></span> Total Req
+            </div>
+<div class="flex items-center gap-1 font-label-code-sm text-label-code-sm text-primary">
+<span class="w-2.5 h-0.5 bg-primary inline-block"></span> Exitosas
+            </div>
+</div>
+</div>
+<!-- SVG Live Area Multi-Line Visualizer -->
+<div class="w-full h-64 relative bg-surface-container-lowest/70 rounded-lg p-space-md flex flex-col justify-end">
+<div class="absolute inset-0 p-space-md flex flex-col justify-between pointer-events-none opacity-20">
+<div class="w-full h-px bg-outline"></div>
+<div class="w-full h-px bg-outline"></div>
+<div class="w-full h-px bg-outline"></div>
+<div class="w-full h-px bg-outline"></div>
+</div>
+<svg class="w-full h-48 overflow-visible z-10" preserveaspectratio="none" viewbox="0 0 600 200">
+<defs>
+<lineargradient id="gradSecondary" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#4cd7f6" stop-opacity="0.3"></stop>
+<stop offset="100%" stop-color="#4cd7f6" stop-opacity="0.0"></stop>
+</lineargradient>
+<lineargradient id="gradPrimary" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#7c3aed" stop-opacity="0.25"></stop>
+<stop offset="100%" stop-color="#7c3aed" stop-opacity="0.0"></stop>
+</lineargradient>
+</defs>
+<!-- Total Requests Area & Line -->
+<path d="M0,180 L40,165 L90,150 L140,140 L200,120 L260,105 L320,80 L380,70 L440,55 L500,40 L550,30 L600,24 L600,200 L0,200 Z" fill="url(#gradSecondary)"></path>
+<path d="M0,180 L40,165 L90,150 L140,140 L200,120 L260,105 L320,80 L380,70 L440,55 L500,40 L550,30 L600,24" fill="none" stroke="#4cd7f6" stroke-width="2.5"></path>
+<!-- Successful Requests Area & Line -->
+<path d="M0,182 L40,167 L90,152 L140,142 L200,123 L260,108 L320,84 L380,74 L440,59 L500,45 L550,35 L600,30 L600,200 L0,200 Z" fill="url(#gradPrimary)"></path>
+<path d="M0,182 L40,167 L90,152 L140,142 L200,123 L260,108 L320,84 L380,74 L440,59 L500,45 L550,35 L600,30" fill="none" stroke="#d2bbff" stroke-dasharray="4 2" stroke-width="2"></path>
+<circle class="animate-ping" cx="600" cy="24" fill="#4cd7f6" r="4"></circle>
+<circle cx="600" cy="24" fill="#ffffff" r="3"></circle>
+</svg>
+<!-- Timeline Axis -->
+<div class="flex justify-between items-center text-label-code-sm font-label-code-sm text-on-surface-variant pt-space-xs z-10">
+<span>00:00</span>
+<span>01:00</span>
+<span>02:00</span>
+<span>03:00</span>
+<span class="text-secondary font-medium">04:32 (Actual)</span>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-space-md pt-space-md text-label-code-sm font-label-code-sm">
+<div class="bg-surface-container-low p-space-sm rounded">
+<span class="text-on-surface-variant block">Bytes In / Out</span>
+<span class="text-on-surface font-medium">18.4 MB/s · 2.1 MB/s</span>
+</div>
+<div class="bg-surface-container-low p-space-sm rounded">
+<span class="text-on-surface-variant block">TCP Conns Reutilizadas</span>
+<span class="text-secondary font-medium">96.8% (Keep-Alive)</span>
+</div>
+<div class="bg-surface-container-low p-space-sm rounded">
+<span class="text-on-surface-variant block">TLS Handshake Avg</span>
+<span class="text-on-surface font-medium">14.2 ms</span>
+</div>
+</div>
+</div>
+<!-- Right Chart: Real-time Latencies (p50, p90, p95, p99) -->
+<div class="bg-surface-container rounded-xl p-space-lg shadow-sm flex flex-col justify-between">
+<div class="flex items-start justify-between pb-space-md">
+<div>
+<div class="flex items-center gap-space-xs">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Latencia en Tiempo Real</h2>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Distribución de percentiles en microsegundos y umbral SLO</p>
+</div>
+<div class="flex flex-wrap items-center gap-2 bg-surface-container-low px-2 py-1 rounded-lg">
+<span class="text-label-code-sm font-label-code-sm text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-secondary inline-block"></span> p50 (45ms)</span>
+<span class="text-label-code-sm font-label-code-sm text-tertiary"><span class="w-2 h-2 rounded-full bg-tertiary inline-block"></span> p90 (98ms)</span>
+<span class="text-label-code-sm font-label-code-sm text-primary"><span class="w-2 h-2 rounded-full bg-primary inline-block"></span> p95 (142ms)</span>
+<span class="text-label-code-sm font-label-code-sm text-error"><span class="w-2 h-2 rounded-full bg-error inline-block"></span> p99 (280ms)</span>
+</div>
+</div>
+<!-- Latency Multi-Percentile SVG Chart -->
+<div class="w-full h-64 relative bg-surface-container-lowest/70 rounded-lg p-space-md flex flex-col justify-end">
+<!-- Threshold line 250ms -->
+<div class="absolute top-[28%] left-0 right-0 z-20 flex items-center">
+<div class="w-full h-[1px] border-b border-dashed border-error/70"></div>
+<span class="shrink-0 bg-error/20 text-error px-1.5 py-0.5 rounded text-[10px] font-label-code-sm ml-2 mr-4">SLO Límite 250ms</span>
+</div>
+<div class="absolute inset-0 p-space-md flex flex-col justify-between pointer-events-none opacity-20">
+<div class="w-full h-px bg-outline"></div>
+<div class="w-full h-px bg-outline"></div>
+<div class="w-full h-px bg-outline"></div>
+<div class="w-full h-px bg-outline"></div>
+</div>
+<svg class="w-full h-48 overflow-visible z-10" preserveaspectratio="none" viewbox="0 0 600 200">
+<!-- p50 curve (Healthy Cyan) -->
+<path d="M0,170 Q100,165 200,162 T400,158 T500,155 T600,154" fill="none" stroke="#4cd7f6" stroke-width="1.75"></path>
+<!-- p90 curve (Tertiary Purple) -->
+<path d="M0,140 Q120,135 240,132 T420,126 T520,120 T600,118" fill="none" stroke="#d0bcff" stroke-width="1.75"></path>
+<!-- p95 curve (Primary Violet) -->
+<path d="M0,110 Q140,105 280,100 T440,90 T540,86 T600,82" fill="none" stroke="#7c3aed" stroke-width="2.25"></path>
+<!-- p99 curve with spike at payments (Error Rose) -->
+<path d="M0,80 Q100,78 200,75 T350,68 L420,20 L450,22 L480,65 T600,52" fill="none" stroke="#ffb4ab" stroke-linecap="round" stroke-width="2"></path>
+<!-- Spike Marker -->
+<circle class="animate-pulse" cx="435" cy="21" fill="#ffb4ab" r="3.5"></circle>
+</svg>
+<!-- Timeline Axis -->
+<div class="flex justify-between items-center text-label-code-sm font-label-code-sm text-on-surface-variant pt-space-xs z-10">
+<span>00:00</span>
+<span>01:00</span>
+<span>02:00</span>
+<span class="text-error font-medium">03:15 (Pico p99)</span>
+<span class="text-secondary font-medium">04:32 (Actual)</span>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-space-md pt-space-md text-label-code-sm font-label-code-sm">
+<div class="bg-surface-container-low p-space-sm rounded">
+<span class="text-on-surface-variant block">Jitter de Red</span>
+<span class="text-on-surface font-medium">± 4.8 ms</span>
+</div>
+<div class="bg-surface-container-low p-space-sm rounded">
+<span class="text-on-surface-variant block">Tiempo de Bloqueo</span>
+<span class="text-secondary font-medium">0.82 ms (Bajo)</span>
+</div>
+<div class="bg-surface-container-low p-space-sm rounded">
+<span class="text-on-surface-variant block">TTFB Promedio</span>
+<span class="text-primary font-medium">42 ms</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Section: Split Grid (Endpoint Telemetry & Real-Time Log Stream) -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-gutter-desktop">
+<!-- Left (7 Cols): Telemetry Table by Endpoint -->
+<div class="xl:col-span-7 bg-surface-container rounded-xl p-space-lg shadow-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between pb-space-md">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-secondary">lan</span>
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Métricas por Endpoint Evaluado</h2>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-on-surface-variant">3 endpoints configurados</span>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left font-body-sm text-body-sm">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant font-label-code-sm text-label-code-sm uppercase tracking-wider">
+<th class="py-2.5 px-3 rounded-l">Endpoint</th>
+<th class="py-2.5 px-2">Método</th>
+<th class="py-2.5 px-3 text-right">Req/s</th>
+<th class="py-2.5 px-3 text-right">Media</th>
+<th class="py-2.5 px-3 text-right">p95</th>
+<th class="py-2.5 px-3 text-right">Error %</th>
+<th class="py-2.5 px-3 rounded-r text-center">Estado</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container-low/60">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-high/40 transition-colors">
+<td class="py-3 px-3 font-label-code-sm text-label-code-sm text-on-surface font-medium">
+                    /api/v1/auth/token
+                  </td>
+<td class="py-3 px-2">
+<span class="px-1.5 py-0.5 rounded bg-primary-container/20 text-primary font-label-code-sm text-label-code-sm font-semibold">POST</span>
+</td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-on-surface">
+                    180 rps
+                  </td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-on-surface-variant">
+                    64 ms
+                  </td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-secondary font-medium">
+                    110 ms
+                  </td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-secondary">
+                    0.00%
+                  </td>
+<td class="py-3 px-3 text-center">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary/10 text-secondary text-label-code-sm font-label-code-sm font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                      Saludable
+                    </span>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-high/40 transition-colors">
+<td class="py-3 px-3 font-label-code-sm text-label-code-sm text-on-surface font-medium">
+                    /api/v1/checkout/pedidos
+                  </td>
+<td class="py-3 px-2">
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface font-label-code-sm text-label-code-sm font-semibold">GET</span>
+</td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-on-surface">
+                    890 rps
+                  </td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-on-surface-variant">
+                    92 ms
+                  </td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-secondary font-medium">
+                    138 ms
+                  </td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-secondary">
+                    0.04%
+                  </td>
+<td class="py-3 px-3 text-center">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary/10 text-secondary text-label-code-sm font-label-code-sm font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                      Saludable
+                    </span>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-high/40 transition-colors">
+<td class="py-3 px-3 font-label-code-sm text-label-code-sm text-on-surface font-medium">
+                    /api/v1/pagos/confirmar
+                  </td>
+<td class="py-3 px-2">
+<span class="px-1.5 py-0.5 rounded bg-primary-container/20 text-primary font-label-code-sm text-label-code-sm font-semibold">POST</span>
+</td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-on-surface">
+                    358 rps
+                  </td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-on-surface-variant">
+                    165 ms
+                  </td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-error font-medium">
+                    240 ms
+                  </td>
+<td class="py-3 px-3 text-right font-label-code-sm text-label-code-sm text-error font-semibold">
+                    0.42%
+                  </td>
+<td class="py-3 px-3 text-center">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-error-container/30 text-error text-label-code-sm font-label-code-sm font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+                      Advertencia
+                    </span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="mt-space-md pt-space-sm flex items-center justify-between text-body-sm font-body-sm text-on-surface-variant">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-tertiary">info</span>
+            Umbral de alerta activa fijado en &gt; 200ms para endpoints de pago
+          </span>
+<button class="text-secondary font-label-code-sm text-label-code-sm hover:underline" type="button">Ver trazas distribuidas →</button>
+</div>
+</div>
+<!-- Right (5 Cols): Live Terminal & Checks Stream -->
+<div class="xl:col-span-5 bg-surface-container rounded-xl p-space-lg shadow-sm flex flex-col justify-between">
+<div class="flex items-center justify-between pb-space-md">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-primary">terminal</span>
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Registro de Fallos y Checks</h2>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="font-label-code-sm text-label-code-sm text-on-surface-variant">Stream en directo</span>
+</div>
+</div>
+<!-- Terminal Body -->
+<div class="bg-surface-container-lowest rounded-lg p-space-md font-label-code-sm text-label-code-sm space-y-2 h-64 overflow-y-auto" id="terminal-stream">
+<div class="flex items-start gap-2">
+<span class="text-on-surface-variant shrink-0">[04:31:02]</span>
+<span class="text-error font-semibold shrink-0">CHECK FAIL:</span>
+<span class="text-on-surface">/api/v1/pagos/confirmar - timeout &gt; 1500ms (VU #84)</span>
+</div>
+<div class="flex items-start gap-2">
+<span class="text-on-surface-variant shrink-0">[04:31:18]</span>
+<span class="text-secondary font-semibold shrink-0">CHECK OK:</span>
+<span class="text-on-surface">Status 200 en /api/v1/checkout/pedidos (VU #112)</span>
+</div>
+<div class="flex items-start gap-2">
+<span class="text-on-surface-variant shrink-0">[04:31:45]</span>
+<span class="text-error font-semibold shrink-0">WARN:</span>
+<span class="text-on-surface">Gateway response 504 en nodo 'Petición HTTP (Pago)'</span>
+</div>
+<div class="flex items-start gap-2">
+<span class="text-on-surface-variant shrink-0">[04:32:01]</span>
+<span class="text-secondary font-semibold shrink-0">METRIC:</span>
+<span class="text-on-surface-variant">VU pool escalado a 150 activos (Pod #06 listo)</span>
+</div>
+<div class="flex items-start gap-2">
+<span class="text-on-surface-variant shrink-0">[04:32:10]</span>
+<span class="text-secondary font-semibold shrink-0">CHECK OK:</span>
+<span class="text-on-surface">Status 200 en 1,420 peticiones consecutivas</span>
+</div>
+<div class="flex items-start gap-2 animate-pulse">
+<span class="text-on-surface-variant shrink-0">[04:32:28]</span>
+<span class="text-secondary font-semibold shrink-0">STREAM:</span>
+<span class="text-secondary">Esperando telemetría del siguiente ciclo (gRPC chunk)...</span>
+</div>
+</div>
+<div class="mt-space-md pt-space-sm flex items-center justify-between text-label-code-sm font-label-code-sm text-on-surface-variant">
+<div class="flex items-center gap-space-md">
+<span>Filtros: <strong class="text-on-surface">Todos</strong></span>
+<span>Errores: <strong class="text-error">2</strong></span>
+<span>Aciertos: <strong class="text-secondary">11.4k</strong></span>
+</div>
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container-high text-on-surface hover:text-secondary transition-colors" type="button">
+            Copiar logs
+          </button>
+</div>
+</div>
+</div>
+</div>
+<script>
+    // Live execution counter ticker
+    let totalSeconds = 272; // 04:32
+    const timerElement = document.getElementById('live-timer');
+    const progressBar = document.getElementById('test-progress-bar');
+    const rpsElement = document.getElementById('metric-rps');
+
+    setInterval(() => {
+      totalSeconds++;
+      const mins = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+      const secs = String(totalSeconds % 60).padStart(2, '0');
+      if (timerElement) {
+        timerElement.textContent = `00:${mins}:${secs}`;
+      }
+
+      // Progress bar towards 15 mins (900s)
+      const progressPercent = Math.min((totalSeconds / 900) * 100, 100);
+      if (progressBar) {
+        progressBar.style.width = `${progressPercent.toFixed(1)}%`;
+      }
+
+      // Small jitter simulation on RPS for ultra-realistic feeling
+      if (rpsElement && Math.random() > 0.4) {
+        const delta = Math.floor(Math.random() * 14) - 7;
+        const current = 1428 + delta;
+        rpsElement.textContent = current.toLocaleString('es-ES');
+      }
+    }, 1000);
+  </script>
+</div></main></div></body></html>
