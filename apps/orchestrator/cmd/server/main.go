@@ -8,11 +8,14 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +25,8 @@ import (
 	"k6flow/apps/orchestrator/internal/config"
 	"k6flow/apps/orchestrator/internal/engine"
 	"k6flow/apps/orchestrator/internal/httpapi"
+	"k6flow/apps/orchestrator/internal/live"
+	"k6flow/apps/orchestrator/internal/metrics"
 	"k6flow/apps/orchestrator/internal/runs"
 	"k6flow/apps/orchestrator/internal/runtime"
 )
@@ -45,6 +50,110 @@ const (
 // unit — and applied by the decorated runtime: empty means the engine default
 // (Spec.Network stays empty, Docker's default network applies).
 const networkEnv = "ORCHESTRATOR_NETWORK"
+
+// allowedOriginsEnv is the optional WebSocket Origin allowlist (K6F3-03).
+// Like networkEnv it is read here in cmd/server — internal/config is frozen —
+// and passed to live.New's Deps.AllowedOrigins. See allowedOriginsFromEnv.
+const allowedOriginsEnv = "ORCHESTRATOR_ALLOWED_ORIGINS"
+
+// wsCloseNormal is the parent-decided terminal close code for metrics
+// subscribers: 1000 with an EMPTY reason and no terminal frame (that frame
+// shape is a deferred capability). Used for per-run closes (OnRunFinished →
+// CloseRun) and for shutdown (CloseAll).
+const wsCloseNormal = 1000
+
+// allowedOriginsFromEnv parses ORCHESTRATOR_ALLOWED_ORIGINS — a
+// comma-separated list of origins, each trimmed. Documented semantics:
+//
+//   - empty or whitespace-only ⇒ nil: live keeps its default same-origin
+//     CheckOrigin. In compose the browser origin is the WEB origin, which
+//     differs from the proxy host, so K6F3-04 must set this variable to the
+//     Next.js origin; until then direct same-origin dev keeps working.
+//   - a non-empty value is fail-closed (no coercion, consistent with
+//     config.Load): every entry must be an absolute http(s) URL with a host
+//     and no path/query/fragment; ANY malformed entry (including empty
+//     entries from stray commas) aborts startup with an error instead of
+//     silently dropping it — a partial allowlist would 403 a production
+//     proxy and a coerced one would weaken the origin gate.
+func allowedOriginsFromEnv(value string) ([]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	entries := strings.Split(value, ",")
+	origins := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			return nil, fmt.Errorf("%s: empty entry in %q", allowedOriginsEnv, value)
+		}
+		u, err := url.Parse(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("%s: malformed origin %q: %w", allowedOriginsEnv, trimmed, err)
+		}
+		scheme := strings.ToLower(u.Scheme)
+		if scheme != "http" && scheme != "https" {
+			return nil, fmt.Errorf("%s: origin %q must use http or https", allowedOriginsEnv, trimmed)
+		}
+		if u.Host == "" {
+			return nil, fmt.Errorf("%s: origin %q has no host", allowedOriginsEnv, trimmed)
+		}
+		if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+			return nil, fmt.Errorf("%s: origin %q must not carry a path, query or fragment", allowedOriginsEnv, trimmed)
+		}
+		origins = append(origins, trimmed)
+	}
+	return origins, nil
+}
+
+// runCloser is the WS hub seam the sink adapter needs: the frame-sink
+// contract plus the terminal close. *live.Server satisfies it.
+type runCloser interface {
+	metrics.FrameSink
+	CloseRun(runID string, code int)
+}
+
+// sinkAdapter bridges the engine's live-metrics sink contract to the live
+// WebSocket hub (DECISIONES K6F3-03). OnFrame delegates verbatim — the hub
+// already implements metrics.FrameSink, so the adapter is NOT needed for
+// frames; it exists only for the terminal side, where the signatures differ:
+// the engine's optional engine.RunFinisher contract is OnRunFinished(runID)
+// (defined in engine because internal/live is frozen), while the hub
+// exposes CloseRun(runID, code). The adapter translates one into the other
+// with the parent-decided close code 1000.
+type sinkAdapter struct {
+	hub runCloser
+}
+
+var (
+	_ metrics.FrameSink  = (*sinkAdapter)(nil)
+	_ engine.RunFinisher = (*sinkAdapter)(nil)
+)
+
+// OnFrame forwards a window frame to the hub (encode-once, non-blocking
+// fan-out happens inside live).
+func (a *sinkAdapter) OnFrame(frame metrics.MetricsFrame) { a.hub.OnFrame(frame) }
+
+// OnRunFinished maps the engine's terminal notification to the hub's close:
+// CloseRun(runID, 1000) — empty reason, no terminal frame. It fires after
+// the last window frame was emitted and the store shows the terminal state
+// (engine ordering, DECISIONES K6F3-03), so the client sees close 1000
+// directly after its final frame.
+func (a *sinkAdapter) OnRunFinished(runID string) { a.hub.CloseRun(runID, wsCloseNormal) }
+
+// newRootHandler mounts both handler trees on one root mux: "/" serves the
+// contract-04 API plus /healthz unchanged (the httpapi mux still owns its
+// exact patterns, so routing and method rules are byte-identical), and
+// "/ws/runs/" hands the whole WebSocket subtree — every method — to the live
+// endpoint's own mux, whose "GET /ws/runs/{runId}" pattern then applies the
+// K6F3-02 gate order (blank runId 404 → 401 auth → 404 unknown run → 405
+// non-GET → upgrade). The bare "/ws/runs" path matches no prefix and falls
+// to the API's 404, so it can never reach the upgrade path.
+func newRootHandler(api http.Handler, ws http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/", api)
+	mux.Handle("/ws/runs/", ws)
+	return mux
+}
 
 // newAPIHandler wires config-driven Bearer auth (SERVICE_TOKEN, fail-closed
 // inside httpapi), the run store and the engine-backed launcher into the
@@ -223,7 +332,24 @@ func main() {
 	}
 	logger := newLogger(cfg.LogLevel)
 
+	// Fail-closed origin allowlist (documented in allowedOriginsFromEnv):
+	// a malformed value aborts startup before any socket is opened.
+	allowedOrigins, err := allowedOriginsFromEnv(os.Getenv(allowedOriginsEnv))
+	if err != nil {
+		logger.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
+
 	store := runs.NewStore()
+	// K6F3-03: the metrics WebSocket endpoint — token from SERVICE_TOKEN,
+	// run existence from the store, Origin allowlist from
+	// ORCHESTRATOR_ALLOWED_ORIGINS (empty ⇒ live's same-origin default).
+	ws := live.New(live.Deps{
+		Token:          cfg.ServiceToken,
+		Lookup:         store,
+		Logger:         logger,
+		AllowedOrigins: allowedOrigins,
+	})
 	// The only place that constructs a real Docker client (K6F2-05); the
 	// SDK client package was unfrozen for this unit (see go.mod pins).
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -239,6 +365,8 @@ func main() {
 		Sem:     runtime.NewSemaphore(cfg.MaxConcurrentRuns),
 		K6Image: cfg.K6Image,
 		Log:     logger,
+		// K6F3-03: tap frames → hub broadcast; terminal run → CloseRun 1000.
+		Sink: &sinkAdapter{hub: ws},
 	})
 
 	// Startup orphan reconciliation: remove containers a previous process
@@ -253,7 +381,8 @@ func main() {
 		logger.Info("startup orphan reconciliation finished", "removed", removed)
 	}
 
-	srv := newHTTPServer(cfg.Addr, newAPIHandler(cfg, store, eng, logger))
+	// REST API + metrics WS on one root mux; /healthz stays byte-identical.
+	srv := newHTTPServer(cfg.Addr, newRootHandler(newAPIHandler(cfg, store, eng, logger), ws.Handler()))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -277,6 +406,12 @@ func main() {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			logger.Error("graceful shutdown failed", "error", err)
 		}
+		// K6F3-03 hub shutdown: hijacked WebSocket connections are invisible
+		// to http.Server.Shutdown, so subscribers are closed explicitly with
+		// 1000 (empty reason, no terminal frame) instead of dying with the
+		// process. In-flight runs' subscribers were already closed by
+		// OnRunFinished when their runs terminalized.
+		ws.CloseAll(wsCloseNormal)
 		if err := <-errCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server stopped with error", "error", err)
 		}

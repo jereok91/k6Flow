@@ -768,3 +768,393 @@ func TestTapConsumesOutputExactlyOnce(t *testing.T) {
 		t.Error("sink received no frames although Output carried points")
 	}
 }
+
+// --- K6F3-03: terminal run notification (RunFinisher.OnRunFinished) ------
+
+// notifyingSink records frames and terminal notifications in one sink. The
+// optional onFinished hook runs synchronously INSIDE OnRunFinished (before
+// the finished counter is bumped), so a test that observes the bump also
+// observes everything the hook recorded — no sleeps, race-detector clean.
+type notifyingSink struct {
+	mu         sync.Mutex
+	frames     []metrics.MetricsFrame
+	finished   []string
+	onFinished func(runID string)
+}
+
+func (s *notifyingSink) OnFrame(f metrics.MetricsFrame) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.frames = append(s.frames, f)
+}
+
+func (s *notifyingSink) OnRunFinished(runID string) {
+	s.mu.Lock()
+	hook := s.onFinished
+	s.mu.Unlock()
+	if hook != nil {
+		hook(runID) // recorded before the bump so observation implies completion
+	}
+	s.mu.Lock()
+	s.finished = append(s.finished, runID)
+	s.mu.Unlock()
+}
+
+func (s *notifyingSink) finishedCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.finished)
+}
+
+func (s *notifyingSink) finishedIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.finished...)
+}
+
+func (s *notifyingSink) frameCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.frames)
+}
+
+// waitForFinished polls until OnRunFinished fired at least want times (the
+// notification is asynchronous with respect to the terminal SetStatus).
+func waitForFinished(t *testing.T, sink *notifyingSink, want int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if sink.finishedCount() >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("OnRunFinished fired %d time(s), want >= %d", sink.finishedCount(), want)
+}
+
+// waitCallsContain polls the runtime call log for a substring (completion
+// barrier: after cleanup's Remove the completion path can notify no more).
+func waitCallsContain(t *testing.T, h *harness, needle string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, c := range h.rt.Calls() {
+			if c == needle {
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("runtime calls never contained %q; calls = %v", needle, h.rt.Calls())
+}
+
+// TestTerminalCompletionNotifiesRunFinishedExactlyOnce drives every
+// completion path (finished exit 0, finished thresholds-failed exit 99,
+// failed crash/parse/wait error, stopped) and asserts: OnRunFinished fires
+// for the right runId, at least once by the time cleanup finished, and
+// EXACTLY once (after the Remove barrier no second call may exist).
+func TestTerminalCompletionNotifiesRunFinishedExactlyOnce(t *testing.T) {
+	cases := []struct {
+		name string
+		want runs.Status
+		// setup configures the fake runtime for the path (br is non-nil only
+		// for the stopped case, whose launch must block on Wait).
+		setup     func(t *testing.T, rt fakeRT, id string)
+		blocking  bool
+		driveStop bool
+	}{
+		{
+			name: "finished exit 0",
+			want: runs.StatusFinished,
+			setup: func(t *testing.T, rt fakeRT, id string) {
+				rt.SetExitCode("fake-1", 0)
+				rt.SetOutput("fake-1", k6Output)
+			},
+		},
+		{
+			name: "finished exit 99 thresholds failed",
+			want: runs.StatusFinished,
+			setup: func(t *testing.T, rt fakeRT, id string) {
+				rt.SetExitCode("fake-1", 99)
+				rt.SetOutput("fake-1", k6Output)
+			},
+		},
+		{
+			name: "failed by crash exit",
+			want: runs.StatusFailed,
+			setup: func(t *testing.T, rt fakeRT, id string) {
+				rt.SetExitCode("fake-1", 1)
+			},
+		},
+		{
+			name: "failed by parse error",
+			want: runs.StatusFailed,
+			setup: func(t *testing.T, rt fakeRT, id string) {
+				rt.SetOutput("fake-1", "this is not json-lines\n")
+			},
+		},
+		{
+			name: "failed by wait error",
+			want: runs.StatusFailed,
+			setup: func(t *testing.T, rt fakeRT, id string) {
+				rt.SetError("Wait:fake-1", errors.New("wait exploded"))
+			},
+		},
+		{
+			name: "stopped",
+			want: runs.StatusStopped,
+			setup: func(t *testing.T, rt fakeRT, id string) {
+				rt.SetOutput("fake-1", k6Output)
+			},
+			blocking:  true,
+			driveStop: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var rt fakeRT
+			var blocking *blockingRuntime
+			if tc.blocking {
+				blocking = newBlockingRuntime()
+				rt = blocking
+			} else {
+				rt = runtime.NewFakeRuntime()
+			}
+			sink := &notifyingSink{}
+			h := newHarnessDeps(rt, sink, func() time.Time { return tapClock })
+			id := h.createRun(t)
+			tc.setup(t, rt, id)
+			if err := h.eng.Launch(context.Background(), id); err != nil {
+				t.Fatalf("Launch: %v", err)
+			}
+			if tc.driveStop {
+				if err := h.eng.Stop(context.Background(), id); err != nil {
+					t.Fatalf("Stop: %v", err)
+				}
+				blocking.finishWait()
+			}
+			h.waitForStatus(t, id, tc.want)
+			waitForFinished(t, sink, 1)
+			// Completion barrier: cleanup ran ⇒ the completion path is done
+			// ⇒ no further notification can arrive ⇒ exactly one must exist.
+			waitCallsContain(t, h, "Remove:fake-1")
+			ids := sink.finishedIDs()
+			if len(ids) != 1 {
+				t.Fatalf("OnRunFinished calls = %v, want exactly one for run %s", ids, id)
+			}
+			if ids[0] != id {
+				t.Errorf("OnRunFinished runId = %q, want %q", ids[0], id)
+			}
+			assertSemFree(t, h.sem)
+		})
+	}
+}
+
+// TestLaunchFailureNotifiesRunFinished proves the post-promotion launch
+// failure paths (create/start errors → failLaunch → failed) also notify:
+// a subscriber connected to the running run must get its close.
+func TestLaunchFailureNotifiesRunFinished(t *testing.T) {
+	cases := []struct {
+		name  string
+		stage string
+		calls []string // runtime calls at the end (create fails before Start)
+	}{
+		{"create error", "Create", []string{"Create:fake-1"}},
+		{"start error", "Start", []string{"Create:fake-1", "Start:fake-1", "Stop:fake-1", "Remove:fake-1"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &notifyingSink{}
+			h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time { return tapClock })
+			id := h.createRun(t)
+			h.rt.SetError(tc.stage, errors.New(tc.stage+" exploded"))
+			if err := h.eng.Launch(context.Background(), id); err == nil {
+				t.Fatal("Launch error = nil, want launch-stage failure")
+			}
+			h.waitForStatus(t, id, runs.StatusFailed)
+			waitForFinished(t, sink, 1)
+			// failLaunch order: SetStatus → notify → sem.Release → deregister;
+			// a free semaphore proves no second notification can follow.
+			assertSemFree(t, h.sem)
+			ids := sink.finishedIDs()
+			if len(ids) != 1 || ids[0] != id {
+				t.Errorf("OnRunFinished calls = %v, want exactly [%s]", ids, id)
+			}
+			h.assertCalls(t, tc.calls...)
+		})
+	}
+}
+
+// TestNonTerminalPathsNeverNotifyRunFinished pins the negative contract:
+// rejections that change no status (unknown run, canceled context, exhausted
+// semaphore, Stop on unknown/unlaunched runs) never notify; a double-launch
+// rejection notifies exactly once — when the first launch later completes.
+func TestNonTerminalPathsNeverNotifyRunFinished(t *testing.T) {
+	t.Run("early launch rejections", func(t *testing.T) {
+		sink := &notifyingSink{}
+		h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time { return tapClock })
+		if err := h.eng.Launch(context.Background(), "run-missing"); err == nil {
+			t.Fatal("Launch(unknown) error = nil")
+		}
+		id := h.createRun(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if err := h.eng.Launch(ctx, id); err == nil {
+			t.Fatal("Launch(canceled) error = nil")
+		}
+		if err := h.sem.Acquire(context.Background()); err != nil {
+			t.Fatalf("fill semaphore: %v", err)
+		}
+		ctxSem, cancelSem := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		err := h.eng.Launch(ctxSem, id)
+		cancelSem()
+		if err == nil {
+			t.Fatal("Launch(exhausted semaphore) error = nil")
+		}
+		h.sem.Release()
+		if err := h.eng.Stop(context.Background(), id); err != nil {
+			t.Fatalf("Stop(unlaunched): %v", err)
+		}
+		if err := h.eng.Stop(context.Background(), "run-missing"); err == nil {
+			t.Fatal("Stop(unknown) error = nil")
+		}
+		// Settle window: nothing terminalized ⇒ nothing may have notified.
+		time.Sleep(50 * time.Millisecond)
+		if n := sink.finishedCount(); n != 0 {
+			t.Fatalf("OnRunFinished fired %d time(s) for non-terminal paths", n)
+		}
+	})
+
+	t.Run("double launch notifies once at completion", func(t *testing.T) {
+		rt := newBlockingRuntime()
+		sink := &notifyingSink{}
+		h := newHarnessDeps(rt, sink, func() time.Time { return tapClock })
+		id := h.createRun(t)
+		rt.SetOutput("fake-1", k6Output)
+		if err := h.eng.Launch(context.Background(), id); err != nil {
+			t.Fatalf("first Launch: %v", err)
+		}
+		if err := h.eng.Launch(context.Background(), id); err == nil {
+			t.Fatal("second Launch error = nil, want double-launch rejection")
+		}
+		if n := sink.finishedCount(); n != 0 {
+			t.Fatalf("OnRunFinished fired %d time(s) while the run is still in flight", n)
+		}
+		rt.finishWait()
+		h.waitForStatus(t, id, runs.StatusFinished)
+		waitForFinished(t, sink, 1)
+		waitCallsContain(t, h, "Remove:fake-1")
+		if n := sink.finishedCount(); n != 1 {
+			t.Fatalf("OnRunFinished calls = %d, want exactly 1 (double launch must not duplicate)", n)
+		}
+	})
+}
+
+// TestRunFinishedFiresAfterFramesSummaryAndBeforeCleanup pins the exact
+// ordering inside OnRunFinished's hook (deterministic, no sleeps):
+//   - the run is already terminal AND its summary is persisted (notify
+//     follows SetStatus + SetSummary),
+//   - every window frame has been emitted (notify follows the joined tap;
+//     the trailing partial window never emits),
+//   - cleanup has NOT run yet (notify precedes Stop→Remove), and Wait has
+//     already returned.
+func TestRunFinishedFiresAfterFramesSummaryAndBeforeCleanup(t *testing.T) {
+	sink := &notifyingSink{}
+	var (
+		mu       sync.Mutex
+		observed = struct {
+			calls  []string
+			frames int
+			run    runs.Run
+			found  bool
+		}{}
+	)
+	h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time { return tapClock })
+	sink.onFinished = func(runID string) {
+		run, found := h.st.Get(runID)
+		mu.Lock()
+		defer mu.Unlock()
+		observed.calls = h.rt.Calls()
+		observed.frames = sink.frameCount()
+		observed.run, observed.found = run, found
+	}
+	id := h.createRun(t)
+	h.rt.SetExitCode("fake-1", 0)
+	h.rt.SetOutput("fake-1", multiWindowOutput())
+	if err := h.eng.Launch(context.Background(), id); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	h.waitForStatus(t, id, runs.StatusFinished)
+	waitForFinished(t, sink, 1)
+
+	mu.Lock()
+	calls := append([]string(nil), observed.calls...)
+	frames := observed.frames
+	run, found := observed.run, observed.found
+	mu.Unlock()
+
+	if !found {
+		t.Fatal("run missing from store at OnRunFinished")
+	}
+	if run.Status != runs.StatusFinished {
+		t.Errorf("status at notify = %q, want finished (after terminal SetStatus)", run.Status)
+	}
+	if run.Summary == nil {
+		t.Error("summary at notify = nil, want persisted (notify follows SetSummary)")
+	}
+	if frames != 4 {
+		t.Errorf("frames emitted at notify = %d, want 4 (all windows before notify; trailing partial deferred)", frames)
+	}
+	haveWait, haveStop, haveRemove := false, false, false
+	for _, c := range calls {
+		switch c {
+		case "Wait:fake-1":
+			haveWait = true
+		case "Stop:fake-1":
+			haveStop = true
+		case "Remove:fake-1":
+			haveRemove = true
+		}
+	}
+	if !haveWait {
+		t.Errorf("calls at notify = %v, want Wait:fake-1 already observed (tap joined first)", calls)
+	}
+	if haveStop || haveRemove {
+		t.Errorf("calls at notify = %v, want no cleanup yet (notify precedes Cleanup)", calls)
+	}
+
+	// Completion barrier: once cleanup finished, no more frames may exist.
+	waitCallsContain(t, h, "Remove:fake-1")
+	if n := sink.frameCount(); n != frames {
+		t.Errorf("frames after completion = %d, want %d (no post-terminal frames)", n, frames)
+	}
+}
+
+// panickingRunFinisher fails only the terminal notification to prove the
+// engine's isolation policy extends to OnRunFinished: a broken hub cannot
+// corrupt the run or skip cleanup.
+type panickingRunFinisher struct{ frames int }
+
+func (p *panickingRunFinisher) OnFrame(metrics.MetricsFrame) { p.frames++ }
+func (p *panickingRunFinisher) OnRunFinished(string)         { panic("finish boom") }
+
+func TestRunFinishedPanicDoesNotFailCompletion(t *testing.T) {
+	sink := &panickingRunFinisher{}
+	h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time { return tapClock })
+	id := h.createRun(t)
+	h.rt.SetExitCode("fake-1", 0)
+	h.rt.SetOutput("fake-1", k6Output)
+	if err := h.eng.Launch(context.Background(), id); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	h.waitForStatus(t, id, runs.StatusFinished)
+	waitCallsContain(t, h, "Remove:fake-1")
+	run, _ := h.st.Get(id)
+	if run.Summary == nil {
+		t.Error("Summary = nil, want completion unaffected by finisher panic")
+	}
+	if !strings.Contains(h.log.String(), "run-finished notification panic recovered") {
+		t.Error("logs do not record the recovered notification panic")
+	}
+	assertSemFree(t, h.sem)
+}

@@ -1,8 +1,11 @@
 //go:build integration
 
-// Real-Docker integration tests for K6F2-05: the full handler→engine→Docker
-// stack against the host engine and the real grafana/k6 image, plus the curl
-// end-to-end probe of the real cmd/server binary (init:184). Run with:
+// Real-Docker integration tests for K6F2-05 plus the K6F3-03 wiring unit:
+// the full handler→engine→Docker stack against the host engine and the real
+// grafana/k6 image, the curl end-to-end probe of the real cmd/server binary
+// (init:184), and the real-Docker proof that windowed metrics frames reach a
+// real WebSocket subscriber that then receives close 1000 (empty reason).
+// Run with:
 //
 //	GOCACHE="$PWD/node_modules/.go-cache" GOMODCACHE="$PWD/node_modules/.go-mod-cache" \
 //	  go test -tags integration -count=1 ./internal/engine/ -v
@@ -18,10 +21,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,10 +43,14 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/gorilla/websocket"
 
 	"k6flow/apps/orchestrator/internal/config"
 	"k6flow/apps/orchestrator/internal/engine"
+	"k6flow/apps/orchestrator/internal/httpapi"
 	"k6flow/apps/orchestrator/internal/k6sum"
+	"k6flow/apps/orchestrator/internal/live"
+	"k6flow/apps/orchestrator/internal/metrics"
 	"k6flow/apps/orchestrator/internal/runs"
 	"k6flow/apps/orchestrator/internal/runtime"
 )
@@ -251,6 +261,16 @@ type realHarness struct {
 
 func newRealHarness(t *testing.T) *realHarness {
 	t.Helper()
+	return newRealHarnessSink(t, nil)
+}
+
+// newRealHarnessSink extends newRealHarness with the K6F3-03 live-metrics
+// seam: wireSink receives the store and logger so the test can construct the
+// live server and its engine.Deps.Sink adapter BEFORE the engine is built
+// (nil keeps the classic sinkless harness; every existing caller is
+// behaviorally unchanged).
+func newRealHarnessSink(t *testing.T, wireSink func(store *runs.Store, logger *slog.Logger) metrics.FrameSink) *realHarness {
+	t.Helper()
 	cli := realClient(t)
 	ensureK6Image(t, cli)
 	logs := &syncBuffer{}
@@ -265,9 +285,13 @@ func newRealHarness(t *testing.T) *realHarness {
 	}
 	rt := &demuxRT{inner: docker}
 	store := runs.NewStore()
+	var sink metrics.FrameSink
+	if wireSink != nil {
+		sink = wireSink(store, logger)
+	}
 	h := &realHarness{
 		store:  store,
-		engine: engine.New(engine.Deps{Store: store, Runtime: rt, Sem: runtime.NewSemaphore(2), K6Image: realK6Image, Log: logger}),
+		engine: engine.New(engine.Deps{Store: store, Runtime: rt, Sem: runtime.NewSemaphore(2), K6Image: realK6Image, Log: logger, Sink: sink}),
 		docker: docker,
 		rt:     rt,
 		logs:   logs,
@@ -813,4 +837,328 @@ func waitLabelCount(t *testing.T, rt *runtime.DockerRuntime, want int, timeout t
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatalf("managed container count = %d (want %d, ids %v, err %v) after %v", len(ids), want, ids, err, timeout)
+}
+
+// --- K6F3-03: real-Docker metrics-over-WebSocket end-to-end --------------
+
+// wsTestToken is the SERVICE_TOKEN-equivalent used by the K6F3-03 wiring
+// tests (REST Bearer and WS subprotocol token are the same secret, as in
+// production config).
+const wsTestToken = "k6f3-03-ws-token"
+
+// wsSinkAdapter mirrors cmd/server's sinkAdapter (package main cannot be
+// imported, same pattern as demuxRT): OnFrame forwards to the live server —
+// it already implements metrics.FrameSink — and OnRunFinished maps to the
+// hub's CloseRun(runID, 1000), the parent-decided terminal close.
+type wsSinkAdapter struct {
+	server *live.Server
+}
+
+func (a *wsSinkAdapter) OnFrame(frame metrics.MetricsFrame) { a.server.OnFrame(frame) }
+func (a *wsSinkAdapter) OnRunFinished(runID string)         { a.server.CloseRun(runID, 1000) }
+
+// wsScript is the bounded E2E fixture: 1 VU, 4 s, one refused request per
+// 0.25 s iteration — points land in at least three consecutive 1 s windows
+// (>2 s of traffic ⇒ ≥2 frames) while staying well inside the 5 s/1 VU bound.
+const wsScript = `import http from "k6/http";
+import { sleep } from "k6";
+export default function () {
+  http.get("http://127.0.0.1:1/");
+  sleep(0.25);
+}
+`
+
+// wsURL builds the browser-style ws endpoint for an httptest server.
+func wsURL(baseURL, runID string) string {
+	return "ws" + strings.TrimPrefix(baseURL, "http") + "/ws/runs/" + runID
+}
+
+// frameEnvelope is the decoded shape of one received metrics payload; nil
+// pointers mark JSON null (the contract's sample-trio marker).
+type frameEnvelope struct {
+	Version int    `json:"version"`
+	Type    string `json:"type"`
+	RunID   string `json:"runId"`
+	Seq     int64  `json:"seq"`
+	Window  struct {
+		StartMs    int64 `json:"startMs"`
+		DurationMs int64 `json:"durationMs"`
+	} `json:"window"`
+	ReqPerSec *float64 `json:"reqPerSec"`
+	LatencyMs struct {
+		Avg *float64 `json:"avg"`
+		P90 *float64 `json:"p90"`
+		P95 *float64 `json:"p95"`
+		P99 *float64 `json:"p99"`
+	} `json:"latencyMs"`
+	HTTPFailureFraction *float64 `json:"httpFailureFraction"`
+	ActiveVUs           *int     `json:"activeVUs"`
+	FailedChecks        *int     `json:"failedChecks"`
+}
+
+// validateFrame parses one WS payload against the Phase 1 contract
+// (packages/shared/src/metrics-messages.ts, text-level): EXACT field set,
+// envelope literals, startMs = seq·1000, durationMs 1000, seq = message
+// index (monotonic, gapless from 0), the null-exactly-together rule over
+// reqPerSec + the four latencies + httpFailureFraction, never-null integers,
+// and value ranges (latencies ≥ 0, fraction ∈ [0,1]).
+func validateFrame(t *testing.T, raw []byte, runID string, index int) frameEnvelope {
+	t.Helper()
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatalf("frame %d is not JSON: %v (payload %q)", index, err, raw)
+	}
+	wantKeys := map[string]bool{
+		"version": true, "type": true, "runId": true, "seq": true,
+		"window": true, "reqPerSec": true, "latencyMs": true,
+		"httpFailureFraction": true, "activeVUs": true, "failedChecks": true,
+	}
+	for key := range fields {
+		if !wantKeys[key] {
+			t.Errorf("frame %d has unexpected field %q (strict object violation)", index, key)
+		}
+	}
+	for key := range wantKeys {
+		if _, ok := fields[key]; !ok {
+			t.Errorf("frame %d misses field %q", index, key)
+		}
+	}
+	var frame frameEnvelope
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("frame %d decode: %v", index, err)
+	}
+	if frame.Version != 1 || frame.Type != "metrics" || frame.RunID != runID {
+		t.Errorf("frame %d envelope = v%d type=%q runId=%q, want v1 metrics/%q", index, frame.Version, frame.Type, frame.RunID, runID)
+	}
+	if frame.Seq != int64(index) {
+		t.Errorf("frame %d seq = %d, want %d (monotonic, gapless from 0)", index, frame.Seq, index)
+	}
+	if frame.Window.DurationMs != 1000 || frame.Window.StartMs != int64(index)*1000 {
+		t.Errorf("frame %d window = %+v, want startMs=%d durationMs=1000 (startMs = index·1000)", index, frame.Window, int64(index)*1000)
+	}
+	// Null-exactly-together: reqPerSec, all four latencies and the failure
+	// fraction are null together (empty window) or all non-null (traffic).
+	nulls := []bool{
+		frame.ReqPerSec == nil,
+		frame.LatencyMs.Avg == nil, frame.LatencyMs.P90 == nil,
+		frame.LatencyMs.P95 == nil, frame.LatencyMs.P99 == nil,
+		frame.HTTPFailureFraction == nil,
+	}
+	for i, n := range nulls {
+		if n != nulls[0] {
+			t.Errorf("frame %d sample trio null-together violated at position %d (reqPerSec=%v)", index, i, frame.ReqPerSec)
+			break
+		}
+	}
+	if frame.ActiveVUs == nil || frame.FailedChecks == nil {
+		t.Errorf("frame %d activeVUs/failedChecks = %v/%v, want never-null integers", index, frame.ActiveVUs, frame.FailedChecks)
+	} else {
+		if *frame.ActiveVUs < 0 || *frame.FailedChecks < 0 {
+			t.Errorf("frame %d gauges negative: vus=%d failedChecks=%d", index, *frame.ActiveVUs, *frame.FailedChecks)
+		}
+	}
+	if frame.ReqPerSec != nil {
+		if *frame.ReqPerSec <= 0 {
+			t.Errorf("frame %d reqPerSec = %v, want > 0 for a window with traffic", index, *frame.ReqPerSec)
+		}
+		for name, v := range map[string]*float64{
+			"avg": frame.LatencyMs.Avg, "p90": frame.LatencyMs.P90,
+			"p95": frame.LatencyMs.P95, "p99": frame.LatencyMs.P99,
+		} {
+			if v == nil || *v < 0 {
+				t.Errorf("frame %d latency %s = %v, want >= 0", index, name, v)
+			}
+		}
+		if f := frame.HTTPFailureFraction; f == nil || *f < 0 || *f > 1 {
+			t.Errorf("frame %d httpFailureFraction = %v, want within [0,1]", index, f)
+		}
+	}
+	return frame
+}
+
+// TestRealRunStreamsMetricsOverWebSocket is the K6F3-03 end-to-end proof:
+// full production wiring (contract-04 REST handler + live WS endpoint on one
+// root mux, engine with the sink adapter) against the REAL Docker daemon and
+// the real grafana/k6 image. A run started over REST streams ≥2 windowed
+// metrics frames to a real gorilla client (subprotocol auth), every frame
+// validates against the Phase 1 contract, and after the run terminalizes the
+// connection receives close 1000 with an EMPTY reason and no application
+// frame after the last window (no terminal frame — deferred capability).
+func TestRealRunStreamsMetricsOverWebSocket(t *testing.T) {
+	var wsServer *live.Server
+	h := newRealHarnessSink(t, func(store *runs.Store, logger *slog.Logger) metrics.FrameSink {
+		wsServer = live.New(live.Deps{Token: wsTestToken, Lookup: store, Logger: logger})
+		return &wsSinkAdapter{server: wsServer}
+	})
+	// The real newAPIHandler-equivalent mounted exactly like cmd/server's
+	// newRootHandler ("/" → httpapi, "/ws/runs/" → live).
+	apiLogger := slog.New(slog.NewTextHandler(h.logs, nil))
+	api := httpapi.NewHandler(httpapi.Deps{Token: wsTestToken, Store: h.store, Launcher: h.engine, Logger: apiLogger})
+	root := http.NewServeMux()
+	root.Handle("/", api)
+	root.Handle("/ws/runs/", wsServer.Handler())
+	ts := httptest.NewServer(root)
+	t.Cleanup(func() {
+		wsServer.CloseAll(1000) // hub shutdown, mirrors cmd/server's path
+		ts.Close()
+	})
+
+	// 1: start the run through the real REST wiring (202 + runId).
+	startBody := mustJSONBody(t, map[string]any{
+		"version": 1, "script": wsScript, "vus": 1,
+		"durationMs": 4000, "cpuMillis": 100, "memoryMiB": 64,
+	})
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/runs", strings.NewReader(startBody))
+	if err != nil {
+		t.Fatalf("build start request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+wsTestToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /api/runs: %v; logs:\n%s", err, h.logs.String())
+	}
+	var accepted struct {
+		RunID string `json:"runId"`
+	}
+	decodeErr := json.NewDecoder(resp.Body).Decode(&accepted)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted || decodeErr != nil || accepted.RunID == "" {
+		t.Fatalf("POST /api/runs = %d runId=%q err=%v; logs:\n%s", resp.StatusCode, accepted.RunID, decodeErr, h.logs.String())
+	}
+	runID := accepted.RunID
+	t.Logf("run %s accepted over REST; dialing %s", runID, wsURL(ts.URL, runID))
+
+	// 2: subscribe while the run is live — approved policy 2 subprotocol.
+	dialer := websocket.Dialer{
+		Subprotocols:     []string{"k6flow.bearer", wsTestToken},
+		HandshakeTimeout: 30 * time.Second,
+	}
+	conn, hsResp, err := dialer.Dial(wsURL(ts.URL, runID), nil)
+	if err != nil {
+		t.Fatalf("websocket dial: %v (handshake response %v); logs:\n%s", err, hsRespStatus(hsResp), h.logs.String())
+	}
+	defer conn.Close()
+	if conn.Subprotocol() != "k6flow.bearer" {
+		t.Errorf("negotiated subprotocol = %q, want k6flow.bearer", conn.Subprotocol())
+	}
+
+	// 3: read until the terminal close — every message must be a valid frame.
+	if err := conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	var frames []frameEnvelope
+	var closeErr *websocket.CloseError
+	for {
+		_, payload, readErr := conn.ReadMessage()
+		if readErr != nil {
+			var ce *websocket.CloseError
+			if !errors.As(readErr, &ce) {
+				t.Fatalf("read after %d frame(s): %v (want a close frame); logs:\n%s", len(frames), readErr, h.logs.String())
+			}
+			closeErr = ce
+			break
+		}
+		frames = append(frames, validateFrame(t, payload, runID, len(frames)))
+	}
+
+	// 4: contract-level stream assertions.
+	if len(frames) < 2 {
+		t.Errorf("frames = %d, want >= 2 closed windows (script spans >2 s); logs:\n%s", len(frames), h.logs.String())
+	}
+	trafficWindows := 0
+	for _, f := range frames {
+		if f.ReqPerSec != nil {
+			trafficWindows++
+		}
+	}
+	if trafficWindows < 2 {
+		t.Errorf("windows with traffic = %d, want >= 2 (several requests over >2 s)", trafficWindows)
+	}
+
+	// 5: terminal close — 1000, EMPTY reason, nothing after the last frame.
+	if closeErr == nil {
+		t.Fatal("no close frame observed")
+	}
+	if closeErr.Code != 1000 {
+		t.Errorf("close code = %d, want 1000", closeErr.Code)
+	}
+	if closeErr.Text != "" {
+		t.Errorf("close reason = %q, want empty (no terminal frame payload)", closeErr.Text)
+	}
+	t.Logf("received %d frame(s) (traffic windows %d), then close %d reason %q",
+		len(frames), trafficWindows, closeErr.Code, closeErr.Text)
+
+	// 6: the run really terminalized and every container is gone.
+	run := h.waitTerminal(t, runID, 60*time.Second)
+	if run.Status != runs.StatusFinished {
+		t.Errorf("status = %s, want finished", run.Status)
+	}
+	h.waitNoManagedContainers(t, 60*time.Second)
+}
+
+// hsRespStatus renders a handshake response for failure messages (nil-safe).
+func hsRespStatus(resp *http.Response) any {
+	if resp == nil {
+		return "<nil>"
+	}
+	return resp.Status
+}
+
+// TestWebSocketHandshakeRejects proves the auth gate over a REAL socket
+// (httptest loopback, no mocks): wrong/missing subprotocol tokens fail the
+// handshake with 401 and an unknown runId with 404 — both pre-upgrade, so no
+// WebSocket connection ever exists. These paths need no Docker and never
+// skip (the suite's skip policy covers only daemon-connection errors).
+func TestWebSocketHandshakeRejects(t *testing.T) {
+	store := runs.NewStore()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ws := live.New(live.Deps{Token: wsTestToken, Lookup: store, Logger: logger})
+	ts := httptest.NewServer(ws.Handler())
+	defer ts.Close()
+
+	t.Run("wrong token fails handshake with 401", func(t *testing.T) {
+		dialer := websocket.Dialer{Subprotocols: []string{"k6flow.bearer", "wrong-token"}, HandshakeTimeout: 10 * time.Second}
+		conn, resp, err := dialer.Dial(wsURL(ts.URL, "run-anything"), nil)
+		if conn != nil {
+			conn.Close()
+			t.Fatal("dial with wrong token succeeded, want handshake failure")
+		}
+		if err == nil {
+			t.Fatal("dial error = nil, want handshake failure")
+		}
+		if resp == nil || resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("handshake response = %v, want 401 (dial error: %v)", hsRespStatus(resp), err)
+		}
+		if !strings.Contains(resp.Status, "401") && !strings.Contains(err.Error(), "401") {
+			t.Errorf("no 401 evidence in err=%q status=%q", err.Error(), resp.Status)
+		}
+	})
+
+	t.Run("missing token fails handshake with 401", func(t *testing.T) {
+		dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+		conn, resp, err := dialer.Dial(wsURL(ts.URL, "run-anything"), nil)
+		if conn != nil {
+			conn.Close()
+			t.Fatal("dial without token succeeded, want handshake failure")
+		}
+		if err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("dial err=%v response = %v, want 401", err, hsRespStatus(resp))
+		}
+	})
+
+	t.Run("unknown run fails handshake with 404", func(t *testing.T) {
+		dialer := websocket.Dialer{Subprotocols: []string{"k6flow.bearer", wsTestToken}, HandshakeTimeout: 10 * time.Second}
+		conn, resp, err := dialer.Dial(wsURL(ts.URL, "run-does-not-exist"), nil)
+		if conn != nil {
+			conn.Close()
+			t.Fatal("dial for unknown run succeeded, want handshake failure")
+		}
+		if err == nil || resp == nil || resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("dial err=%v response = %v, want 404", err, hsRespStatus(resp))
+		}
+		if !strings.Contains(resp.Status, "404") && !strings.Contains(err.Error(), "404") {
+			t.Errorf("no 404 evidence in err=%q status=%q", err.Error(), resp.Status)
+		}
+	})
 }

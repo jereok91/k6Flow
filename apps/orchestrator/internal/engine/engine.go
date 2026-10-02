@@ -32,13 +32,29 @@ type Deps struct {
 	K6Image string
 	Log     *slog.Logger
 	// Sink receives the live per-window metrics frames produced by the
-	// Output() tap (nil disables frames; the hub wiring lands in K6F3-03).
-	// Isolation policy: sink panics are recovered and logged inside the tap
-	// and can never fail or corrupt a run (DECISIONES K6F3-01).
+	// Output() tap (nil disables frames; the hub wiring is cmd/server's
+	// K6F3-03 job). A sink that ALSO implements RunFinisher receives one
+	// terminal notification per run that ends while the engine holds it.
+	// Isolation policy: sink panics are recovered and logged — inside the
+	// tap for OnFrame and inside the completion path for OnRunFinished —
+	// and can never fail or corrupt a run (DECISIONES K6F3-01/K6F3-03).
 	Sink metrics.FrameSink
 	// Now overrides the tap's window-anchor clock (test seam); nil uses
 	// time.Now. The anchor is sampled once per run when Output() is attached.
 	Now func() time.Time
+}
+
+// RunFinisher is an optional extension of the injected sink contract: a
+// metrics.FrameSink that also implements it receives exactly one
+// OnRunFinished call for a run that reaches a terminal state while the
+// engine owns its handle, so the K6F3-03 hub can close the run's
+// subscribers (CloseRun(runID, 1000), parent-decided: empty reason, no
+// terminal frame). It is defined HERE — the frozen internal/metrics and
+// internal/live packages are untouched — and detected dynamically: a sink
+// that only implements metrics.FrameSink, or a nil sink, simply never
+// receives the notification (no-op).
+type RunFinisher interface {
+	OnRunFinished(runID string)
 }
 
 // Engine owns in-flight launches keyed by run id; the handle map is the
@@ -220,8 +236,11 @@ func (e *Engine) complete(ctx context.Context, runID string, h *handle, t *tap) 
 	if err := e.store.SetStatus(runID, status); err != nil {
 		// Terminal immutability: if the run already reached a terminal state
 		// (e.g. a stop landed first), the transition is rejected and no
-		// summary is stored; the condition is logged, never retried.
+		// summary is stored; the condition is logged, never retried. The run
+		// IS terminal in the store, so the terminal notification still fires
+		// (exactly once: no other completion path exists for this launch).
 		e.log.Error("run final status rejected", "runId", runID, "status", string(status), "error", err)
+		e.notifyRunFinished(runID)
 		return
 	}
 	if summary != nil {
@@ -229,11 +248,43 @@ func (e *Engine) complete(ctx context.Context, runID string, h *handle, t *tap) 
 			e.log.Error("run summary persist failed", "runId", runID, "error", err)
 		}
 	}
+	// Terminal notification, K6F3-03 — exact ordering: EVERY terminal path
+	// (finished, failed — crash, wait or parse error — and stopped) passes
+	// this point exactly once, AFTER the tap has been joined (t.wait() above
+	// ⇒ every OnFrame for every closed window already reached the sink; the
+	// trailing partial window never emits, so no frame can follow the
+	// notification) and AFTER the terminal SetStatus + SetSummary are
+	// persisted, but BEFORE the deferred Cleanup (Stop→Remove), semaphore
+	// release and handle deregistration — subscribers get close 1000 while
+	// the store already shows the terminal state, and a slow container
+	// removal can never delay or skip it.
+	e.notifyRunFinished(runID)
 	if waitErr != nil {
 		e.log.Info("run finalized", "runId", runID, "status", string(status), "wait_error", waitErr)
 		return
 	}
 	e.log.Info("run finalized", "runId", runID, "status", string(status), "exit_code", exit)
+}
+
+// notifyRunFinished delivers the optional terminal notification (see
+// RunFinisher): nil sink or a sink without OnRunFinished is a no-op. The
+// call carries the tap's recover-isolation policy (DECISIONES K6F3-01) — a
+// panicking hub is logged and can never abort the completion or
+// launch-failure path that owns cleanup, the semaphore and deregistration.
+func (e *Engine) notifyRunFinished(runID string) {
+	if e.sink == nil {
+		return
+	}
+	finisher, ok := e.sink.(RunFinisher)
+	if !ok {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			e.log.Warn("run-finished notification panic recovered; run unaffected", "runId", runID, "panic", r)
+		}
+	}()
+	finisher.OnRunFinished(runID)
 }
 
 // decide maps the wait result to the terminal status and its summary using
@@ -430,13 +481,21 @@ func (e *Engine) spec(run runs.Run) runtime.Spec {
 }
 
 // failLaunch terminalizes a run whose launch failed after the pending →
-// running promotion (no container is left running), frees the semaphore slot
-// and drops the handle so the run can never be re-launched or leak a slot.
+// running promotion (no container is left running), notifies the terminal
+// sink (no completion goroutine exists on this path, so complete() can never
+// duplicate it), frees the semaphore slot and drops the handle so the run
+// can never be re-launched or leak a slot.
 func (e *Engine) failLaunch(runID, stage string, err error) {
 	e.log.Error("run launch failed", "runId", runID, "stage", stage, "error", err)
 	if statusErr := e.store.SetStatus(runID, runs.StatusFailed); statusErr != nil {
+		// A rejection means the run is already terminal (store immutability);
+		// either way the run ended while the engine held its handle, so the
+		// exactly-once notification still fires — before the slot release and
+		// deregistration below (ordering mirrors complete(): after the
+		// terminal transition, before the path's cleanup duties).
 		e.log.Error("launch failure transition failed", "runId", runID, "error", statusErr)
 	}
+	e.notifyRunFinished(runID)
 	e.sem.Release()
 	e.deregister(runID)
 }
