@@ -2,15 +2,19 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"k6flow/apps/orchestrator/internal/runs"
-	"k6flow/apps/orchestrator/internal/runtime"
 )
 
 const (
@@ -20,16 +24,150 @@ const (
 	validStart = `{"version":1,"script":"` + testScript + `","vus":10,"durationMs":5000,"cpuMillis":500,"memoryMiB":256}`
 )
 
-func newSrv(t *testing.T, token string) (http.Handler, *runs.Store, *bytes.Buffer) {
+// launchGateTimeout bounds the fake's async gate so a hypothetical
+// synchronous implementation fails the async test quickly instead of hanging
+// the suite.
+const launchGateTimeout = 3 * time.Second
+
+// fakeLauncher implements RunLauncher with engine-like semantics: Launch
+// promotes pending -> running after an optional gate (so asynchronous launches
+// are provable), Stop finalizes a non-terminal run as stopped (the engine's
+// completion-path contract). Errors, the gate and Stop's finalize behavior are
+// injectable; entry/completion are observable via channels.
+type fakeLauncher struct {
+	store     *runs.Store
+	gate      chan struct{}
+	launchErr error
+	stopErr   error
+	onStop    func(runID string) // overrides the default finalize
+
+	launched  chan string
+	completed chan string
+	stopCalls chan string
+	launches  atomic.Int32
+	stops     atomic.Int32
+}
+
+func newFakeLauncher(store *runs.Store) *fakeLauncher {
+	return &fakeLauncher{
+		store:     store,
+		launched:  make(chan string, 16),
+		completed: make(chan string, 16),
+		stopCalls: make(chan string, 16),
+	}
+}
+
+func (f *fakeLauncher) Launch(_ context.Context, runID string) error {
+	f.launches.Add(1)
+	f.launched <- runID
+	if f.gate != nil {
+		select {
+		case <-f.gate:
+		case <-time.After(launchGateTimeout):
+		}
+	}
+	if f.launchErr != nil {
+		return f.launchErr
+	}
+	if run, ok := f.store.Get(runID); ok && run.Status == runs.StatusPending {
+		_ = f.store.SetStatus(runID, runs.StatusRunning)
+	}
+	f.completed <- runID
+	return nil
+}
+
+func (f *fakeLauncher) Stop(_ context.Context, runID string) error {
+	f.stops.Add(1)
+	f.stopCalls <- runID
+	if f.stopErr != nil {
+		return f.stopErr
+	}
+	if f.onStop != nil {
+		f.onStop(runID)
+		return nil
+	}
+	f.finalize(runID)
+	return nil
+}
+
+// finalize mirrors the engine completion path for an explicitly stopped run.
+func (f *fakeLauncher) finalize(runID string) {
+	run, ok := f.store.Get(runID)
+	if !ok || isTerminal(run.Status) {
+		return
+	}
+	if run.Status == runs.StatusPending {
+		_ = f.store.SetStatus(runID, runs.StatusRunning)
+	}
+	_ = f.store.SetStatus(runID, runs.StatusStopped)
+}
+
+// lockedBuffer is a mutex-guarded log buffer: the async launch goroutine
+// writes through slog while tests read assertions (race-detector clean).
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func newSrv(t *testing.T, token string) (http.Handler, *runs.Store, *lockedBuffer) {
 	t.Helper()
-	store, logBuf := runs.NewStore(), &bytes.Buffer{}
-	handler := NewHandler(Deps{
-		Token:   token,
-		Store:   store,
-		Runtime: runtime.NewFakeRuntime(),
-		Logger:  slog.New(slog.NewTextHandler(logBuf, nil)),
+	store, logBuf := runs.NewStore(), &lockedBuffer{}
+	return newSrvWith(token, store, newFakeLauncher(store), logBuf), store, logBuf
+}
+
+// newSrvLaunch is newSrv with the fake launcher exposed for launch/stop
+// wiring assertions.
+func newSrvLaunch(t *testing.T, token string) (http.Handler, *runs.Store, *fakeLauncher, *lockedBuffer) {
+	t.Helper()
+	store, logBuf := runs.NewStore(), &lockedBuffer{}
+	launcher := newFakeLauncher(store)
+	return newSrvWith(token, store, launcher, logBuf), store, launcher, logBuf
+}
+
+func newSrvWith(token string, store *runs.Store, launcher RunLauncher, logBuf *lockedBuffer) http.Handler {
+	return NewHandler(Deps{
+		Token:    token,
+		Store:    store,
+		Launcher: launcher,
+		Logger:   slog.New(slog.NewTextHandler(logBuf, nil)),
 	})
-	return handler, store, logBuf
+}
+
+// waitLaunch waits for the async launch to finish promoting the run.
+func waitLaunch(t *testing.T, f *fakeLauncher) string {
+	t.Helper()
+	select {
+	case id := <-f.completed:
+		return id
+	case <-time.After(2 * time.Second):
+		t.Fatal("async launch did not complete")
+		return ""
+	}
+}
+
+// waitFor polls cond until it holds or the deadline expires.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("condition not reached in time: %s", what)
 }
 
 type option func(*http.Request)
@@ -153,23 +291,80 @@ func TestEmptyServiceTokenFailsClosed(t *testing.T) {
 }
 
 func TestStartRunAccepted(t *testing.T) {
-	h, store, _ := newSrv(t, testToken)
+	h, store, fake, _ := newSrvLaunch(t, testToken)
 	id := startRun(t, h)
 	if !strings.HasPrefix(id, "run-") {
 		t.Errorf("runId = %q, want run- prefix", id)
 	}
+	waitLaunch(t, fake)
 	run, ok := store.Get(id)
 	if !ok {
 		t.Fatal("run not stored")
 	}
 	if run.Status != runs.StatusRunning {
-		t.Errorf("status = %s, want running (immediate promotion; engine is K6F2-03)", run.Status)
+		t.Errorf("status = %s, want running (promotion comes from the async launch)", run.Status)
+	}
+}
+
+// TestStartRunLaunchesAsynchronously pins the K6F2-05 202 semantics: the
+// response is answered while Launch is still blocked, so a synchronous
+// implementation fails deterministically (its gate times out, the launch
+// completes, and the post-response check finds it done).
+func TestStartRunLaunchesAsynchronously(t *testing.T) {
+	store, logBuf := runs.NewStore(), &lockedBuffer{}
+	fake := newFakeLauncher(store)
+	fake.gate = make(chan struct{})
+	h := newSrvWith(testToken, store, fake, logBuf)
+
+	rec := call(t, h, http.MethodPost, "/api/runs", validStart)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 (body %s)", rec.Code, rec.Body.Bytes())
+	}
+	id, _ := jsonBody(t, rec)["runId"].(string)
+	select {
+	case <-fake.completed:
+		t.Fatal("launch completed before the 202 was answered; startRun must launch asynchronously")
+	default:
+	}
+	close(fake.gate)
+	if got := waitLaunch(t, fake); got != id {
+		t.Errorf("launched runId = %q, want %q", got, id)
+	}
+	if n := fake.launches.Load(); n != 1 {
+		t.Errorf("Launch calls = %d, want exactly 1", n)
+	}
+}
+
+// TestStartRunLaunchErrorIsLoggedAfter202 documents that a Launch failure
+// after the 202 is observed only as a log line here; terminalizing the run is
+// the engine's own failure path (engine.failLaunch), not the handler's.
+func TestStartRunLaunchErrorIsLoggedAfter202(t *testing.T) {
+	store, logBuf := runs.NewStore(), &lockedBuffer{}
+	fake := newFakeLauncher(store)
+	fake.launchErr = errors.New("create failed")
+	h := newSrvWith(testToken, store, fake, logBuf)
+
+	id := startRun(t, h)
+	select {
+	case <-fake.launched:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Launch was never invoked")
+	}
+	waitFor(t, "launch error logged", func() bool {
+		return strings.Contains(logBuf.String(), "async launch failed")
+	})
+	run, ok := store.Get(id)
+	if !ok {
+		t.Fatal("run not stored")
+	}
+	if isTerminal(run.Status) {
+		t.Errorf("status = %s; the handler must not terminalize a launch error the engine owns", run.Status)
 	}
 }
 
 func TestStartIdempotency(t *testing.T) {
 	t.Run("identical key and payload replays 200 with same runId", func(t *testing.T) {
-		h, store, _ := newSrv(t, testToken)
+		h, store, fake, _ := newSrvLaunch(t, testToken)
 		first := startRun(t, h, setHeader("Idempotency-Key", "key-1"))
 		rec := call(t, h, http.MethodPost, "/api/runs", validStart, setHeader("Idempotency-Key", "key-1"))
 		if rec.Code != http.StatusOK {
@@ -180,6 +375,10 @@ func TestStartIdempotency(t *testing.T) {
 		}
 		if stored := store.List(); len(stored) != 1 {
 			t.Errorf("stored runs = %d, want 1", len(stored))
+		}
+		waitLaunch(t, fake)
+		if n := fake.launches.Load(); n != 1 {
+			t.Errorf("Launch calls = %d, want 1 (a 200 replay must not relaunch)", n)
 		}
 	})
 	t.Run("same key different payload creates a new run", func(t *testing.T) {
@@ -245,7 +444,7 @@ func TestStartRejectsInvalidBody(t *testing.T) {
 }
 
 func TestStopRun(t *testing.T) {
-	t.Run("known running run stops with 202", func(t *testing.T) {
+	t.Run("known non-terminal run stops with 202", func(t *testing.T) {
 		h, store, _ := newSrv(t, testToken)
 		id := startRun(t, h)
 		rec := call(t, h, http.MethodPost, "/api/runs/"+id+"/stop", "")
@@ -282,8 +481,9 @@ func TestStopRun(t *testing.T) {
 		}
 	})
 	t.Run("terminal finished run stays finished", func(t *testing.T) {
-		h, store, _ := newSrv(t, testToken)
+		h, store, fake, _ := newSrvLaunch(t, testToken)
 		id := startRun(t, h)
+		waitLaunch(t, fake)
 		if err := store.SetStatus(id, runs.StatusFinished); err != nil {
 			t.Fatalf("SetStatus finished: %v", err)
 		}
@@ -296,11 +496,94 @@ func TestStopRun(t *testing.T) {
 			t.Errorf("status = %s, want finished (terminal state must not move)", run.Status)
 		}
 	})
+	t.Run("launcher stop is requested for non-terminal runs", func(t *testing.T) {
+		h, store, fake, _ := newSrvLaunch(t, testToken)
+		id := startRun(t, h)
+		waitLaunch(t, fake) // run is running: the engine owns finalization
+		rec := call(t, h, http.MethodPost, "/api/runs/"+id+"/stop", "")
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("status = %d, want 202 (body %s)", rec.Code, rec.Body.Bytes())
+		}
+		if n := fake.stops.Load(); n != 1 {
+			t.Errorf("Stop calls = %d, want 1", n)
+		}
+		select {
+		case stoppedID := <-fake.stopCalls:
+			if stoppedID != id {
+				t.Errorf("stopped runId = %q, want %q", stoppedID, id)
+			}
+		default:
+			t.Fatal("launcher never saw the stop request")
+		}
+		run, _ := store.Get(id)
+		if run.Status != runs.StatusStopped {
+			t.Errorf("status = %s, want stopped (launcher completion contract)", run.Status)
+		}
+	})
+	t.Run("terminal run never reaches the launcher", func(t *testing.T) {
+		h, store, fake, _ := newSrvLaunch(t, testToken)
+		id := startRun(t, h)
+		waitLaunch(t, fake)
+		if err := store.SetStatus(id, runs.StatusFinished); err != nil {
+			t.Fatalf("SetStatus finished: %v", err)
+		}
+		rec := call(t, h, http.MethodPost, "/api/runs/"+id+"/stop", "")
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("status = %d, want idempotent 202", rec.Code)
+		}
+		if n := fake.stops.Load(); n != 0 {
+			t.Errorf("Stop calls = %d, want 0 for a terminal run", n)
+		}
+	})
+	t.Run("launcher stop failure keeps 202 and the handler terminalizes a pending run", func(t *testing.T) {
+		h, store, fake, logBuf := newSrvLaunch(t, testToken)
+		fake.stopErr = errors.New("container stop failed")
+		// A run the engine never launched (still pending, no launch goroutine
+		// in flight): the handler owns the terminal transition.
+		run, err := store.Create(runs.Run{Script: "export default function () {}", VUs: 1, DurationMs: 1000, CPUMillis: 100, MemoryMiB: 64})
+		if err != nil {
+			t.Fatalf("store.Create: %v", err)
+		}
+		id := run.ID
+		rec := call(t, h, http.MethodPost, "/api/runs/"+id+"/stop", "")
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("status = %d, want 202 despite launcher error (body %s)", rec.Code, rec.Body.Bytes())
+		}
+		run, _ = store.Get(id)
+		if run.Status != runs.StatusStopped {
+			t.Errorf("status = %s, want stopped", run.Status)
+		}
+		if !strings.Contains(logBuf.String(), "engine stop failed") {
+			t.Errorf("launcher stop error not logged; logs = %s", logBuf.String())
+		}
+	})
+	t.Run("engine-owned running run converges through the launcher", func(t *testing.T) {
+		h, store, fake, _ := newSrvLaunch(t, testToken)
+		// The launcher acknowledges the stop but does not finalize yet, exactly
+		// like an engine whose completion goroutine is still draining: the
+		// handler must NOT steal the terminal transition (that would reject the
+		// engine's final SetStatus and drop the stopped-run summary).
+		fake.onStop = func(string) {}
+		id := startRun(t, h)
+		waitLaunch(t, fake)
+		rec := call(t, h, http.MethodPost, "/api/runs/"+id+"/stop", "")
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("status = %d, want 202 (body %s)", rec.Code, rec.Body.Bytes())
+		}
+		if n := fake.stops.Load(); n != 1 {
+			t.Errorf("Stop calls = %d, want 1", n)
+		}
+		run, _ := store.Get(id)
+		if run.Status != runs.StatusRunning {
+			t.Errorf("status = %s, want running until the engine completion path finalizes it", run.Status)
+		}
+	})
 }
 
 func TestGetRunState(t *testing.T) {
-	h, _, _ := newSrv(t, testToken)
+	h, _, fake, _ := newSrvLaunch(t, testToken)
 	id := startRun(t, h)
+	waitLaunch(t, fake)
 	rec := call(t, h, http.MethodGet, "/api/runs/"+id, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.Bytes())
@@ -324,16 +607,18 @@ func TestRunSummary(t *testing.T) {
 		wantError(t, call(t, h, http.MethodGet, "/api/runs/"+id+"/summary", ""), http.StatusConflict, "summary-not-terminal")
 	})
 	t.Run("terminal without summary 409", func(t *testing.T) {
-		h, store, _ := newSrv(t, testToken)
+		h, store, fake, _ := newSrvLaunch(t, testToken)
 		id := startRun(t, h)
+		waitLaunch(t, fake)
 		if err := store.SetStatus(id, runs.StatusFinished); err != nil {
 			t.Fatalf("SetStatus finished: %v", err)
 		}
 		wantError(t, call(t, h, http.MethodGet, "/api/runs/"+id+"/summary", ""), http.StatusConflict, "summary-not-terminal")
 	})
 	t.Run("finished summary 200", func(t *testing.T) {
-		h, store, _ := newSrv(t, testToken)
+		h, store, fake, _ := newSrvLaunch(t, testToken)
 		id := startRun(t, h)
+		waitLaunch(t, fake)
 		if err := store.SetStatus(id, runs.StatusFinished); err != nil {
 			t.Fatalf("SetStatus finished: %v", err)
 		}
@@ -363,8 +648,9 @@ func TestRunSummary(t *testing.T) {
 		}
 	})
 	t.Run("stopped summary omits thresholdsPassed", func(t *testing.T) {
-		h, store, _ := newSrv(t, testToken)
+		h, store, fake, _ := newSrvLaunch(t, testToken)
 		id := startRun(t, h)
+		waitLaunch(t, fake)
 		if err := store.SetStatus(id, runs.StatusStopped); err != nil {
 			t.Fatalf("SetStatus stopped: %v", err)
 		}

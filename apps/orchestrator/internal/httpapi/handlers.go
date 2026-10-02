@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -155,19 +156,29 @@ func (h *handler) startRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, codeInternal, msgInternal)
 		return
 	}
-	// K6F2-02: the engine is K6F2-03, so pending -> running is applied
-	// synchronously here to keep state observable; K6F2-03 replaces this with
-	// the deferred engine transition. A failed promotion logs and keeps the
-	// accepted run pending.
-	if err := h.store.SetStatus(run.ID, runs.StatusRunning); err != nil {
-		h.logger.Error("running promotion failed", "runId", run.ID, "error", err)
-	}
+	// K6F2-05: the synchronous pending -> running placeholder is gone. The
+	// store keeps the run pending, the 202 is answered first, and Launch runs
+	// on its own goroutine with a context detached from the request (the
+	// request context is canceled as soon as the response is written). A
+	// Launch error observed here is logged only — terminalizing the run is
+	// the engine's own failure path (engine.failLaunch ⇒ failed).
+	ctx := context.WithoutCancel(r.Context())
 	h.logger.Info("run accepted", "runId", run.ID)
 	writeJSON(w, http.StatusAccepted, runRef{Version: contractVersion, RunID: run.ID})
+	go func() {
+		if err := h.launcher.Launch(ctx, run.ID); err != nil {
+			h.logger.Error("async launch failed", "runId", run.ID, "error", err)
+		}
+	}()
 }
 
 // stopRun answers 202 for any known run (terminal states are idempotent), 404
-// for unknown runIds.
+// for unknown runIds. For non-terminal runs it always asks the launcher to
+// stop the container; the store transition depends on who owns finalization:
+// a run the engine launched (status running) is terminalized by the engine's
+// completion goroutine together with its stopped-run summary, while a still
+// pending run (never launched, or launch not yet promoted) is terminalized
+// here so every known non-terminal run converges to stopped.
 func (h *handler) stopRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("runId")
 	run, ok := h.store.Get(id)
@@ -176,15 +187,30 @@ func (h *handler) stopRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isTerminal(run.Status) {
-		if run.Status == runs.StatusPending && h.store.SetStatus(id, runs.StatusRunning) != nil {
-			h.logger.Warn("pending promotion before stop failed", "runId", id)
+		ctx := context.WithoutCancel(r.Context())
+		if err := h.launcher.Stop(ctx, id); err != nil {
+			// 202 semantics are unchanged: a failed engine stop is logged and
+			// the engine's completion path still converges the run later.
+			h.logger.Warn("engine stop failed", "runId", id, "error", err)
 		}
-		if err := h.store.SetStatus(id, runs.StatusStopped); err != nil {
-			h.logger.Error("stop transition failed", "runId", id, "error", err)
-			writeError(w, http.StatusInternalServerError, codeInternal, msgInternal)
-			return
+		cur, ok := h.store.Get(id)
+		if ok && cur.Status == runs.StatusPending {
+			if h.store.SetStatus(id, runs.StatusRunning) != nil {
+				h.logger.Warn("pending promotion before stop failed", "runId", id)
+			}
+			if err := h.store.SetStatus(id, runs.StatusStopped); err != nil {
+				// The engine may have terminalized the run in between; a
+				// terminal run is success, anything else is a real failure.
+				if now, nowOK := h.store.Get(id); !nowOK || !isTerminal(now.Status) {
+					h.logger.Error("stop transition failed", "runId", id, "error", err)
+					writeError(w, http.StatusInternalServerError, codeInternal, msgInternal)
+					return
+				}
+			}
+			h.logger.Info("run stopped", "runId", id)
+		} else {
+			h.logger.Info("run stop requested", "runId", id)
 		}
-		h.logger.Info("run stopped", "runId", id)
 	}
 	writeJSON(w, http.StatusAccepted, runRef{Version: contractVersion, RunID: id})
 }

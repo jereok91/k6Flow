@@ -12,7 +12,14 @@ import (
 // Fixture lines mirroring the k6 `--out json` JSON-LINES stream.
 const descReqs = `{"type":"Metric","metric":{"type":"Counter","name":"http_reqs","help":"Total number of HTTP requests","contains":"count","unit":"count"}}`
 const descFailed = `{"type":"Metric","metric":{"type":"Rate","name":"http_req_failed","help":"Ratio of failed HTTP requests","contains":"rate","unit":"ratio"}}`
-const descCheck = `{"type":"Metric","metric":{"type":"Counter","name":"check","help":"Number of failed checks","contains":"count","unit":"count"}}`
+
+// descCheck is the exact descriptor grafana/k6 v2.3.0 emitted in the K6F2-05
+// conformance probe (name "checks", type rate).
+const descCheck = `{"type":"Metric","data":{"name":"checks","type":"rate","contains":"default","thresholds":[],"submetrics":null},"metric":"checks"}`
+
+// descCheckLegacy is the pre-conformance descriptor used by the frozen
+// K6F2-04-era fixtures (see TestParseLegacyCheckNameStillCounts).
+const descCheckLegacy = `{"type":"Metric","metric":{"type":"Counter","name":"check","help":"Number of failed checks","contains":"count","unit":"count"}}`
 const descDuration = `{"type":"Metric","metric":{"type":"Trend","name":"http_req_duration","help":"Duration of HTTP request in ms","contains":"time","unit":"ms"}}`
 
 // point renders one k6 Point sample line for the given metric and value.
@@ -59,10 +66,37 @@ func TestParseSumsHttpReqFailedRatePoints(t *testing.T) {
 
 func TestParseCountsFailedCheckPoints(t *testing.T) {
 	summary := parse(t, stream(descCheck,
-		point("check", 1), point("check", 0), point("check", 1),
-		point("check", 0), point("check", 0)))
+		point("checks", 1), point("checks", 0), point("checks", 1),
+		point("checks", 0), point("checks", 0)))
 	if summary.Totals.FailedChecks != 3 {
 		t.Errorf("FailedChecks = %d, want 3 (value==0 points only)", summary.Totals.FailedChecks)
+	}
+}
+
+// TestParseLegacyCheckNameStillCounts documents the MetricCheckLegacy alias:
+// the pre-conformance "check" spelling keeps counting failed checks, because
+// the frozen K6F2-04 engine fixtures (internal/engine/engine_test.go) still
+// carry that name and must not silently change meaning.
+func TestParseLegacyCheckNameStillCounts(t *testing.T) {
+	summary := parse(t, stream(descCheckLegacy, point("check", 1), point("check", 0)))
+	if summary.Totals.FailedChecks != 1 {
+		t.Errorf("FailedChecks = %d, want 1 (legacy \"check\" name still counted)", summary.Totals.FailedChecks)
+	}
+}
+
+// TestParseCountsRealK6ChecksMetric pins the K6F2-05 conformance finding:
+// the real grafana/k6 v2.3.0 image emits the metric name "checks"
+// (plural, type rate), not the "check" assumed by K6F2-04, and value 0
+// still marks a failed check.
+func TestParseCountsRealK6ChecksMetric(t *testing.T) {
+	summary := parse(t, stream(
+		`{"type":"Metric","data":{"name":"checks","type":"rate","contains":"default"},"metric":"checks"}`,
+		point("checks", 1), point("checks", 0), point("checks", 1)))
+	if summary.Totals.FailedChecks != 1 {
+		t.Errorf("FailedChecks = %d, want 1 (real k6 name \"checks\", value 0)", summary.Totals.FailedChecks)
+	}
+	if summary.Totals.Requests != 0 {
+		t.Errorf("Requests = %d, want 0", summary.Totals.Requests)
 	}
 }
 
@@ -71,7 +105,7 @@ func TestParseAggregatesAllTotalsFromMixedStream(t *testing.T) {
 		descReqs, descFailed, descCheck, descDuration,
 		point("http_reqs", 1), point("http_reqs", 1),
 		point("http_req_failed", 0), point("http_req_failed", 1),
-		point("check", 1), point("check", 0),
+		point("checks", 1), point("checks", 0),
 		point("http_req_duration", 42.5),
 	))
 	want := runs.Totals{Requests: 2, Errors: 1, FailedChecks: 1}

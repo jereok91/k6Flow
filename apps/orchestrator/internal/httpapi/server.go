@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
@@ -9,7 +10,6 @@ import (
 	"strings"
 
 	"k6flow/apps/orchestrator/internal/runs"
-	"k6flow/apps/orchestrator/internal/runtime"
 )
 
 // Contract version carried by every API body (versionEnvelopeSchema).
@@ -33,20 +33,32 @@ const (
 	msgInternal           = "internal server error"
 )
 
+// RunLauncher is the run-execution dependency of the handlers, defined
+// locally so the HTTP layer never imports the engine package: *engine.Engine
+// satisfies it in cmd/server and tests substitute a fake. Launch returns once
+// the container has started; every later failure terminalizes the run through
+// the engine's own failure path. Stop requests a graceful stop so the engine's
+// completion goroutine finalizes the run.
+type RunLauncher interface {
+	Launch(ctx context.Context, runID string) error
+	Stop(ctx context.Context, runID string) error
+}
+
 // Deps are the constructor dependencies. Logger defaults to slog.Default;
-// Runtime is the ContainerRuntime wired by tests (FakeRuntime) and consumed by
-// the K6F2-03 engine — this unit never calls it.
+// Launcher is the engine (required, see RunLauncher) wired by tests with a
+// fake and consumed by startRun/stopRun — this unit never talks to containers.
 type Deps struct {
-	Token   string
-	Store   *runs.Store
-	Runtime runtime.ContainerRuntime
-	Logger  *slog.Logger
+	Token    string
+	Store    *runs.Store
+	Launcher RunLauncher
+	Logger   *slog.Logger
 }
 
 type handler struct {
-	store  *runs.Store
-	token  string
-	logger *slog.Logger
+	store    *runs.Store
+	launcher RunLauncher
+	token    string
+	logger   *slog.Logger
 }
 
 // NewHandler wires contract 04: static Bearer auth on every /api/* route, the
@@ -58,7 +70,7 @@ func NewHandler(deps Deps) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	h := &handler{store: deps.Store, token: deps.Token, logger: logger}
+	h := &handler{store: deps.Store, launcher: deps.Launcher, token: deps.Token, logger: logger}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("POST /api/runs", h.startRun)

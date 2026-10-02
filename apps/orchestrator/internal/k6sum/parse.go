@@ -17,17 +17,25 @@ import (
 	"k6flow/apps/orchestrator/internal/runs"
 )
 
-// The four k6 metric names the summary aggregates (assumptions recorded in
-// DECISIONES; conformance against the real k6 image is K6F2-05):
+// The k6 metric names the summary aggregates (the check name was proven
+// against the real grafana/k6 v2.3.0 image in K6F2-05 — see MetricCheck):
 //   - http_reqs: Counter points, one per HTTP request → totals.requests count
 //   - http_req_failed: Rate points with 0/1 samples → totals.errors = rounded sum
-//   - check: points with value 0 mark a failed check → totals.failedChecks count
+//   - checks: Rate points with value 0 mark a failed check → totals.failedChecks count
 //   - http_req_duration: Trend points in milliseconds → latency quantiles
 const (
-	MetricRequests   = "http_reqs"
-	MetricFailed     = "http_req_failed"
-	MetricCheck      = "check"
-	MetricDurationMs = "http_req_duration"
+	MetricRequests = "http_reqs"
+	MetricFailed   = "http_req_failed"
+	// MetricCheck is k6's real check metric: the K6F2-05 conformance probe
+	// against grafana/k6 v2.3.0 recorded the exact name "checks" (type
+	// rate, value 1 = passed, 0 = failed), replacing the "check" name
+	// assumed by K6F2-04 (R3-k6-checks-name resolved).
+	MetricCheck = "checks"
+	// MetricCheckLegacy keeps the pre-conformance "check" spelling counting
+	// so legacy JSON-LINES streams (and the frozen engine fixtures) still
+	// fold into failedChecks; real k6 never emits it.
+	MetricCheckLegacy = "check"
+	MetricDurationMs  = "http_req_duration"
 )
 
 // MaxLineBytes bounds one stream line: a line longer than 1 MiB is rejected
@@ -132,7 +140,7 @@ func (a *aggregator) add(name string, value float64) {
 		a.requests++
 	case MetricFailed:
 		a.failedSum += value
-	case MetricCheck:
+	case MetricCheck, MetricCheckLegacy:
 		if value == 0 {
 			a.failedChecks++
 		}
