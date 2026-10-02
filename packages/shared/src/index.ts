@@ -56,3 +56,5 @@ export type {
   RunLatency, RunSummary, RunErrorCode, RunErrorCatalog, RunErrorResponse,
   RunStartDedupeRecord, RunStartDedupeOutcome,
 } from "./runs-rest";
+export { metricsWindowSchema, metricsLatencySchema, metricsFrameSchema } from "./metrics-messages";
+export type { MetricsWindow, MetricsLatency, MetricsFrame } from "./metrics-messages";

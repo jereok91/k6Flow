@@ -192,6 +192,25 @@ boundary. Rollback only the runs-rest module/tests, additive index exports,
 `api/runs.md`, `api/openapi.yaml` and these notes; preserve reviewed contracts,
 parent tracking and unrelated surfaces.
 
+## Phase 1 — metrics WebSocket contract declarations (K6F1-05)
+
+Declare the strict versioned metrics frame for the run-scoped WebSocket topic
+without handlers or transport. See [the WS metrics guide](api/ws-metrics.md).
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Same-origin Next proxy routing | The browser connects to `/api/ws/runs/{runId}`; a Next proxy rewrite forwards to the orchestrator internal port, which stays unexposed. Documentation only — no proxy or socket code ships here. |
+| Fixed 1000 ms window, run-relative `startMs` | Literal `durationMs: 1000` with a nonnegative safe-integer `startMs` measured from run start (not epoch); `seq` is a nonnegative safe integer, monotonic per run as a documented producer obligation the schema cannot enforce. |
+| Explicit ms/fraction units | Latency avg/p90/p95/p99 are finite nonnegative milliseconds, `httpFailureFraction` a finite `[0,1]` fraction, `reqPerSec` finite ≥ 0, `activeVUs`/`failedChecks` nonnegative safe integers — no percentages, microseconds or counts-as-float. |
+| Explicit `null` for no-sample windows | When a window had no requests, `reqPerSec`, all four percentiles and `httpFailureFraction` are `null` exactly together — never a silent 0 — while counts stay counts and `0` is meaningful. |
+| Metrics frame only | The discriminated union is closed to `type: "metrics"`; terminal, error and reconnect/replay frames, aggregation, broadcast and cross-frame sequence enforcement are deferred to distinct capabilities. |
+
+Declaration only: no handlers, sockets, servers, aggregation or broadcast; the
+windowed topic stays separate from the K6F1-04 cumulative final summary.
+Runtime harness: N/A; pure declarations add no process/network boundary. Rollback
+only the metrics module/tests, additive exports, `api/ws-metrics.md` and these
+notes; preserve reviewed contracts, parent tracking and unrelated surfaces.
+
 ## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later
