@@ -1,5 +1,38 @@
 # Foundation decisions
 
+## Phase 2 — Docker runtime (K6F2-03)
+
+Implement `ContainerRuntime` over the official Docker SDK in
+`apps/orchestrator/internal/runtime/docker.go`, unit-tested against a fake
+`dockerAPI` (no socket in tests); real-engine proof stays K6F2-05.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| `github.com/docker/docker` `v28.5.2+incompatible` + `go mod tidy` (6 indirect deps, 16 go.sum entries) | Latest SDK version on the module proxy (`+incompatible`: moby tags majors without a module suffix). Resolved with the authorized `GOCACHE`/`GOMODCACHE` under `node_modules/`. The module `go` line moves `1.22.0 → 1.23`, the true dependency floor (`docker/go-connections v0.8.1` requires go 1.23), still building under the frozen `golang:1.25.7` image. |
+| Minimal unexported `dockerAPI` interface instead of embedding `*client.Client` | Unit tests fake exactly the 8 SDK calls used (create/start/wait/stop/remove/list/logs/copy) without touching a socket. Importing `github.com/docker/docker/client` for a compile-time conformance assert would pull its OpenTelemetry/x-sys tree and force `go ≥ 1.26.0`, which the frozen `golang:1.25.7` image (`GOTOOLCHAIN=local`) cannot build; the signatures are transcribed verbatim from client v28.5.2 source and conformance is proven by the real-engine unit (K6F2-05). |
+| Script delivery: in-memory tar via `CopyToContainer` (no temp-file bind mount) | Secret hygiene: script bytes never touch the host filesystem, never enter logs (tests assert), and exist only at `/k6flow/script.js` inside the container until guaranteed removal. Because `Spec` (frozen `runtime.go`) has no script field, the content travels in the reserved `Spec.Env` key `K6FLOW_SCRIPT`, which `Create` strips before `ContainerCreate` — it never reaches the container environment. The run engine (later unit) sets `Env[ScriptEnvKey]` and args referencing `ScriptPath`. |
+| Failed script delivery removes the half-created container | Guaranteed-removal holds from the first SDK call: `Create` returns a joined error after a forced `Remove` (with `context.WithoutCancel`) so a copy failure cannot strand an orphan. |
+| Limits with overflow guards, not raw casts | `CPUMillis → NanoCPUs` (×1e6) and `MemoryMiB → bytes` (×2^20); values whose product overflows int64 — including contract 04's `2^53-1` ceiling — are rejected with a descriptive error instead of wrapping. Max valid: 9,223,372,036,854 cpu-millis, 8,796,093,022,207 MiB; boundary tests cover `cpuMillis=1`, both maxima and the rejections. |
+| Controlled network via `Spec.Network → HostConfig.NetworkMode` | Per-run network selection belongs to the caller; empty means the engine default bridge for Phase 2. Binding the compose `backend` network name needs env/compose changes (parent-reviewed deploy surfaces) and is deferred. |
+| Labels: `k6flow.managed=true` forced, `k6flow.run.id` passed through | `ListLabeled` filters `k6flow.managed=true` (All=true, so stopped containers count); `Create` overwrites any caller value for `managed`. The run-id label is supplied by the later engine unit via `Spec.Labels`. |
+| Guaranteed cleanup: `Cleanup` = graceful `Stop` (RUN_TIMEOUT_MS rounded up to whole seconds; ≤0 leaves the engine's 10s) → `Remove(force)`, using `context.WithoutCancel` for the removal | Remove is always attempted — even when Stop fails or the run context is already canceled — and `Cleanup` never returns before that attempt; both errors are joined. Finish/fail/stop/cancel paths all funnel here. |
+| Startup reconciliation: `ReconcileOrphans` = `ListLabeled` + force-remove each, returning the removed count | Documented to run at startup; list errors are returned, per-container removal failures are tolerated (warn + continue) so one stuck container cannot block the sweep. Call wiring into `cmd/server` is deferred to a later unit (cmd/server untouched here). |
+| Exported `Semaphore` (context-aware `Acquire`, no-op `Release`, `n < 1` clamped to 1) sized by `MAX_CONCURRENT_RUNS`; `DockerRuntime.Acquire/Release` delegate | Non-blocking misuse impossible: a waiting acquire honors ctx cancellation, a double release can never deadlock the pool (`-race` concurrency test). Enforcement at the request handlers is deferred to a later unit. |
+| `Output` returns the raw container log reader (stdout+stderr, follow) | Attachment point for the K6F2-04 JSON stream; the caller owns Close, and demultiplexing Docker's stream framing happens in the parser, not the runtime. |
+| `slog` lifecycle events only (injected logger) | Logs carry container id, image, exit code and counts — never script or env values; a dedicated test asserts secrets and `K6FLOW_SCRIPT` stay out of the buffer. |
+
+Deferred to later units: engine transition replacing the K6F2-02 synchronous
+`pending→running` placeholder, startup wiring of `ReconcileOrphans`, handler
+enforcement of the semaphore, network-name wiring, and real-Docker integration
+tests (K6F2-05). Known pre-existing gap: `apps/orchestrator/Dockerfile` copies
+only `go.mod` + `cmd` (no `internal/`, no `go.sum`), so the production image
+build predates the Phase 1/2 package layout; fixing it touches a parent-review
+surface and is reported rather than edited.
+
+Rollback: remove `docker.go`, `docker_test.go`, the dependency blocks in
+`go.mod`/`go.sum` and this section; the `ContainerRuntime` interface, the
+`FakeRuntime` and every other package stay untouched.
+
 ## Phase 2 — runs REST handlers (K6F2-02)
 
 Implement the approved contract 04 as `apps/orchestrator/internal/httpapi`
