@@ -6,15 +6,24 @@ import { parse } from "yaml";
 
 const load = (path: string) => parse(readFileSync(path, "utf8"));
 
-function checkServices(services: Record<string, any>) {
+function checkServices(services: Record<string, any>, opts: { allowOrchestratorDevSocket?: boolean } = {}) {
   assert.deepEqual(Object.keys(services).sort(), ["db", "orchestrator", "web"]);
   for (const name of ["db", "orchestrator"]) {
     assert.equal(services[name].ports, undefined, `${name} must not publish ports`);
   }
-  for (const service of Object.values(services)) {
+  for (const [name, service] of Object.entries(services)) {
     assert.ok(service.healthcheck.test.length > 1);
     assert.equal(service.privileged, undefined);
-    assert.ok(!(service.volumes ?? []).some((v: string) => v.includes("docker.sock")));
+    const hasSocket = (service.volumes ?? []).some((v: string) => v.includes("docker.sock"));
+    if (opts.allowOrchestratorDevSocket) {
+      // Human authorization 2026-10-02 (Phase 2 review gate): the development override may
+      // mount docker.sock on the orchestrator ONLY, so it can manage per-run k6 containers
+      // (init §7). Production must remain socket-free (asserted by the production test);
+      // security hardening of this dev mount is Phase 9 (init §10).
+      assert.ok(!hasSocket || name === "orchestrator", `${name} must not mount docker.sock`);
+    } else {
+      assert.ok(!hasSocket, `${name} must not mount docker.sock`);
+    }
   }
 }
 
@@ -43,7 +52,14 @@ test("development switches build targets without publishing internal services", 
   for (const [name, override] of Object.entries(dev.services)) {
     merged[name] = { ...merged[name], ...(override as object) };
   }
-  checkServices(merged);
+  checkServices(merged, { allowOrchestratorDevSocket: true });
+  // The dev-only socket authorization is exclusive to the orchestrator override.
+  for (const [name, override] of Object.entries(dev.services)) {
+    const volumes: string[] = (override as { volumes?: string[] }).volumes ?? [];
+    if (volumes.some((v) => v.includes("docker.sock"))) {
+      assert.equal(name, "orchestrator", "dev override may mount docker.sock only on orchestrator");
+    }
+  }
   assert.equal(merged.web.build.target, "development");
   assert.equal(merged.orchestrator.build.target, "development");
   assert.ok(merged.web.volumes.includes("../apps/web/app:/workspace/apps/web/app:ro"));
