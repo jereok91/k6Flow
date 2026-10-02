@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"k6flow/apps/orchestrator/internal/engine"
+	"k6flow/apps/orchestrator/internal/metrics"
 	"k6flow/apps/orchestrator/internal/runs"
 	"k6flow/apps/orchestrator/internal/runtime"
 )
@@ -104,6 +106,13 @@ type harness struct {
 }
 
 func newHarness(rt fakeRT) *harness {
+	return newHarnessDeps(rt, nil, nil)
+}
+
+// newHarnessDeps extends newHarness with the live-metrics tap seams: an
+// optional FrameSink (nil disables frames) and an optional clock for the
+// window anchor (nil uses the real clock).
+func newHarnessDeps(rt fakeRT, sink metrics.FrameSink, now func() time.Time) *harness {
 	logs := &syncBuffer{}
 	store := runs.NewStore()
 	sem := runtime.NewSemaphore(1)
@@ -114,6 +123,8 @@ func newHarness(rt fakeRT) *harness {
 			Sem:     sem,
 			K6Image: "grafana/k6:0.55.0",
 			Log:     slog.New(slog.NewTextHandler(logs, nil)),
+			Sink:    sink,
+			Now:     now,
 		}),
 		rt:  rt,
 		sem: sem,
@@ -306,8 +317,10 @@ func TestCompletionExit0PersistsFinishedSummary(t *testing.T) {
 		t.Errorf("timestamps = %v/%v, want both stamped", run.StartedAt, run.FinishedAt)
 	}
 
-	// Full lifecycle ordering: create, start, wait, parse, cleanup Stop→Remove.
-	h.assertCalls(t, "Create:fake-1", "Start:fake-1", "Wait:fake-1", "Output:fake-1", "Stop:fake-1", "Remove:fake-1")
+	// Full lifecycle ordering: create, start, tap-attached Output (the
+	// single consumer starts before Wait so frames stream while the run is
+	// live), wait, cleanup Stop→Remove.
+	h.assertCalls(t, "Create:fake-1", "Start:fake-1", "Output:fake-1", "Wait:fake-1", "Stop:fake-1", "Remove:fake-1")
 	assertSemFree(t, h.sem)
 
 	// Spec built from run fields and config image.
@@ -375,7 +388,8 @@ func TestCompletionCrashExitFailsWithoutSummary(t *testing.T) {
 	if run.Summary != nil {
 		t.Errorf("Summary = %+v, want nil for crash", run.Summary)
 	}
-	h.assertCalls(t, "Create:fake-1", "Start:fake-1", "Wait:fake-1", "Stop:fake-1", "Remove:fake-1")
+	// The tap attaches Output exactly once per run regardless of outcome.
+	h.assertCalls(t, "Create:fake-1", "Start:fake-1", "Output:fake-1", "Wait:fake-1", "Stop:fake-1", "Remove:fake-1")
 	assertSemFree(t, h.sem)
 }
 
@@ -406,7 +420,9 @@ func TestCompletionParseErrorFailsRunAndStillCleansUp(t *testing.T) {
 	if run.Summary != nil {
 		t.Errorf("Summary = %+v, want nil on parse failure", run.Summary)
 	}
-	h.assertCalls(t, "Create:fake-1", "Start:fake-1", "Wait:fake-1", "Output:fake-1", "Stop:fake-1", "Remove:fake-1")
+	// Tap-attached Output precedes Wait; the parse still fails on the pipe
+	// and the run still fails with guaranteed cleanup.
+	h.assertCalls(t, "Create:fake-1", "Start:fake-1", "Output:fake-1", "Wait:fake-1", "Stop:fake-1", "Remove:fake-1")
 	assertSemFree(t, h.sem)
 }
 
@@ -481,10 +497,11 @@ func TestStopFinalizesStoppedRunThroughNormalCompletion(t *testing.T) {
 	if run.Summary.Totals.Requests != 3 {
 		t.Errorf("Requests = %d, want 3 from partial output", run.Summary.Totals.Requests)
 	}
-	// Stop reached the runtime before the completion path's cleanup.
+	// Stop reached the runtime after the tap attached Output (index 2) and
+	// before the completion path's Wait resolves and cleanup Stop→Remove.
 	calls := rt.Calls()
-	if len(calls) < 2 || calls[2] != "Stop:fake-1" {
-		t.Errorf("calls = %v, want Stop:fake-1 after Wait blocks", calls)
+	if len(calls) < 4 || calls[2] != "Output:fake-1" || calls[3] != "Stop:fake-1" {
+		t.Errorf("calls = %v, want Output:fake-1 then Stop:fake-1 before Wait resolves", calls)
 	}
 	assertSemFree(t, h.sem)
 }
@@ -540,5 +557,214 @@ func TestStopUnlaunchedRunIsANoOp(t *testing.T) {
 	run, _ := h.st.Get(id)
 	if run.Status != runs.StatusPending {
 		t.Errorf("status = %q, want pending (engine.Stop does not transition unlaunched runs)", run.Status)
+	}
+}
+
+// recordingSink captures live-metrics frames emitted through the tap.
+type recordingSink struct {
+	mu     sync.Mutex
+	frames []metrics.MetricsFrame
+}
+
+func (s *recordingSink) OnFrame(f metrics.MetricsFrame) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.frames = append(s.frames, f)
+}
+
+func (s *recordingSink) snapshot() []metrics.MetricsFrame {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]metrics.MetricsFrame(nil), s.frames...)
+}
+
+// panickingSink models a broken subscriber path to prove tap isolation.
+type panickingSink struct{}
+
+func (panickingSink) OnFrame(metrics.MetricsFrame) { panic("sink boom") }
+
+// tapClock is the fixed window-anchor clock for tap tests.
+var tapClock = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+// pointAt builds a k6 Point line stamped run-relative to the tap clock.
+func pointAt(offsetMs int, metric, value string) string {
+	ts := tapClock.Add(time.Duration(offsetMs) * time.Millisecond).UTC().Format(time.RFC3339Nano)
+	return fmt.Sprintf(`{"type":"Point","metric":%q,"data":{"time":%q,"value":%s,"tags":{}}}`, metric, ts, value)
+}
+
+// multiWindowOutput spans four windows: window 0 (request + latency + vus),
+// window 1 (request + failure), window 2 (failed check only), window 3
+// (request; final line has no trailing newline to exercise EOF feeding).
+func multiWindowOutput() string {
+	lines := []string{
+		`{"type":"Metric","metric":{"type":"Counter","name":"http_reqs","contains":"count"}}`,
+		pointAt(100, "http_reqs", "1"),
+		pointAt(100, "http_req_duration", "42.5"),
+		pointAt(100, "http_req_failed", "1"),
+		pointAt(100, "vus", "3"),
+		pointAt(1100, "http_reqs", "1"),
+		pointAt(2100, "checks", "0"),
+		pointAt(3100, "http_reqs", "1"),
+		pointAt(4100, "http_reqs", "1"), // no trailing newline
+	}
+	return strings.Join(lines[:len(lines)-1], "\n") + "\n" + lines[len(lines)-1]
+}
+
+// TestTapFeedsSinkDuringRunWithMultiWindowFrames proves the Output() tap
+// streams per-window frames (run-relative, fixed 1000 ms, monotonic seq)
+// while preserving the summary path.
+func TestTapFeedsSinkDuringRunWithMultiWindowFrames(t *testing.T) {
+	sink := &recordingSink{}
+	h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time { return tapClock })
+	id := h.createRun(t)
+	h.rt.SetOutput("fake-1", multiWindowOutput())
+	if err := h.eng.Launch(context.Background(), id); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	h.waitForStatus(t, id, runs.StatusFinished)
+
+	frames := sink.snapshot()
+	if len(frames) != 4 {
+		t.Fatalf("frames = %d, want 4 completed windows (trailing partial not emitted)", len(frames))
+	}
+	want := []struct {
+		startMs   int64
+		rps       *float64
+		failedChk int
+	}{
+		{0, ptr(1.0), 0},
+		{1000, ptr(1.0), 0},
+		{2000, nil, 1},
+		{3000, ptr(1.0), 0},
+	}
+	for i, w := range want {
+		f := frames[i]
+		if f.Seq != int64(i) || f.Window.StartMs != w.startMs || f.Window.DurationMs != 1000 {
+			t.Errorf("frame %d: seq=%d window=%+v, want seq=%d startMs=%d durationMs=1000",
+				i, f.Seq, f.Window, i, w.startMs)
+		}
+		if f.Version != 1 || f.Type != "metrics" || f.RunID != id {
+			t.Errorf("frame %d envelope: v%d type=%q runId=%q, want v1 metrics/%q", i, f.Version, f.Type, f.RunID, id)
+		}
+		if (f.ReqPerSec == nil) != (w.rps == nil) {
+			t.Errorf("frame %d reqPerSec = %v, want null-ness %v", i, f.ReqPerSec, w.rps == nil)
+		} else if f.ReqPerSec != nil && *f.ReqPerSec != *w.rps {
+			t.Errorf("frame %d reqPerSec = %v, want %v", i, *f.ReqPerSec, *w.rps)
+		}
+		if f.FailedChecks != w.failedChk {
+			t.Errorf("frame %d failedChecks = %d, want %d", i, f.FailedChecks, w.failedChk)
+		}
+		if f.ActiveVUs != 3 {
+			t.Errorf("frame %d activeVUs = %d, want carried gauge 3", i, f.ActiveVUs)
+		}
+	}
+	if v := frames[0].LatencyMs.Avg; v == nil || *v != 42.5 {
+		t.Errorf("frame 0 latency avg = %v, want 42.5", v)
+	}
+	if v := frames[0].HTTPFailureFraction; v == nil || *v != 1 {
+		t.Errorf("frame 0 httpFailureFraction = %v, want 1", v)
+	}
+	if v := frames[1].HTTPFailureFraction; v == nil || *v != 0 {
+		t.Errorf("frame 1 httpFailureFraction = %v, want 0 (no failures in window)", v)
+	}
+}
+
+func ptr(v float64) *float64 { return &v }
+
+// TestTapKeepsFinalSummaryByteCompatibleWithSinkPresent re-runs the frozen
+// k6Output fixture with a sink attached and asserts the stored summary is
+// identical to the sinkless result (Totals 3/1/2, latency 55/90/100/100).
+func TestTapKeepsFinalSummaryByteCompatibleWithSinkPresent(t *testing.T) {
+	sink := &recordingSink{}
+	h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time {
+		return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	})
+	id := h.createRun(t)
+	h.rt.SetOutput("fake-1", k6Output)
+	if err := h.eng.Launch(context.Background(), id); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	h.waitForStatus(t, id, runs.StatusFinished)
+
+	run, _ := h.st.Get(id)
+	if run.Summary == nil {
+		t.Fatal("Summary = nil, want persisted summary")
+	}
+	wantTotals := runs.Totals{Requests: 3, Errors: 1, FailedChecks: 2}
+	if run.Summary.Totals != wantTotals {
+		t.Errorf("Totals = %+v, want %+v (identical to sinkless run)", run.Summary.Totals, wantTotals)
+	}
+	wantLatency := runs.LatencyMs{Avg: 55, P90: 90, P95: 100, P99: 100}
+	if run.Summary.LatencyMs != wantLatency {
+		t.Errorf("LatencyMs = %+v, want %+v", run.Summary.LatencyMs, wantLatency)
+	}
+	if !run.Summary.ThresholdsPassed {
+		t.Error("ThresholdsPassed = false, want true for exit 0")
+	}
+	frames := sink.snapshot()
+	if len(frames) == 0 {
+		t.Fatal("sink received no frames from the multi-second fixture")
+	}
+	for i, f := range frames {
+		if f.Seq != int64(i) || f.Window.StartMs != int64(i)*1000 {
+			t.Errorf("frame %d: seq=%d startMs=%d, want seq=%d startMs=%d (monotonic, gapless)",
+				i, f.Seq, f.Window.StartMs, i, i*1000)
+		}
+	}
+}
+
+// TestTapSinkPanicDoesNotFailRun proves sink/aggregation failures are
+// isolated: the run still finalizes with its summary.
+func TestTapSinkPanicDoesNotFailRun(t *testing.T) {
+	h := newHarnessDeps(runtime.NewFakeRuntime(), panickingSink{}, func() time.Time { return tapClock })
+	id := h.createRun(t)
+	h.rt.SetOutput("fake-1", multiWindowOutput())
+	if err := h.eng.Launch(context.Background(), id); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	h.waitForStatus(t, id, runs.StatusFinished)
+
+	run, _ := h.st.Get(id)
+	if run.Summary == nil {
+		t.Fatal("Summary = nil, want summary despite sink panic")
+	}
+	wantTotals := runs.Totals{Requests: 4, Errors: 1, FailedChecks: 1}
+	if run.Summary.Totals != wantTotals {
+		t.Errorf("Totals = %+v, want %+v", run.Summary.Totals, wantTotals)
+	}
+	wantLatency := runs.LatencyMs{Avg: 42.5, P90: 42.5, P95: 42.5, P99: 42.5}
+	if run.Summary.LatencyMs != wantLatency {
+		t.Errorf("LatencyMs = %+v, want %+v", run.Summary.LatencyMs, wantLatency)
+	}
+	if !strings.Contains(h.log.String(), "metrics aggregation panic recovered") {
+		t.Error("logs do not record the recovered sink panic")
+	}
+}
+
+// TestTapConsumesOutputExactlyOnce proves the tap is the single consumer:
+// sink and k6sum share one Output() attachment (pipe), never two reads.
+func TestTapConsumesOutputExactlyOnce(t *testing.T) {
+	sink := &recordingSink{}
+	h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time {
+		return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	})
+	id := h.createRun(t)
+	h.rt.SetOutput("fake-1", k6Output)
+	if err := h.eng.Launch(context.Background(), id); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	h.waitForStatus(t, id, runs.StatusFinished)
+
+	count := 0
+	for _, c := range h.rt.Calls() {
+		if strings.HasPrefix(c, "Output:") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("Output() calls = %d, want exactly 1 (single consumer)", count)
+	}
+	if len(sink.snapshot()) == 0 {
+		t.Error("sink received no frames although Output carried points")
 	}
 }

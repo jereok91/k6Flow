@@ -7,25 +7,38 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strconv"
 	"sync"
+	"time"
 
 	"k6flow/apps/orchestrator/internal/k6sum"
+	"k6flow/apps/orchestrator/internal/metrics"
 	"k6flow/apps/orchestrator/internal/runs"
 	"k6flow/apps/orchestrator/internal/runtime"
 )
 
 // Deps are the engine's injected dependencies: the run store, the container
 // runtime (Docker or fake), the run-concurrency semaphore, the k6 image taken
-// from config (K6_IMAGE) and the structured logger.
+// from config (K6_IMAGE), the structured logger and the optional live-metrics
+// seams (Sink/Now, see their docs).
 type Deps struct {
 	Store   *runs.Store
 	Runtime runtime.ContainerRuntime
 	Sem     *runtime.Semaphore
 	K6Image string
 	Log     *slog.Logger
+	// Sink receives the live per-window metrics frames produced by the
+	// Output() tap (nil disables frames; the hub wiring lands in K6F3-03).
+	// Isolation policy: sink panics are recovered and logged inside the tap
+	// and can never fail or corrupt a run (DECISIONES K6F3-01).
+	Sink metrics.FrameSink
+	// Now overrides the tap's window-anchor clock (test seam); nil uses
+	// time.Now. The anchor is sampled once per run when Output() is attached.
+	Now func() time.Time
 }
 
 // Engine owns in-flight launches keyed by run id; the handle map is the
@@ -36,6 +49,8 @@ type Engine struct {
 	sem   *runtime.Semaphore
 	image string
 	log   *slog.Logger
+	sink  metrics.FrameSink
+	nowFn func() time.Time
 
 	mu      sync.Mutex
 	handles map[string]*handle
@@ -78,16 +93,20 @@ func New(d Deps) *Engine {
 		sem:     d.Sem,
 		image:   d.K6Image,
 		log:     logger,
+		sink:    d.Sink,
+		nowFn:   d.Now,
 		handles: map[string]*handle{},
 	}
 }
 
 // Launch validates the run, takes a semaphore slot, promotes pending →
-// running, creates and starts the container, then finalizes asynchronously:
-// Wait → outcome mapping → parse Output → terminal SetStatus + SetSummary →
-// guaranteed cleanup → semaphore release. Early errors (validation, context,
-// acquisition) change no status; failures after promotion terminalize the run
-// as failed. Launch returns once the container has started.
+// running, creates and starts the container, attaches the Output() tap
+// exactly once (single consumer: live frames out, raw bytes to the summary
+// pipe), then finalizes asynchronously: Wait → join tap → outcome mapping →
+// terminal SetStatus + SetSummary → guaranteed cleanup → semaphore release.
+// Early errors (validation, context, acquisition) change no status; failures
+// after promotion terminalize the run as failed. Launch returns once the
+// container has started.
 func (e *Engine) Launch(ctx context.Context, runID string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("engine: launch %s: %w", runID, err)
@@ -140,9 +159,14 @@ func (e *Engine) Launch(ctx context.Context, runID string) error {
 			e.log.Warn("stop after start failed", "runId", runID, "container", containerID, "error", err)
 		}
 	}
+	// The tap attaches Output() exactly once, right after the container is
+	// running, so windows stream while the run is live; the anchor defines
+	// run-relative window 0. A detached context keeps caller cancellation
+	// from tearing the log stream down.
+	tap := e.startTap(context.WithoutCancel(ctx), runID, containerID)
 	// Detached: completion/cleanup must survive cancellation of the caller's
 	// context (guaranteed removal).
-	go e.complete(context.WithoutCancel(ctx), runID, h)
+	go e.complete(context.WithoutCancel(ctx), runID, h, tap)
 	return nil
 }
 
@@ -174,18 +198,25 @@ func (e *Engine) Stop(ctx context.Context, runID string) error {
 	return nil
 }
 
-// complete is the terminalization goroutine: wait, decide, persist, then
-// always cleanup (Stop→Remove with force on the detached context), release
-// the semaphore and deregister the handle — including parse-failure paths,
-// where the parse failure itself marks the run failed.
-func (e *Engine) complete(ctx context.Context, runID string, h *handle) {
+// complete is the terminalization goroutine: wait for the container, join
+// the Output() tap (its parse outcome replaces the former inline Output
+// read; on a wait error the log stream is force-closed so the tap can never
+// block completion), then decide, persist and always cleanup (Stop→Remove
+// with force on the detached context), release the semaphore and deregister
+// the handle — including parse-failure paths, where the parse failure itself
+// marks the run failed.
+func (e *Engine) complete(ctx context.Context, runID string, h *handle, t *tap) {
 	containerID := h.container()
 	defer e.deregister(runID)
 	defer e.sem.Release()
 	defer e.cleanup(ctx, containerID)
 
 	exit, waitErr := e.rt.Wait(ctx, containerID)
-	status, summary := e.decide(ctx, runID, containerID, exit, waitErr, h.stopRequested())
+	if waitErr != nil {
+		t.closeOutput()
+	}
+	t.wait()
+	status, summary := e.decide(runID, exit, waitErr, h.stopRequested(), t.summary, t.parseErr)
 	if err := e.store.SetStatus(runID, status); err != nil {
 		// Terminal immutability: if the run already reached a terminal state
 		// (e.g. a stop landed first), the transition is rejected and no
@@ -205,21 +236,21 @@ func (e *Engine) complete(ctx context.Context, runID string, h *handle) {
 	e.log.Info("run finalized", "runId", runID, "status", string(status), "exit_code", exit)
 }
 
-// decide maps the wait result to the terminal status and its summary.
+// decide maps the wait result to the terminal status and its summary using
+// the tap's parse outcome (identical semantics to the former e.parse call).
 // Precedence: an explicit stop request wins over the exit-code mapping; a
 // wait error or a mapped failure yields failed with no summary; a finished
-// run parses its output, and a parse/output failure downgrades it to failed
-// with no summary. Stopped runs tolerate parse failures (a killed container
-// may truncate the stream) and fall back to an all-zero summary so the
-// terminal-summary invariant holds for stopped runs.
-func (e *Engine) decide(ctx context.Context, runID, containerID string, exit int, waitErr error, stopped bool) (runs.Status, *runs.Summary) {
+// run uses the tap-parsed output, and a parse/output failure downgrades it to
+// failed with no summary. Stopped runs tolerate parse failures (a killed
+// container may truncate the stream) and fall back to an all-zero summary so
+// the terminal-summary invariant holds for stopped runs.
+func (e *Engine) decide(runID string, exit int, waitErr error, stopped bool, summary runs.Summary, parseErr error) (runs.Status, *runs.Summary) {
 	if stopped {
-		summary, err := e.parse(ctx, containerID)
-		if err != nil {
-			e.log.Warn("output parse failed for stopped run; storing zero summary", "runId", runID, "error", err)
+		if parseErr != nil {
+			e.log.Warn("output parse failed for stopped run; storing zero summary", "runId", runID, "error", parseErr)
 			return runs.StatusStopped, &runs.Summary{}
 		}
-		return runs.StatusStopped, summary
+		return runs.StatusStopped, &summary
 	}
 	if waitErr != nil {
 		e.log.Error("container wait failed", "runId", runID, "error", waitErr)
@@ -230,28 +261,151 @@ func (e *Engine) decide(ctx context.Context, runID, containerID string, exit int
 		e.log.Warn("run failed by exit code", "runId", runID, "exit_code", exit)
 		return runs.StatusFailed, nil
 	}
-	summary, err := e.parse(ctx, containerID)
-	if err != nil {
-		e.log.Error("output parse failed; run marked failed", "runId", runID, "error", err)
+	if parseErr != nil {
+		e.log.Error("output parse failed; run marked failed", "runId", runID, "error", parseErr)
 		return runs.StatusFailed, nil
 	}
 	summary.ThresholdsPassed = passed
-	return status, summary
+	return status, &summary
 }
 
-// parse attaches the container output stream and aggregates it; the caller
-// owns the returned summary pointer.
-func (e *Engine) parse(ctx context.Context, containerID string) (*runs.Summary, error) {
+// tap is the single-consumer view of one run's Output() stream. It owns the
+// io.Pipe that feeds k6sum (raw bytes forward, so the summary sees the very
+// same stream a direct read would deliver) and the per-run window aggregator
+// that feeds the optional FrameSink. Started once in Launch, joined once in
+// complete; its summary/parseErr are read only after wait().
+type tap struct {
+	wg       sync.WaitGroup
+	summary  runs.Summary
+	parseErr error
+	closeOut func()
+}
+
+func (t *tap) wait() { t.wg.Wait() }
+func (t *tap) closeOutput() {
+	if t.closeOut != nil {
+		t.closeOut()
+	}
+}
+
+// startTap attaches Output() exactly once for this run. A failed attach
+// records the error as the parse failure (same terminal effect as the
+// pre-tap flow: failed run, or zero summary for stopped runs). On success two
+// goroutines run: k6sum.Parse draining the pipe, and the pump consuming
+// Output().
+func (e *Engine) startTap(ctx context.Context, runID, containerID string) *tap {
+	t := &tap{}
 	reader, err := e.rt.Output(ctx, containerID)
 	if err != nil {
-		return nil, err
+		t.parseErr = err
+		return t
 	}
-	defer reader.Close()
-	summary, err := k6sum.Parse(reader)
-	if err != nil {
-		return nil, err
+	t.closeOut = sync.OnceFunc(func() { _ = reader.Close() })
+	pr, pw := io.Pipe()
+	now := time.Now
+	if e.nowFn != nil {
+		now = e.nowFn
 	}
-	return &summary, nil
+	agg := metrics.NewRunWindowAggregator(runID, now(), e.sink)
+	t.wg.Add(2)
+	go func() {
+		defer t.wg.Done()
+		summary, err := k6sum.Parse(pr)
+		t.summary, t.parseErr = summary, err
+		// Fail-fast plumbing: after an early parse abort (malformed line) any
+		// pending or future pump write must error out instead of blocking.
+		_ = pr.CloseWithError(err)
+	}()
+	go func() {
+		defer t.wg.Done()
+		defer t.closeOut()
+		e.pump(agg, runID, reader, pw)
+	}()
+	return t
+}
+
+// pump is the run's only Output() reader. Every byte is forwarded to the
+// summary pipe untouched — k6sum observes the identical stream (same bytes,
+// same read errors, oversized lines included), so its fail-the-summary
+// semantics stay byte-compatible. Complete lines are also fed to the window
+// aggregator, whose failures never reach this path (forwardLine recovers
+// panics per line). Memory bound: a 32 KiB read buffer plus a line
+// accumulator capped at k6sum.MaxLineBytes (oversized lines are dropped from
+// aggregation only).
+func (e *Engine) pump(agg *metrics.RunWindowAggregator, runID string, reader io.Reader, pw *io.PipeWriter) {
+	buf := make([]byte, 32*1024)
+	var line []byte
+	discarding := false
+	for {
+		n, rerr := reader.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			line, discarding = feedLines(agg, runID, e.log, chunk, line, discarding)
+			if _, werr := pw.Write(chunk); werr != nil {
+				// k6sum aborted (e.g. malformed line): stop consuming — the
+				// summary path fails exactly as it would without the tap.
+				return
+			}
+		}
+		if rerr != nil {
+			// k6sum scans a final line even without a trailing newline; feed
+			// the residual so the aggregator matches that behavior.
+			if !discarding && len(line) > 0 {
+				forwardLine(agg, runID, e.log, line)
+			}
+			if errors.Is(rerr, io.EOF) {
+				_ = pw.Close()
+			} else {
+				// Same wrapped read error k6sum would report reading Output
+				// directly ("k6sum: read stream: ...").
+				_ = pw.CloseWithError(rerr)
+			}
+			return
+		}
+	}
+}
+
+// feedLines splits chunk into newline-terminated lines for the aggregator,
+// enforcing the 1 MiB guard: bytes accumulated past k6sum.MaxLineBytes are
+// dropped from aggregation until the next newline (the raw bytes still
+// reach k6sum). Returns the residual line buffer and the discard state.
+func feedLines(agg *metrics.RunWindowAggregator, runID string, log *slog.Logger, chunk, line []byte, discarding bool) ([]byte, bool) {
+	for _, b := range chunk {
+		if b == '\n' {
+			if !discarding {
+				forwardLine(agg, runID, log, line)
+			}
+			line = line[:0]
+			discarding = false
+			continue
+		}
+		if discarding {
+			continue
+		}
+		if len(line) >= k6sum.MaxLineBytes {
+			discarding = true
+			line = line[:0]
+			continue
+		}
+		line = append(line, b)
+	}
+	return line, discarding
+}
+
+// forwardLine isolates the broadcast path: a panicking aggregator or sink is
+// recovered and logged, never propagated, so aggregation failures cannot
+// corrupt or fail the summary path — the deliberate divergence from
+// k6sum's fail-the-summary policy (DECISIONES K6F3-01).
+func forwardLine(agg *metrics.RunWindowAggregator, runID string, log *slog.Logger, line []byte) {
+	if len(line) == 0 {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Warn("metrics aggregation panic recovered; run unaffected", "runId", runID, "panic", r)
+		}
+	}()
+	agg.OnLine(line)
 }
 
 // spec builds the container spec from the stored run fields: the script via
