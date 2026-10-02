@@ -35,7 +35,7 @@ Define shared graph, REST and versioned WebSocket contracts before runtime imple
 - [x] K6F1-04 — Runs/health REST schemas and OpenAPI agreement. Two chained commits `6858e7f` (code, 344 lines) + `e536626` (docs, 84); writer trim 552→398, independent verifier PASS (504 tests); both slices native-approved and acknowledged.
 - [x] K6F1-05 — Versioned metrics WS. Commit `3ee043a` (6 files, 347 lines) + correction `97af7ee` (+1 line); writer 306 lines, independent verifier PASS (616 tests); native escalated `native_stop_required` at targeted validation (same defect #4997 pattern as 03c/03f); closed by human on independent verification WITHOUT native approval.
 - [x] K6F1-06 — Recorder REST/WS contracts. Commit `TBD` (7 files, 428 lines, human-approved exception); writer 428 lines, verifier TBD; native review route TBD.
-- [ ] K6F1-07 — Human Phase 1 review gate.
+- [x] K6F1-07 — Human Phase 1 review gate. APPROVED 2026-10-01: human reviewed manually and approved Phase 1 contracts as-is ("veo bien hasta donde va"). Phase 1 complete (01–07); Phase 2 requires its own authorization.
 
 ## Acceptance, verification and review strategy
 Each capability needs strict schemas/inferred exports, behavioral RED/GREEN, positive/negative/boundary tests, English documentation and unchanged reviewed contracts. Draft integrity must reject malformed/duplicate/dangling identities without claiming readiness. Composition must prove supported outputs/type compatibility/precedence only after producer contracts exist. REST/WS contracts require schema/document agreement and explicit versioning.
