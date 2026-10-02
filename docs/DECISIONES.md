@@ -1,5 +1,25 @@
 # Foundation decisions
 
+## Phase 2 — runs REST handlers (K6F2-02)
+
+Implement the approved contract 04 as `apps/orchestrator/internal/httpapi`
+handlers over the Phase 1 store; container execution stays K6F2-03.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| `NewHandler(Deps) http.Handler` instead of `*http.Server` | Handlers stay directly `httptest`-verifiable; `cmd/server` (untouched by this unit) keeps server construction and timeout ownership for the later wiring unit. |
+| Flat error envelope `{version, code, message}` | `runErrorResponseSchema` (`packages/shared/src/runs-rest.ts`) and `RunError` (`docs/api/openapi.yaml`) declare flat fields — not a nested `{"error":{...}}` object; messages mirror the OpenAPI response descriptions. |
+| `400` with code `invalid-request` for malformed bodies | Phase 2 clarification: contract 04 declares only 401/404/409 for the runs routes and no malformed-body catalog code, but a rejected body must still answer with the structured envelope; mapping it onto `unauthorized`/`run-not-found`/`summary-not-terminal` would misstate the failure. `invalid-request` therefore sits outside the approved three-code enum until contract 04 is amended. |
+| No `metadata` field on run start | `runStartConfigSchema` is a strict object (`version`, `script`, `vus`, `durationMs`, `cpuMillis`, `memoryMiB`, optional `attachments`) with `additionalProperties: false`; `metadata` and every other unknown field are rejected with 400. |
+| Synchronous `pending → running` promotion after create | The engine is K6F2-03, so the handler stamps `running` before answering 202 to keep state/stop/summary observable and tests deterministic; a failed promotion is logged and the run stays accepted (still 202). K6F2-03 replaces this with the deferred engine transition. |
+| Stop promotes `pending` before `stopped` | The store transition table allows only `pending → running` and `running → finished|failed|stopped`; a known non-terminal run therefore moves `pending → running → stopped` so stop always answers the idempotent 202. Terminal stops re-answer 202 without touching state. |
+| Empty `SERVICE_TOKEN` fails closed | Per the `config.Load` contract, `NewHandler` with an empty token rejects every `/api/*` request with 401 — including a present but empty bearer value; constant-time comparison via `crypto/subtle`. |
+| SHA-256 over the raw request bytes for dedupe | `Idempotency-Key` + payload hash index in `runs.Store`; an identical key and payload replays 200 with the existing runId, a different payload or an absent key always creates. |
+| `log/slog` with an injected logger; secrets never logged | Tests capture handler output and assert the service token and script bytes are absent; only runId, method/path, status and validation errors are logged. |
+
+Rollback: remove `apps/orchestrator/internal/httpapi` and this section; the Phase 1
+store/runtime/config and `cmd/server` health probe remain untouched.
+
 ## Phase 1 — shared validation foundation (K6F1-01)
 
 Use private `@k6flow/shared` for runtime validation and schema-inferred types.
