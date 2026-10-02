@@ -43,6 +43,39 @@ paths:
       security: []
       responses:
         "200": { description: "200 process alive; public and unversioned, no bearer auth", content: { application/json: { schema: { type: object, required: [status], properties: { status: { const: ok } } } } } }
+  /api/recorder/recordings:
+    post:
+      operationId: createRecording
+      description: "201 created with recordingId"
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RecorderCreateRequest" } } } }
+      responses:
+        "201": { description: "201 recording created", content: { application/json: { schema: { $ref: "#/components/schemas/RecorderCreateResponse" } } } }
+        "401": { $ref: "#/components/responses/RecorderUnauthorized" }
+  /api/recorder/recordings/{recordingId}:
+    get:
+      operationId: getRecording
+      parameters: [{ in: path, name: recordingId, required: true, schema: { type: string, minLength: 1 } }]
+      responses:
+        "200": { description: "200 current recording state", content: { application/json: { schema: { $ref: "#/components/schemas/RecorderStateResponse" } } } }
+        "401": { $ref: "#/components/responses/RecorderUnauthorized" }
+        "404": { $ref: "#/components/responses/RecorderNotFound" }
+  /api/recorder/recordings/{recordingId}/stop:
+    post:
+      operationId: stopRecording
+      description: "200 idempotent stop; repeated stop returns the same terminal state and capture without extra effect"
+      parameters: [{ in: path, name: recordingId, required: true, schema: { type: string, minLength: 1 } }]
+      responses:
+        "200": { description: "200 idempotent stop with capture", content: { application/json: { schema: { $ref: "#/components/schemas/RecorderStopResponse" } } } }
+        "401": { $ref: "#/components/responses/RecorderUnauthorized" }
+        "404": { $ref: "#/components/responses/RecorderNotFound" }
+  /ws/recordings/{recordingId}:
+    get:
+      operationId: recorderWsHandshake
+      description: "WebSocket handshake for bidirectional recording stream; Bearer auth on handshake (401 uniform)"
+      parameters: [{ in: path, name: recordingId, required: true, schema: { type: string, minLength: 1 } }]
+      responses:
+        "101": { description: "101 WebSocket upgrade; Bearer auth required on handshake" }
+        "401": { $ref: "#/components/responses/RecorderUnauthorized" }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer }
@@ -50,6 +83,8 @@ components:
     Unauthorized: { description: "401 missing or invalid Authorization bearer token", content: { application/json: { schema: { $ref: "#/components/schemas/RunError" } } } }
     NotFound: { description: "404 unknown runId", content: { application/json: { schema: { $ref: "#/components/schemas/RunError" } } } }
     SummaryNotReady: { description: "409 premature summary: run not in a terminal state", content: { application/json: { schema: { $ref: "#/components/schemas/RunError" } } } }
+    RecorderUnauthorized: { description: "401 missing or invalid Authorization bearer token on recorder endpoint", content: { application/json: { schema: { $ref: "#/components/schemas/RecorderError" } } } }
+    RecorderNotFound: { description: "404 unknown recordingId", content: { application/json: { schema: { $ref: "#/components/schemas/RecorderError" } } } }
   schemas:
     RunStatus: { type: string, enum: [pending, running, finished, failed, stopped] }
     RunReference: { type: object, additionalProperties: false, required: [version, runId], properties: { version: { const: 1 }, runId: { type: string, minLength: 1 } } }
@@ -78,3 +113,21 @@ components:
         - if: { properties: { status: { enum: [failed, stopped] } }, required: [status] }
           then: { not: { required: [thresholdsPassed] } }
     RunError: { type: object, additionalProperties: false, required: [version, code, message], properties: { version: { const: 1 }, code: { type: string, enum: [unauthorized, run-not-found, summary-not-terminal] }, message: { type: string, minLength: 1 } } }
+    RecorderStatus: { type: string, enum: [pending, recording, stopping, completed, failed] }
+    RecorderCleanupTrigger: { type: string, enum: [run-finished, closed, inactivity, max-duration, manual] }
+    RecorderHeaderEntry: { type: object, additionalProperties: false, required: [name, value], properties: { name: { type: string, minLength: 1 }, value: { type: string } } }
+    RecorderCaptureEntry:
+      type: object
+      additionalProperties: false
+      required: [method, url, status, headers, redacted]
+      description: "Raw HTTP transcript entry — explicitly NOT the graph HTTP-node AST; import→graph mapping is deferred"
+      properties: { method: { type: string, minLength: 1 }, url: { type: string, minLength: 1 },
+        status: { type: integer, minimum: 1, maximum: 9007199254740991 },
+        headers: { type: array, items: { $ref: "#/components/schemas/RecorderHeaderEntry" } },
+        bodyExcerpt: { type: string, description: "Optional response body excerpt" },
+        redacted: { type: boolean, description: "True when sensitive fields have been redacted" } }
+    RecorderCreateRequest: { type: object, additionalProperties: false, required: [version], properties: { version: { const: 1 } } }
+    RecorderCreateResponse: { type: object, additionalProperties: false, required: [version, recordingId], properties: { version: { const: 1 }, recordingId: { type: string, minLength: 1 } } }
+    RecorderStateResponse: { type: object, additionalProperties: false, required: [version, recordingId, status], properties: { version: { const: 1 }, recordingId: { type: string, minLength: 1 }, status: { $ref: "#/components/schemas/RecorderStatus" } } }
+    RecorderStopResponse: { type: object, additionalProperties: false, required: [version, recordingId, status, capture], properties: { version: { const: 1 }, recordingId: { type: string, minLength: 1 }, status: { $ref: "#/components/schemas/RecorderStatus" }, capture: { type: array, items: { $ref: "#/components/schemas/RecorderCaptureEntry" } } } }
+    RecorderError: { type: object, additionalProperties: false, required: [version, code, message], properties: { version: { const: 1 }, code: { type: string, enum: [unauthorized, recording-not-found] }, message: { type: string, minLength: 1 } } }

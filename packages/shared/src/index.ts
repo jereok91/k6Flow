@@ -58,3 +58,19 @@ export type {
 } from "./runs-rest";
 export { metricsWindowSchema, metricsLatencySchema, metricsFrameSchema } from "./metrics-messages";
 export type { MetricsWindow, MetricsLatency, MetricsFrame } from "./metrics-messages";
+export {
+  recorderStatusSchema, recorderTerminalStatusSchema, recorderCleanupTriggerSchema,
+  recorderHeaderEntrySchema, recorderCaptureEntrySchema,
+  recorderCreateRequestSchema, recorderCreateResponseSchema,
+  recorderStateResponseSchema, recorderStopResponseSchema,
+  recorderErrorCodeSchema, recorderErrorCatalogSchema, recorderErrorResponseSchema,
+  recorderWsInputFrameSchema, RECORDER_WS_TOPIC_PREFIX,
+} from "./recorder-contracts";
+export type {
+  RecorderStatus, RecorderTerminalStatus, RecorderCleanupTrigger,
+  RecorderHeaderEntry, RecorderCaptureEntry,
+  RecorderCreateRequest, RecorderCreateResponse,
+  RecorderStateResponse, RecorderStopResponse,
+  RecorderErrorCode, RecorderErrorCatalog, RecorderErrorResponse,
+  RecorderWsInputFrame,
+} from "./recorder-contracts";

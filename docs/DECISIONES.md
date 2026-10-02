@@ -211,6 +211,26 @@ Runtime harness: N/A; pure declarations add no process/network boundary. Rollbac
 only the metrics module/tests, additive exports, `api/ws-metrics.md` and these
 notes; preserve reviewed contracts, parent tracking and unrelated surfaces.
 
+## Phase 1 — recorder REST/WS contract declarations (K6F1-06)
+
+Declare strict version 1 recorder REST request/response schemas, the WS input
+frame and the OpenAPI recorder section without handlers or runtime. See
+[the recorder guide](api/ws-recorder.md).
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Explicit closed lifecycle and cleanup-trigger sets | `pending|recording|stopping|completed|failed` and `run-finished|closed|inactivity|max-duration|manual`; declarations only, no state machine implementation. |
+| Idempotent stop with exact-once capture | Repeated stop returns the same terminal state without extra effect; capture delivered exactly once is a runtime obligation; no structured error for repeated stop because it is idempotent, not an error. |
+| Raw HTTP transcript capture, not graph AST | Capture entries are `{method, url, status, headers, bodyExcerpt?, redacted}` — explicitly not the graph HTTP-node literal/reference AST; import→graph mapping is deferred. |
+| Static bearer auth on REST and WS handshake | `Authorization: Bearer <token>` on all `/api/recorder/*` routes and on the recording WS handshake `/ws/recordings/{recordingId}` (`401` uniform); consistent with the runs REST contract. |
+
+Declaration only: no handlers, sockets, containers, Docker, byte transport,
+redaction implementation, secret visibility/retention config, filter logic or
+recording runtime. Runtime harness: N/A; pure declarations add no process/network
+boundary. Rollback only the recorder module/tests, additive exports,
+`api/ws-recorder.md`, the recorder section in `api/openapi.yaml` and these notes;
+preserve reviewed contracts, parent tracking and unrelated surfaces.
+
 ## Phase 0 decisions
 
 These decisions implement the approved foundation without deciding later
