@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/docker/docker v28.5.2+incompatible
+	github.com/gorilla/websocket v1.5.3
 	github.com/opencontainers/image-spec v1.1.1
 )
 
