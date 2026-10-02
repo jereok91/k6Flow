@@ -1,5 +1,30 @@
 # Foundation decisions
 
+## Phase 2 — full wiring + real-Docker proof (K6F2-05)
+
+Wire the whole stack (REST handler → engine → Docker) in `cmd/server`, expose
+it to curl (init:184), and prove every lifecycle path against the host engine
+with `//go:build integration` tests.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Async 202: `startRun` writes the response first, then runs `go launcher.Launch(context.WithoutCancel(r.Context()), runID)` | True acceptance semantics; the request context dies with the response, so the launch gets a detached one. A Launch error after the 202 is logged only — terminalizing the run is the engine's own failure path (`failLaunch` ⇒ failed). The run leaves the store as `pending`; the engine promotes it to `running` (the K6F2-02 synchronous placeholder is gone). |
+| Local `RunLauncher { Launch, Stop }` interface defined in `httpapi`, implemented by `*engine.Engine` in cmd/server | The HTTP layer never imports the engine package; unit tests keep a deterministic fake (gated launch proves the 202 precedes launch completion). `Deps.Runtime` (ContainerRuntime) is gone — the handler never touches containers. |
+| Stop finalization ownership: handler always calls `launcher.Stop` for non-terminal runs, but only terminalizes runs still `pending` itself; a `running` run is finalized by the engine's completion goroutine | Lets the engine persist the stopped-run summary (handler-side terminalization would make the engine's final `SetStatus` hit terminal immutability and drop `SetSummary`). 202/404 semantics unchanged; a failed engine stop is logged and still 202 (the completion path converges later). |
+| `thresholdsPassed` omitted for non-`finished` summaries | K6F2-04 verifier finding #4 — `runSummarySchema` carries it only for `finished`. Verified (tests + curl e2e), no code change needed: `handlers.go` already gated on `finished`. |
+| Startup `ReconcileOrphans` before serving, failure ⇒ log + continue | Docker-down boot still serves REST (launches then fail per run). Success logs the removed count (`removed=0` observed in every integration run). |
+| Graceful shutdown: SIGINT/SIGTERM → `http.Server.Shutdown` (10s) | HTTP drains only; in-flight run containers stay labeled and are left for the next startup's reconciliation. Deeper drain/kill on shutdown is Phase 9 (recorded per unit spec). |
+| `ORCHESTRATOR_NETWORK` read directly in `cmd/server` (not `config.Config`, which stays frozen) and applied by the decorator: empty ⇒ engine default | `config.Config`/`engine`/`runtime/docker.go` cannot accept a network field in this unit; the decorator fills `Spec.Network` only when the spec has none (an explicit engine-provided network wins). |
+| `decoratedRuntime` in `cmd/server` wraps `*DockerRuntime` for two stream/spec fix-ups the frozen files cannot host | (1) injects k6 `--quiet` into `Spec.Args`: k6 v2.3 writes progress to STDOUT, interleaving **mid-line** with the JSON points and corrupting them (observed: `unexpected end of JSON input`); `--quiet` removes progress and the banner. (2) `Output` runs `stdcopy.StdCopy` (Docker's 8-byte multiplex framing on non-TTY logs — proven on the raw Engine API: header `01 00 00 00 …` per frame) and then keeps only `'{`-opening lines: the end-of-run summary still prints on stdout after the last point and is dropped at that boundary. k6 stderr (banner/log lines that can echo script source) is discarded, never logged. |
+| Docker SDK `client` import in `cmd/server` with pinned otel stack; final `go 1.25.0` | Unfrozen for this unit by human disposition (option 3). Untouched `go mod tidy` resolves otel v1.47.0 (go 1.26.0) and forces a directive the frozen `golang:1.25.7` image cannot build; pins keep every module floor ≤1.25: `otel v1.46.0`, `otel/trace+metric v1.46.0`, `otel/exporters/otlp/otlptrace{,/otlptracehttp} v1.46.0`, `otelhttp v0.71.0`, `x/sys v0.47.0`, `x/time v0.15.0` (MVS then settled `x/net v0.58.0`, `x/text v0.41.0`, `grpc v1.83.1`). `go mod tidy -diff` clean. |
+| **Conformance (R3-k6-checks-name resolved): real grafana/k6 v2.3.0 emits the metric name `checks`, not `check`** | Recorded from real output: `{"type":"Metric","data":{"name":"checks","type":"rate",…},"metric":"checks"}` with `value:1` = passed, `value:0` = failed. `k6sum.MetricCheck` fixed to `"checks"` (value-0 semantics unchanged); the pre-conformance `check` spelling is kept as `MetricCheckLegacy` so the frozen K6F2-04 engine fixtures keep counting. `http_reqs`/`http_req_failed`/`http_req_duration` confirmed as assumed. |
+| Integration suite: `GOCACHE=… GOMODCACHE=… go test -tags integration -count=1 ./internal/engine/ -v` | Real-Docker tests live behind the `integration` build tag (absent from `go test ./...`); skip **only** on daemon connection errors (explicitly reported), pull `grafana/k6` when absent, bounded scripts (≤5s, 1 VU, sleeping iterations — request storms measured at ~30 MB/s of JSON), `t.Cleanup` force-removes labeled leftovers. |
+| curl evidence (init:184) against the real binary (`go build` + run, `SERVICE_TOKEN`/`ORCHESTRATOR_*` env) | Transcript (recorded in the unit report): `/healthz` → `200 {"status":"ok"}` public; POST `/api/runs` unauthenticated and wrong-Bearer → `401 unauthorized`; valid Bearer → `202 {version,runId}`; GET state polls `running` → `finished`; GET summary → `200 …"thresholdsPassed":true` with `totals{requests:3,errors:3,failedChecks:3}`; second run stopped → `202`, state `stopped`, summary `200` **without** `thresholdsPassed`; SIGINT → logged `shutdown signal received`, clean exit; zero `k6flow.managed` containers before and after. |
+
+Rollback for this unit: `cmd/server/*`, `internal/httpapi/{server,handlers}.go`
+(+ tests), `internal/engine/integration_test.go`, `internal/k6sum/{parse,parse_test}.go`,
+go.mod/go.sum and this section — the frozen surfaces stay untouched.
+
 ## Phase 2 — k6 JSON output → approved summary (K6F2-04)
 
 Parse the k6 `--out json` JSON-LINES stream into the approved contract-04
