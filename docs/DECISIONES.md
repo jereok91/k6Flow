@@ -1,5 +1,30 @@
 # Foundation decisions
 
+## Phase 3 — minimal live-metrics dashboard (K6F3-04)
+
+Route the browser's WebSocket through a Next rewrite, ship a thin
+`/runs/[runId]` client shell over a dependency-free pure metrics lib, and
+authorize the orchestrator's cross-origin handshake in the dev compose stack.
+The orchestrator, shared contracts and `apps/web/package.json` stay untouched.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Rewrite `source: "/api/ws/:path*"` → `destination: (ORCHESTRATOR_WS_UPSTREAM ?? "http://orchestrator:8080") + "/ws/:path*"`; `output: "standalone"` unchanged | Contract-05 routing: the browser opens same-origin `ws(s)://<web-origin>/api/ws/runs/{id}` and Next proxies it to the orchestrator's internal `/ws/runs/{id}`; the orchestrator port is never exposed, so the browser never dials the Go service directly. `ORCHESTRATOR_WS_UPSTREAM` lets the dev compose `web` service name the upstream across the Docker network; the default keeps bare `next dev` working with no env set. |
+| `ORCHESTRATOR_ALLOWED_ORIGINS: ${WEB_ORIGIN:-http://127.0.0.1:3000}` added to the dev orchestrator — human-authorized 2026-10-02, the ONLY change under `deploy/**` | Behind the proxy the handshake `Origin` is the web origin, which differs from the orchestrator `Host`, so the K6F3-02 same-origin default would 403 the dashboard (K6F3-03 decision). Dev only: `.env.example` and every other `deploy/**` path remain untouched. |
+| Hand-rolled validation of the 10 contract fields in `apps/web/lib/live-metrics.ts`, ZERO new dependencies — `@k6flow/shared` is NOT imported | Human-approved decision: `apps/web/package.json` and `pnpm-lock.yaml` stay byte-identical and the browser bundle gains no zod. Parity is textual, not import-level: the validator mirrors `packages/shared/src/metrics-messages.ts` (`metricsFrameSchema`) 1:1 — `version===1`, `type==="metrics"`, nonblank runId, nonnegative safe-int `seq`, `window.durationMs===1000`, nonnegative safe-int `startMs`, finite nonnegative sample numbers (failure fraction within [0,1]) with the sample-derived trio null EXACTLY together — and `live-metrics.test.ts` pins the duplicated contract key list against the exported `METRICS_FRAME_KEYS`, so drift on either side fails the suite. |
+| Strict frame object: unknown or missing keys rejected at every level (top level, `window`, `latencyMs`) | Textual mirror of `z.strictObject`; decided here because the hand-rolled validator owns the contract surface in the browser. |
+| Thin `"use client"` shell; NO component test | No testing library exists in the repo (adding one would be a new dependency, out of scope); every behavior is delegated to `lib/live-metrics`, which is fully unit-tested, so the component only holds state and renders — kept thin to minimize review weight. |
+| Reconnect semantics: manual Connect/Disconnect only — no auto-reconnect and no replay; each connect resets the local window list | Implements Phase 3 policy 4 scope and keeps the contract deferral explicit: replay, terminal frames and automatic recovery stay deferred capabilities; a reconnect simply observes fresh frames from the next window. |
+| Close-code mapping: server close `1000` → status "run finished"; any other close → "closed"; the client closes with code `4000` (application range) for disconnect/reconnect/unmount | Distinguishes the clean terminal close(1000) from error closes (e.g. 1006) and from user-initiated teardown, so 1000 stays reserved as the server's run-finished signal. |
+| Formatters: null → `—`; failure fraction → percent with one decimal (`toFixed(1)` of `fraction×100`); latencies fixed integer ms; req/s one decimal | Explicit nulls render as an em dash, never a silent 0 (contract nullability), and rounding is fixed and documented instead of locale-dependent. |
+
+Rollback: delete `apps/web/lib/live-metrics{,.test}.ts`,
+`apps/web/next.config.test.ts`, `apps/web/app/runs/`, the `rewrites()` block
+in `apps/web/next.config.ts`, the four added lines in
+`deploy/docker-compose.dev.yml` and this section; `apps/web/package.json`,
+`pnpm-lock.yaml`, `packages/**`, `docs/api/**` and all Go surfaces stay
+untouched.
+
 ## Phase 3 — engine→hub wiring + real-Docker proof (K6F3-03)
 
 Wire the K6F3-01 tap's window frames to the K6F3-02 hub, close a run's
