@@ -1,5 +1,28 @@
 # Foundation decisions
 
+## Phase 2 — k6 JSON output → approved summary (K6F2-04)
+
+Parse the k6 `--out json` JSON-LINES stream into the approved contract-04
+summary (`internal/k6sum`) and integrate it into run completion
+(`internal/engine`: `Launch`/`Stop` over `ContainerRuntime`). Handler→engine
+wiring and real-k6 conformance stay K6F2-05.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Metric names: `http_reqs` points → `totals.requests` count; `http_req_failed` 0/1 rate points → `totals.errors` = rounded sum; `check` points with value 0 → `totals.failedChecks`; `http_req_duration` trend points (ms) → latency samples | Exact aggregation contract, documented as assumptions taken from k6's builtin metric catalog and proven against the real `grafana/k6` image in K6F2-05. Metric descriptor lines (`{"type":"Metric"}`) carry metadata only; unknown metric names and unknown message types (`Summary`, `Group`, future additions) are ignored defensively. |
+| Exit-code mapping: `0 → finished + thresholdsPassed=true`; `99 → finished + thresholdsPassed=false` (k6 threshold-failure exit); any other code → `failed`, no summary, no `thresholdsPassed` | k6 exits 99 when thresholds fail; other non-zero codes are crashes/engine failures, which contract 04 reserves for `failed`. Pure `k6sum.OutcomeForExit(code) (runs.Status, bool)` with a table test; `stopped` never comes from an exit code but from an explicit stop (precedence below). |
+| Rounding: latencies to 3 decimals (0.001 ms, half away from zero); nearest-rank quantiles over the sorted samples (no interpolation); `errors` rounded to the nearest integer | `runLatencySchema` accepts finite nonnegative numbers (no integer constraint), so 3 decimals preserves sub-ms k6 samples while serializing deterministically. Nearest-rank only ever reports observed values — no invented latencies between samples. |
+| All `http_req_duration` samples retained in memory for avg/p90/p95/p99 | Documented Phase 2 bound: memory is O(samples) (8 B per slice element plus amortized growth, ≈ 1 MB per ~130k samples), acceptable for runs bounded by `MAX_CONCURRENT_RUNS`/`MAX_VUS_PER_RUN` on the VPS. Streaming quantile aggregation is deferred to Phase 3 with WS metrics. |
+| No-sample policy: all-zero totals and zero latencies — never null | `runSummarySchema` requires nonnegative integers for totals and finite nonnegative numbers for every latency field on every status; nulls would fail validation, zeros conform. `Parse` never sets `ThresholdsPassed` (the engine derives it from the exit code). Failed runs store no summary, so `GET /summary` answers 409 for them until contract 04 gains an explicit failed-summary rule. |
+| Malformed-line policy: a non-JSON line, an undecodable Point (e.g. non-numeric value, missing `data`), or a line over 1 MiB (`MaxLineBytes`) aborts the whole parse with an error naming the line — fail the summary, never skip silently, never panic | Skipping corrupt lines could silently understate requests/errors and publish an untrustworthy “successful” summary; failing marks the run `failed`, which is visible. Blank/whitespace lines are skipped; non-object JSON (e.g. `null`) is ignored as an unknown message type. |
+| Engine completion precedence: explicit stop → `stopped` (parses partial output; a parse failure there falls back to an all-zero summary, because a killed stream may truncate); else wait error / mapped failure / parse or output failure → `failed` with no summary; else `finished` with the parsed summary and exit-derived `ThresholdsPassed` | `SetStatus` (terminal) always precedes `SetSummary` (the store's terminal-only rule); terminal immutability is respected — a rejected final transition is logged and stores nothing. Stopped runs keep the terminal-summary invariant; crashed/failed runs carry none (409 above). |
+| Guaranteed cleanup and release: every path after `Create` runs best-effort `Stop` → forced `Remove` on `context.WithoutCancel`, then `Semaphore.Release` and in-flight-handle deregistration (deferred, so they hold on success, parse failure, wait failure and cancellation alike); launch failures after the `pending→running` promotion terminalize the run as `failed`; early errors (unknown/terminal run, canceled context, exhausted semaphore) leave the status untouched | Removal and slot release cannot be skipped on any failure path. Double-launch is rejected by the in-flight handle map; `Stop` on an unknown id is an error, on a terminal or never-launched run a documented no-op (the store alone owns terminal transitions). |
+| Spec: `run --out json --vus N --duration Nms /k6flow/script.js` with REST `vus`/`durationMs` overriding script options (contract 04), script delivered via the reserved `K6FLOW_SCRIPT` env key, `k6flow.run.id` label, image from `K6_IMAGE` config, contract CPU/memory limits | The script never appears in the spec args, labels or logs — `slog` lifecycle events carry only runId/container/exit-code/count metadata, asserted by test. |
+| Handler→engine wiring and real-k6 conformance deferred to K6F2-05 | `httpapi/handlers.go` keeps its synchronous `pending→running` placeholder untouched (frozen surface); unit tests use `FakeRuntime` fixtures with no Docker, and K6F2-05 proves parser and lifecycle against the real engine and replaces the placeholder. |
+
+Rollback: remove `internal/k6sum`, `internal/engine` and this section; the
+store, runtime, httpapi, config and cmd/server packages stay untouched.
+
 ## Phase 2 — Docker runtime (K6F2-03)
 
 Implement `ContainerRuntime` over the official Docker SDK in
