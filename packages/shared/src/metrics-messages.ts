@@ -5,6 +5,7 @@ import { versionEnvelopeSchema } from "./version";
 const nonblankString = z.string().refine((value) => value.trim().length > 0, {
   message: "Expected a nonblank string",
 });
+// Zod 4 `.int()` enforces `Number.isSafeInteger`, so values outside [0, 2^53−1] are rejected.
 const nonnegativeSafeInteger = z.number().int().nonnegative();
 // Sample-derived values: explicit null marks a no-request window, never a silent 0.
 const sampleValue = z.number().finite().nonnegative().nullable();
