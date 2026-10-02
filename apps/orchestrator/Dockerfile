@@ -1,7 +1,10 @@
 FROM golang:1.25.7-alpine3.23 AS development
 WORKDIR /src
-COPY apps/orchestrator/go.mod ./
+COPY apps/orchestrator/go.mod apps/orchestrator/go.sum ./
+# Prefetch module dependencies at build time so container start needs no network.
+RUN go mod download
 COPY apps/orchestrator/cmd ./cmd
+COPY apps/orchestrator/internal ./internal
 EXPOSE 8080
 # Rebuild on restart; the development source bind is read-only.
 CMD ["sh", "-c", "go build -o /tmp/orchestrator ./cmd/server && exec /tmp/orchestrator"]

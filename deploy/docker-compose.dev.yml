@@ -11,3 +11,8 @@ services:
       target: development
     volumes:
       - ../apps/orchestrator:/src:ro
+      # Dev-only: lets the orchestrator manage per-run k6 containers (Phase 9 owns the security hardening).
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      ORCHESTRATOR_NETWORK: deploy_backend
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
