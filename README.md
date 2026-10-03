@@ -1,84 +1,130 @@
-# K6Flow — Phase 0 foundations
+# K6Flow — Visual Load Testing Platform
 
-A minimal Next.js web process, internal Go orchestrator and PostgreSQL stack.
-This phase does **not** execute load tests, record sessions or persist application data.
-Health endpoints report process availability, not database connectivity.
+A visual editor for creating and executing K6 load tests. Draw your test scenario, capture real traffic, and run distributed load tests with live metrics.
 
-## Quick start
+## Features
 
-Prerequisites: Docker Engine with Compose v2+; Node 22.22.0, pnpm 10.32.1
-and Go 1.25.7 for host-side checks. The images pin matching toolchain versions.
+- **Visual Editor**: Drag-and-drop nodes to build test scenarios
+- **Traffic Recorder**: Capture real HTTP traffic and convert to test nodes
+- **K6 Integration**: Translate visual graphs to K6 scripts automatically
+- **Live Metrics**: Real-time VU counts, request rates, and latency percentiles
+- **User Pools**: CSV-based test data for parameterized tests
+- **Authentication**: Built-in auth nodes with token extraction
 
-For a disposable local stack, the example contains dummy credentials only:
+## Quick Start
 
-```sh
-docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml up --build --wait
-curl --fail http://127.0.0.1:3000/api/healthz
+### Development
+
+```bash
+# Clone and setup
+git clone https://github.com/your-org/k6flow.git
+cd k6flow
+
+# Start all services
+docker compose --env-file deploy/.env.example \
+  -f deploy/docker-compose.yml \
+  -f deploy/docker-compose.dev.yml \
+  up --build --wait
+
+# Access the editor
+open http://127.0.0.1:3000
 ```
 
-Only web is published, on loopback port 3000. Go listens on port 8080 inside
-Compose; PostgreSQL has no host port. This is a local foundation, **not** a
-public HTTPS deployment. Choose a reverse proxy and authentication in later phases.
-For non-disposable use, supply an env file outside the repository with a new
-`POSTGRES_PASSWORD`, `POSTGRES_USER`, `POSTGRES_DB` and optional `WEB_PORT`.
-Never commit real credentials. Changing the password variable does not rotate an
-existing database volume's password.
+Default admin credentials: `admin` / `change-me-min-12-chars`
+
+### Production
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full VPS deployment guide.
+
+```bash
+# Quick production deploy
+cp deploy/.env.example deploy/.env
+# Edit .env with your domain and passwords
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+```
+
+## Architecture
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Browser   │────▶│   Caddy     │────▶│    Web      │
+│             │     │   (HTTPS)   │     │  (Next.js)  │
+└─────────────┘     └─────────────┘     └──────┬──────┘
+                                               │
+                    ┌──────────────────────────┼───────────────┐
+                    │                          │               │
+                    ▼                          ▼               ▼
+             ┌─────────────┐          ┌─────────────┐   ┌─────────────┐
+             │  Recorder   │          │ Orchestrator│   │  PostgreSQL │
+             │   (Go)      │          │    (Go)     │   │             │
+             └─────────────┘          └──────┬──────┘   └─────────────┘
+                                             │
+                                             ▼
+                                      ┌─────────────┐
+                                      │ K6 Containers│
+                                      │  (on-demand) │
+                                      └─────────────┘
+```
+
+## Documentation
+
+- [Deployment Guide](docs/DEPLOYMENT.md) — Production installation
+- [Architecture](docs/ARQUITECTURA.md) — System design decisions
+- [API Reference](docs/api/) — REST and WebSocket contracts
+- [Decisions](docs/DECISIONES.md) — Technical decisions and rationale
 
 ## Development
 
-```sh
-docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml up --build --wait
-```
+### Prerequisites
 
-- Web's `app/` source is mounted read-only; Next.js reloads application changes.
-- Go source is mounted read-only. After editing it, run the following restart;
-  the container rebuilds into its own `/tmp` before starting. There is no reload framework.
-- Manifest, Next config, TypeScript config or toolchain changes require a rebuild.
-  Web binds only `app/`, deliberately avoiding host dependencies and secrets.
+- Docker 24+ with Compose v2
+- Node.js 22.22.0, pnpm 10.32.1 (for local tests)
+- Go 1.25.7 (for local Go tests)
 
-```sh
-docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml restart orchestrator
-docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml up --build --wait
-```
+### Testing
 
-Stop the chosen stack with the same file arguments and `down`. Ordinary shutdown
-retains PostgreSQL's named volume. Do not use `down --volumes` on data you need.
-
-## Verification
-
-```sh
+```bash
+# TypeScript tests
 pnpm install --frozen-lockfile
 pnpm test
+
+# Go tests
+cd apps/orchestrator && go test ./...
+cd apps/recorder && go test ./...
+
+# Type checking and linting
+pnpm typecheck
 pnpm lint
-pnpm --filter @k6flow/web build
-(cd apps/orchestrator && go test ./...)
-(cd apps/orchestrator && go vet ./...)
-(cd apps/orchestrator && go build ./...)
-docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config
-docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml config
-bash scripts/check-phase-0-compose.sh
 ```
 
-`pnpm lint` is the baseline static check: strict TypeScript checking plus Go vet,
-not an ESLint/style claim. Tests cover health routing and parsed YAML deployment
-contracts, including rejected public Go ports and unexpected services. CI runs
-the same boundaries; its runtime job requires a working Docker daemon.
+### Project Structure
 
-The runtime harness checks production **and** development in unique disposable
-projects, uses an ephemeral loopback web port, waits for all three health checks,
-probes web from the host and Go from a separate client process in web, and checks
-that Go/PostgreSQL publish no ports. Startup is capped at 900 seconds per stack;
-cleanup is capped at 60 seconds per project. It removes only its own containers,
-networks, database volumes and exact project-built image tags. Shared base images
-and build cache are retained. No prune, existing-volume
-removal, daemon installation or permission repair is attempted. A failed startup
-or cleanup is a failed check, not evidence of a healthy stack.
+```
+k6flow/
+├── apps/
+│   ├── web/           # Next.js frontend + API
+│   ├── orchestrator/  # Go service for K6 execution
+│   └── recorder/      # Go service for traffic capture
+├── packages/
+│   └── shared/        # TypeScript contracts and utilities
+├── deploy/            # Docker Compose and Caddy configs
+├── docs/              # Documentation
+└── tests/             # E2E tests
+```
 
-## Read next
+## Security
 
-- [Architecture](docs/ARQUITECTURA.md): current boundaries versus future intent.
-- [Decisions](docs/DECISIONES.md): toolchain, health and isolation rationale.
-- Original product and UX inputs remain untouched under `doc/`.
+- **Allowed Targets**: Configure `ALLOWED_TARGETS` to restrict test destinations
+- **Run Confirmation**: Explicit confirmation required before executing tests
+- **Network Isolation**: K6 containers isolated from internal services
+- **Credential Handling**: Passwords hashed, tokens secure, no secrets in logs
 
-Stop after Phase 0 review. Contracts, authentication, Docker Engine access,
-WebSocket routing, recorder choice and retention are intentionally pending.
+See [docs/DECISIONES.md](docs/DECISIONES.md) for detailed security practices.
+
+## License
+
+[Your License Here]
+
+## Contributing
+
+[Contributing guidelines]
