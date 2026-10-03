@@ -7,7 +7,7 @@ import { parse } from "yaml";
 const load = (path: string) => parse(readFileSync(path, "utf8"));
 
 function checkServices(services: Record<string, any>, opts: { allowOrchestratorDevSocket?: boolean } = {}) {
-  assert.deepEqual(Object.keys(services).sort(), ["db", "orchestrator", "web"]);
+  assert.deepEqual(Object.keys(services).sort(), ["db", "orchestrator", "recorder", "web"]);
   for (const name of ["db", "orchestrator"]) {
     assert.equal(services[name].ports, undefined, `${name} must not publish ports`);
   }
