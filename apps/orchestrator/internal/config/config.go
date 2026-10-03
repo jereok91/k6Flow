@@ -3,14 +3,18 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds the orchestrator runtime settings.
 type Config struct {
 	Addr, K6Image, ServiceToken, LogLevel         string
 	MaxConcurrentRuns, MaxVUsPerRun, RunTimeoutMS int
+	// K6F9-01: Allowed target hosts/patterns for K6 tests (security)
+	AllowedTargets []string
 }
 
 // Defaults are applied only when a variable is absent from the environment.
@@ -54,6 +58,8 @@ func Load() (Config, error) {
 	if cfg.LogLevel, err = levelEnv("LOG_LEVEL"); err != nil {
 		return Config{}, err
 	}
+	// K6F9-01: Allowed targets (comma-separated list of host patterns)
+	cfg.AllowedTargets = targetsEnv("ALLOWED_TARGETS")
 	return cfg, nil
 }
 
@@ -97,4 +103,69 @@ func levelEnv(name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%s: %q is not one of debug|info|warn|error", name, raw)
+}
+
+// targetsEnv parses a comma-separated list of allowed target patterns.
+// Empty or absent means no restrictions (all targets allowed).
+func targetsEnv(name string) []string {
+	raw, present := os.LookupEnv(name)
+	if !present || raw == "" {
+		return nil
+	}
+	var targets []string
+	for _, t := range strings.Split(raw, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			targets = append(targets, strings.ToLower(t))
+		}
+	}
+	return targets
+}
+
+// IsTargetAllowed checks if a URL's host matches the allowed targets list.
+// If AllowedTargets is empty, all targets are allowed (permissive mode).
+// Patterns support:
+//   - Exact match: "example.com"
+//   - Wildcard subdomain: "*.example.com" (matches sub.example.com but not example.com)
+//   - Port-specific: "example.com:8080"
+func (c *Config) IsTargetAllowed(targetURL string) (bool, error) {
+	if len(c.AllowedTargets) == 0 {
+		return true, nil // No restrictions
+	}
+
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return false, fmt.Errorf("invalid URL: %w", err)
+	}
+
+	host := strings.ToLower(parsed.Host)
+	if host == "" {
+		return false, fmt.Errorf("URL has no host")
+	}
+
+	for _, pattern := range c.AllowedTargets {
+		if matchesPattern(host, pattern) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// matchesPattern checks if host matches pattern.
+func matchesPattern(host, pattern string) bool {
+	// Exact match
+	if host == pattern {
+		return true
+	}
+
+	// Wildcard subdomain match: *.example.com
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := pattern[1:] // ".example.com"
+		if strings.HasSuffix(host, suffix) && len(host) > len(suffix) {
+			return true
+		}
+	}
+
+	return false
 }

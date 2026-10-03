@@ -7,7 +7,7 @@ import (
 )
 
 // configEnv lists every environment variable Load reads.
-var configEnv = []string{"ORCHESTRATOR_ADDR", "K6_IMAGE", "MAX_CONCURRENT_RUNS", "MAX_VUS_PER_RUN", "RUN_TIMEOUT_MS", "SERVICE_TOKEN", "LOG_LEVEL"}
+var configEnv = []string{"ORCHESTRATOR_ADDR", "K6_IMAGE", "MAX_CONCURRENT_RUNS", "MAX_VUS_PER_RUN", "RUN_TIMEOUT_MS", "SERVICE_TOKEN", "LOG_LEVEL", "ALLOWED_TARGETS"}
 
 // clearEnv makes every config variable absent so defaults apply.
 func clearEnv(t *testing.T) {
@@ -93,5 +93,139 @@ func TestLoadFailClosedEmptyServiceTokenRejectsAllRequests(t *testing.T) {
 	}
 	if cfg.ServiceToken != "" {
 		t.Errorf("ServiceToken = %q, want empty so auth fails closed", cfg.ServiceToken)
+	}
+}
+
+// K6F9-01: Tests for allowed targets configuration
+
+func TestLoadAllowedTargetsEmpty(t *testing.T) {
+	clearEnv(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.AllowedTargets) != 0 {
+		t.Errorf("AllowedTargets = %v, want empty", cfg.AllowedTargets)
+	}
+}
+
+func TestLoadAllowedTargetsParsed(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("ALLOWED_TARGETS", "example.com, *.test.com, api.internal:8080")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{"example.com", "*.test.com", "api.internal:8080"}
+	if len(cfg.AllowedTargets) != len(want) {
+		t.Fatalf("AllowedTargets = %v, want %v", cfg.AllowedTargets, want)
+	}
+	for i, got := range cfg.AllowedTargets {
+		if got != want[i] {
+			t.Errorf("AllowedTargets[%d] = %q, want %q", i, got, want[i])
+		}
+	}
+}
+
+func TestIsTargetAllowedNoRestrictions(t *testing.T) {
+	cfg := Config{AllowedTargets: nil}
+	allowed, err := cfg.IsTargetAllowed("https://any-site.com/path")
+	if err != nil {
+		t.Fatalf("IsTargetAllowed: %v", err)
+	}
+	if !allowed {
+		t.Error("expected all targets allowed when list is empty")
+	}
+}
+
+func TestIsTargetAllowedExactMatch(t *testing.T) {
+	cfg := Config{AllowedTargets: []string{"example.com", "api.test.com"}}
+
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"https://example.com/api", true},
+		{"http://example.com", true},
+		{"https://api.test.com/v1", true},
+		{"https://other.com", false},
+		{"https://sub.example.com", false}, // no wildcard, exact only
+	}
+
+	for _, tt := range tests {
+		allowed, err := cfg.IsTargetAllowed(tt.url)
+		if err != nil {
+			t.Errorf("IsTargetAllowed(%q): %v", tt.url, err)
+			continue
+		}
+		if allowed != tt.want {
+			t.Errorf("IsTargetAllowed(%q) = %v, want %v", tt.url, allowed, tt.want)
+		}
+	}
+}
+
+func TestIsTargetAllowedWildcard(t *testing.T) {
+	cfg := Config{AllowedTargets: []string{"*.example.com"}}
+
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"https://api.example.com", true},
+		{"https://sub.example.com/path", true},
+		{"https://deep.sub.example.com", true},
+		{"https://example.com", false},       // wildcard doesn't match root
+		{"https://notexample.com", false},    // different domain
+		{"https://fakeexample.com", false},   // suffix but not subdomain
+	}
+
+	for _, tt := range tests {
+		allowed, err := cfg.IsTargetAllowed(tt.url)
+		if err != nil {
+			t.Errorf("IsTargetAllowed(%q): %v", tt.url, err)
+			continue
+		}
+		if allowed != tt.want {
+			t.Errorf("IsTargetAllowed(%q) = %v, want %v", tt.url, allowed, tt.want)
+		}
+	}
+}
+
+func TestIsTargetAllowedWithPort(t *testing.T) {
+	cfg := Config{AllowedTargets: []string{"api.example.com:8080"}}
+
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"https://api.example.com:8080/path", true},
+		{"http://api.example.com:8080", true},
+		{"https://api.example.com", false},       // no port
+		{"https://api.example.com:9090", false},  // wrong port
+	}
+
+	for _, tt := range tests {
+		allowed, err := cfg.IsTargetAllowed(tt.url)
+		if err != nil {
+			t.Errorf("IsTargetAllowed(%q): %v", tt.url, err)
+			continue
+		}
+		if allowed != tt.want {
+			t.Errorf("IsTargetAllowed(%q) = %v, want %v", tt.url, allowed, tt.want)
+		}
+	}
+}
+
+func TestIsTargetAllowedInvalidURL(t *testing.T) {
+	cfg := Config{AllowedTargets: []string{"example.com"}}
+
+	_, err := cfg.IsTargetAllowed("not-a-url")
+	if err == nil {
+		t.Error("expected error for invalid URL")
+	}
+
+	_, err = cfg.IsTargetAllowed("://missing-scheme")
+	if err == nil {
+		t.Error("expected error for malformed URL")
 	}
 }
