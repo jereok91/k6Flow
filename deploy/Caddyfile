@@ -1,0 +1,45 @@
+# K6F9-06: Caddy reverse proxy configuration for k6flow
+# Provides automatic HTTPS with Let's Encrypt
+
+# Replace {$DOMAIN} with your actual domain (e.g., k6flow.example.com)
+# Run with: DOMAIN=k6flow.example.com caddy run --config Caddyfile
+
+{$DOMAIN:localhost} {
+    # Automatic HTTPS (Let's Encrypt) for real domains
+    # For localhost, Caddy uses self-signed certificates
+    
+    # Proxy all requests to the Next.js frontend
+    reverse_proxy web:3000 {
+        # WebSocket support for metrics streaming
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+    
+    # Health check endpoint (bypass proxy for monitoring)
+    handle /healthz {
+        respond "OK" 200
+    }
+    
+    # Security headers
+    header {
+        # Prevent clickjacking
+        X-Frame-Options "SAMEORIGIN"
+        # Prevent MIME sniffing
+        X-Content-Type-Options "nosniff"
+        # XSS protection
+        X-XSS-Protection "1; mode=block"
+        # HSTS (uncomment for production)
+        # Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # Remove server header
+        -Server
+    }
+    
+    # Logging
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+}

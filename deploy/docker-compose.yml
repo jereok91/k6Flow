@@ -1,0 +1,78 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      target: production
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Human-authorized 2026-10-02 (Phase 4, K6F4-01b): web→db wiring for own-credential auth storage; process health stays independent of the DB (no depends_on).
+      DATABASE_URL: postgresql://${POSTGRES_USER:-k6flow}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-k6flow}
+    networks: [edge, backend]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/healthz').then(async r => { if (!r.ok || (await r.json()).status !== 'ok') process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: apps/orchestrator/Dockerfile
+      target: production
+    environment:
+      # K6F9-03 SSRF protection: K6 containers run in isolated network
+      ORCHESTRATOR_NETWORK: ${ORCHESTRATOR_NETWORK:-deploy_k6runner}
+    networks: [backend, k6runner]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+  recorder:
+    build:
+      context: ..
+      dockerfile: apps/recorder/Dockerfile
+    # Ports not exposed externally - accessed via Next.js proxy
+    environment:
+      RECORDER_PORT: "8081"
+      RECORDER_PROXY_PORT: "8082"
+      RECORDER_AUTH_TOKEN: ${RECORDER_AUTH_TOKEN:-}
+      RECORDER_MAX_DURATION_SEC: ${RECORDER_MAX_DURATION_SEC:-3600}
+      RECORDER_INACTIVITY_SEC: ${RECORDER_INACTIVITY_SEC:-300}
+    # K6F9-03 SSRF protection: recorder on edge only, cannot reach internal services
+    networks: [edge]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8081/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+  db:
+    image: postgres:17.7-alpine3.22
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-k6flow}
+      POSTGRES_USER: ${POSTGRES_USER:-k6flow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in an external env file}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+networks:
+  edge: {}
+  backend:
+    internal: true
+  # K6F9-03 SSRF protection: isolated network for K6 test containers
+  # K6 containers can only reach external targets, not internal services
+  k6runner: {}
+volumes:
+  postgres-data: {}

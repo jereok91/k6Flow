@@ -1,0 +1,36 @@
+name: Phase 0 checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.7
+          cache: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm lint
+      - run: pnpm --filter @k6flow/web build
+      - run: go test ./...
+        working-directory: apps/orchestrator
+      - run: go vet ./...
+        working-directory: apps/orchestrator
+      - run: go build ./...
+        working-directory: apps/orchestrator
+      - run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config
+      - run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml config
+      - run: bash scripts/check-phase-0-compose.sh

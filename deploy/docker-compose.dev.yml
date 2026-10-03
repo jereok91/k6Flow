@@ -1,0 +1,28 @@
+services:
+  web:
+    build:
+      target: development
+    environment:
+      NODE_ENV: development
+      # K6F3-04: lets the Next rewrite resolve the upstream behind the proxy (contract-05 routing).
+      ORCHESTRATOR_WS_UPSTREAM: http://orchestrator:8080
+      # K6F7: recorder proxy through Next.js
+      RECORDER_UPSTREAM: http://recorder:8081
+    volumes:
+      - ../apps/web/app:/workspace/apps/web/app:ro
+  recorder:
+    # Dev-only: expose proxy port for local traffic capture testing
+    ports:
+      - "127.0.0.1:8082:8082"
+  orchestrator:
+    build:
+      target: development
+    volumes:
+      - ../apps/orchestrator:/src:ro
+      # Dev-only: lets the orchestrator manage per-run k6 containers (Phase 9 owns the security hardening).
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # K6F3-04: browser origin of the dashboard behind the proxy (human-authorized 2026-10-02).
+      ORCHESTRATOR_ALLOWED_ORIGINS: ${WEB_ORIGIN:-http://127.0.0.1:3000}
+      ORCHESTRATOR_NETWORK: deploy_backend
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}

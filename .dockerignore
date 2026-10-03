@@ -1,0 +1,29 @@
+# Allowlist: secrets, user documents and generated outputs never enter builds.
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/
+!apps/web/
+!apps/web/package.json
+!apps/web/tsconfig.json
+!apps/web/next.config.ts
+!apps/web/app/
+!apps/web/app/**
+!apps/orchestrator/
+!apps/orchestrator/go.mod
+!apps/orchestrator/cmd/
+!apps/orchestrator/cmd/**
+!apps/recorder/
+!apps/recorder/**
+!packages/
+!packages/shared/
+!packages/shared/**
+# Keep unexpected credentials and generated files excluded even under source.
+**/.env*
+**/*.pem
+**/*.key
+**/node_modules/**
+**/.next/**
+**/*.tsbuildinfo
+apps/orchestrator/server
