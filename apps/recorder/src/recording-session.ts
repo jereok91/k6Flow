@@ -1,6 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type { StreamingState, StreamingClientMessage } from "@k6flow/shared";
-import { Screencast, type ScreencastFrame, type ScreencastConfig } from "./screencast.js";
+import { Screencast, type ScreencastFrame, type ScreencastConfig } from "./screencast.ts";
 
 export interface RecordingSessionConfig {
   startUrl: string;
