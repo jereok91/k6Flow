@@ -25,7 +25,7 @@ Security hardening, limits, orphan reconciliation, final documentation and deplo
 5. Single-command installation, clear VPS deployment README
 
 ## Stable work units
-- [ ] K6F9-01 — Allowed targets configuration: environment-based allowlist for K6 destinations.
+- [x] K6F9-01 — Allowed targets configuration: environment-based allowlist for K6 destinations.
 - [ ] K6F9-02 — Run confirmation UI: explicit confirmation before launching tests.
 - [ ] K6F9-03 — SSRF protection: network isolation for recorder/K6 from internal services.
 - [ ] K6F9-04 — Credential handling: audit logs, ensure no secrets leak.

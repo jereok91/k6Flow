@@ -53,6 +53,9 @@ export default function EditorPage() {
     authSignals: number;
     dynamicValues: number;
   } | null>(null);
+  // K6F9-02: Run confirmation state
+  const [showRunConfirmation, setShowRunConfirmation] = useState(false);
+  const [runTargets, setRunTargets] = useState<string[]>([]);
 
   const scenario = useScenario();
   const run = useRun();
@@ -302,8 +305,40 @@ export default function EditorPage() {
     window.history.replaceState({}, "", url.toString());
   }, [scenario]);
 
-  // Run scenario
-  const handleRun = useCallback(async () => {
+  // K6F9-02: Extract target URLs from nodes for confirmation
+  const extractTargetUrls = useCallback((): string[] => {
+    const urls: string[] = [];
+    for (const node of nodes) {
+      if (node.data.kind === "http-request" && node.data.parameters) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const params = node.data.parameters as any;
+        if (params.url?.kind === "literal" && params.url?.value) {
+          try {
+            const parsed = new URL(params.url.value);
+            const host = parsed.host;
+            if (!urls.includes(host)) {
+              urls.push(host);
+            }
+          } catch {
+            // Skip invalid URLs
+          }
+        }
+      }
+    }
+    return urls;
+  }, [nodes]);
+
+  // K6F9-02: Show confirmation dialog before run
+  const handleRunClick = useCallback(() => {
+    if (nodes.length === 0) return;
+    const targets = extractTargetUrls();
+    setRunTargets(targets);
+    setShowRunConfirmation(true);
+  }, [nodes, extractTargetUrls]);
+
+  // Run scenario (after confirmation)
+  const handleRunConfirmed = useCallback(async () => {
+    setShowRunConfirmation(false);
     if (nodes.length === 0) {
       return;
     }
@@ -454,7 +489,7 @@ export default function EditorPage() {
             {scenario.saving ? "Saving..." : "Save"}
           </button>
           <button
-            onClick={handleRun}
+            onClick={handleRunClick}
             disabled={run.running || nodes.length === 0 || run.orchestratorAvailable === false}
             style={runButtonStyle}
             title={run.orchestratorAvailable === false ? "Orchestrator not available" : "Run scenario"}
@@ -525,6 +560,40 @@ export default function EditorPage() {
                 style={primaryButtonStyle}
               >
                 {scenario.saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* K6F9-02: Run confirmation dialog */}
+      {showRunConfirmation && (
+        <div style={dialogOverlayStyle}>
+          <div style={runConfirmDialogStyle}>
+            <h2 style={{ margin: "0 0 16px", fontSize: "18px", fontWeight: 600 }}>
+              ⚠️ Confirm Load Test Execution
+            </h2>
+            <p style={{ margin: "0 0 12px", color: "#374151", fontSize: "14px" }}>
+              You are about to run a load test against the following target{runTargets.length > 1 ? 's' : ''}:
+            </p>
+            <div style={targetListStyle}>
+              {runTargets.length > 0 ? (
+                runTargets.map((target, idx) => (
+                  <div key={idx} style={targetItemStyle}>{target}</div>
+                ))
+              ) : (
+                <div style={{ color: "#9ca3af", fontStyle: "italic" }}>No HTTP targets detected</div>
+              )}
+            </div>
+            <p style={warningTextStyle}>
+              ⚡ This will generate real HTTP traffic. Only run tests against systems you own or have permission to test.
+            </p>
+            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+              <button onClick={() => setShowRunConfirmation(false)} style={secondaryButtonStyle}>
+                Cancel
+              </button>
+              <button onClick={handleRunConfirmed} style={runConfirmButtonStyle}>
+                Run Test
               </button>
             </div>
           </div>
@@ -687,5 +756,53 @@ const importDismissStyle: React.CSSProperties = {
   background: "transparent",
   border: "1px solid #86efac",
   borderRadius: "4px",
+  cursor: "pointer",
+};
+
+// K6F9-02: Run confirmation dialog styles
+const runConfirmDialogStyle: React.CSSProperties = {
+  background: "#fff",
+  padding: "24px",
+  borderRadius: "12px",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+  width: "450px",
+  fontFamily: "system-ui, sans-serif",
+};
+
+const targetListStyle: React.CSSProperties = {
+  background: "#f9fafb",
+  border: "1px solid #e5e7eb",
+  borderRadius: "6px",
+  padding: "12px",
+  marginBottom: "16px",
+  maxHeight: "150px",
+  overflow: "auto",
+};
+
+const targetItemStyle: React.CSSProperties = {
+  fontFamily: "monospace",
+  fontSize: "13px",
+  color: "#111827",
+  padding: "4px 0",
+};
+
+const warningTextStyle: React.CSSProperties = {
+  margin: "0 0 16px",
+  padding: "12px",
+  background: "#fef3c7",
+  border: "1px solid #fcd34d",
+  borderRadius: "6px",
+  color: "#92400e",
+  fontSize: "13px",
+};
+
+const runConfirmButtonStyle: React.CSSProperties = {
+  padding: "8px 16px",
+  fontSize: "14px",
+  fontWeight: 500,
+  color: "#fff",
+  background: "#dc2626",
+  border: "none",
+  borderRadius: "6px",
   cursor: "pointer",
 };
