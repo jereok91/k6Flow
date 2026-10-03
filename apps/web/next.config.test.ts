@@ -29,7 +29,10 @@ describe("next.config — rewrites", () => {
     const rules = await nextConfig.rewrites!();
     expect(rules).toEqual([
       { source: "/api/ws/:path*", destination: "http://orchestrator:8080/ws/:path*" },
-      { source: "/api/recorder/:path*", destination: "http://recorder:8081/api/recorder/:path*" },
+      // K6F10: Visual recorder rewrites
+      { source: "/api/recorder/start", destination: "http://recorder:8081/start" },
+      { source: "/api/recorder/stop", destination: "http://recorder:8081/stop" },
+      { source: "/api/recorder/healthz", destination: "http://recorder:8081/healthz" },
       { source: "/ws/recordings/:path*", destination: "http://recorder:8081/ws/recordings/:path*" },
     ]);
   });
@@ -46,11 +49,12 @@ describe("next.config — rewrites", () => {
   it("honors the RECORDER_UPSTREAM override", async () => {
     process.env[RECORDER_ENV] = "http://custom-recorder:9999";
     const rules = await nextConfig.rewrites!() as Array<{ source: string; destination: string }>;
+    // K6F10: Visual recorder rewrites
     expect(rules[1]).toEqual({
-      source: "/api/recorder/:path*",
-      destination: "http://custom-recorder:9999/api/recorder/:path*",
+      source: "/api/recorder/start",
+      destination: "http://custom-recorder:9999/start",
     });
-    expect(rules[2]).toEqual({
+    expect(rules[4]).toEqual({
       source: "/ws/recordings/:path*",
       destination: "http://custom-recorder:9999/ws/recordings/:path*",
     });

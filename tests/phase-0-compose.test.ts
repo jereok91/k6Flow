@@ -34,7 +34,7 @@ test("production isolates Go and PostgreSQL with process health probes", () => {
   assert.equal(config.services.orchestrator.build.target, "production");
   assert.match(config.services.db.image, /^postgres:17\.\d+-alpine\d+\.\d+$/);
   assert.equal(config.networks.backend.internal, true);
-  assert.deepEqual(config.services.orchestrator.networks, ["backend"]);
+  assert.deepEqual(config.services.orchestrator.networks, ["backend", "k6runner"]);
   assert.deepEqual(config.services.db.networks, ["backend"]);
   for (const name of ["web", "orchestrator"]) {
     assert.equal(config.services[name].depends_on, undefined, "process health is independent of DB");
