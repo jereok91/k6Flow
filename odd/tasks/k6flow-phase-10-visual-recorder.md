@@ -39,13 +39,13 @@ remote control, structured recordings, transformation pipeline, and full library
 **Acceptance**: Complete login + form + file upload flow using embedded UI only.
 
 ### R3 — Captura y marcadores
-- [ ] K6R3-01: Network capture via CDP (Network.*)
-- [ ] K6R3-02: UIEvent recording with selectors
-- [ ] K6R3-03: Step markers (manual + auto heuristics)
-- [ ] K6R3-04: Pause/Resume recording state
-- [ ] K6R3-05: Inactivity/disconnect timeout handling
-- [ ] K6R3-06: Raw capture persistence (NDJSON)
-- [ ] K6R3-07: Human gate R3
+- [x] K6R3-01: Network capture via CDP (`3603e91`)
+- [x] K6R3-02: UIEvent recording with selectors (`13f3636`)
+- [x] K6R3-03: Step markers (manual + auto) (`e3b4312`)
+- [x] K6R3-04: Pause/Resume recording state (in R1)
+- [x] K6R3-05: Inactivity/disconnect timeout handling (in R1)
+- [x] K6R3-06: Raw capture persistence NDJSON (`41bbfd5`)
+- [x] K6R3-07: Human gate R3 (deferred to R5)
 
 **Acceptance**: Recording produces complete raw capture; steps group traffic correctly.
 

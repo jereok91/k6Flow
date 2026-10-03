@@ -92,6 +92,26 @@ export {
   type DynamicValue, type DynamicDetectionResult,
 } from './capture-dynamic-detection';
 
+export {
+  parseNDJSONCapture,
+  extractMetadata,
+  extractNetworkEntries,
+  extractUIEvents,
+  extractSteps,
+  normalizeNetworkEntry,
+  normalizeNetworkEntries,
+  classifyNetworkEntry,
+  groupBySteps,
+  calculateThinkTimes,
+  type NDJSONCaptureEvent,
+  type NDJSONNetworkEntry,
+  type NDJSONUIEvent,
+  type NDJSONStep,
+  type NDJSONMetadata,
+  type NormalizedCaptureEntry,
+  type StepGroup,
+} from './capture-adapter';
+
 // Visual recorder streaming (K6F10)
 export {
   FRAME_TYPE, FRAME_HEADER_SIZE,

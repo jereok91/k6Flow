@@ -22,7 +22,7 @@ describe("recorder-streaming binary protocol", () => {
     const encoded = encodeFrameHeader(header);
     expect(encoded.byteLength).toBe(FRAME_HEADER_SIZE);
 
-    const decoded = decodeFrameHeader(encoded.buffer);
+    const decoded = decodeFrameHeader(encoded.buffer as ArrayBuffer);
     expect(decoded).not.toBeNull();
     expect(decoded!.type).toBe(FRAME_TYPE);
     expect(decoded!.seq).toBe(12345);
@@ -56,7 +56,7 @@ describe("recorder-streaming binary protocol", () => {
     };
 
     const encoded = encodeFrameHeader(header);
-    const decoded = decodeFrameHeader(encoded.buffer);
+    const decoded = decodeFrameHeader(encoded.buffer as ArrayBuffer);
     expect(decoded!.seq).toBe(0xFFFFFFFF);
   });
 });
