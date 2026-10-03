@@ -198,16 +198,21 @@ func (h *Hub) unregister(recordingID string, conn *websocket.Conn) {
 }
 
 func (h *Hub) broadcast(recordingID string, msg any) {
-	h.mu.RLock()
-	conns := h.clients[recordingID]
-	h.mu.RUnlock()
-
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return
 	}
 
-	for conn := range conns {
+	// Copy connections while holding the lock to avoid race conditions
+	h.mu.RLock()
+	conns := make([]*websocket.Conn, 0, len(h.clients[recordingID]))
+	for conn := range h.clients[recordingID] {
+		conns = append(conns, conn)
+	}
+	h.mu.RUnlock()
+
+	// Send to each connection without holding the lock
+	for _, conn := range conns {
 		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 			conn.Close()
 		}
