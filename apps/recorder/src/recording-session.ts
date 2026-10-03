@@ -164,7 +164,12 @@ export class RecordingSession {
    * Handle input messages from the client.
    */
   async handleInput(message: StreamingClientMessage): Promise<void> {
-    if (!this.page) return;
+    if (!this.page) {
+      console.log(`[Session] No page, cannot handle input`);
+      return;
+    }
+
+    console.log(`[Session] Handling input: ${message.t}`);
 
     switch (message.t) {
       case "mouse":
@@ -199,20 +204,25 @@ export class RecordingSession {
     if (!this.page) return;
 
     const button = (msg.button || "left") as "left" | "middle" | "right";
+    console.log(`[Mouse] ${msg.type} at (${msg.x}, ${msg.y}) button=${button}`);
 
-    switch (msg.type) {
-      case "move":
-        await this.page.mouse.move(msg.x, msg.y);
-        break;
-      case "down":
-        await this.page.mouse.down({ button, clickCount: msg.clickCount || 1 });
-        break;
-      case "up":
-        await this.page.mouse.up({ button, clickCount: msg.clickCount || 1 });
-        break;
-      case "wheel":
-        await this.page.mouse.wheel(msg.deltaX || 0, msg.deltaY || 0);
-        break;
+    try {
+      switch (msg.type) {
+        case "move":
+          await this.page.mouse.move(msg.x, msg.y);
+          break;
+        case "down":
+          await this.page.mouse.down({ button, clickCount: msg.clickCount || 1 });
+          break;
+        case "up":
+          await this.page.mouse.up({ button, clickCount: msg.clickCount || 1 });
+          break;
+        case "wheel":
+          await this.page.mouse.wheel(msg.deltaX || 0, msg.deltaY || 0);
+          break;
+      }
+    } catch (error) {
+      console.error(`[Mouse] Error:`, error);
     }
   }
 

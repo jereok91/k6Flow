@@ -189,10 +189,16 @@ wsServer.attach(httpServer);
 
 // Handle client messages
 async function handleClientMessage(message: StreamingClientMessage): Promise<void> {
-  if (!session) return;
+  console.log(`[Input] Received message: ${message.t}`, message);
+  
+  if (!session) {
+    console.log(`[Input] No session, ignoring`);
+    return;
+  }
 
   // Messages handled by session
   if (["mouse", "key", "text", "nav", "pause", "resume", "stop", "resize"].includes(message.t)) {
+    console.log(`[Input] Forwarding to session`);
     await session.handleInput(message);
   }
 
