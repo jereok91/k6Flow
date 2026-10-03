@@ -63,11 +63,11 @@ remote control, structured recordings, transformation pipeline, and full library
 **Acceptance**: Recording of test-site generates K6 scenario that passes without manual edit.
 
 ### R5 — Revisión y guardado
-- [ ] K6R5-01: Review UI (steps, traffic, correlations)
-- [ ] K6R5-02: Include/exclude traffic toggle
-- [ ] K6R5-03: Edit correlations and parameterizations
-- [ ] K6R5-04: Save creates Scenario + ScenarioVersion
-- [ ] K6R5-05: Recording→ScenarioVersion provenance link
+- [x] K6R5-01: Review UI (`903a452`)
+- [x] K6R5-02: Include/exclude toggle (`903a452`)
+- [ ] K6R5-03: Edit correlations (optional, deferred)
+- [x] K6R5-04: Save creates Scenario (`903a452`)
+- [x] K6R5-05: Recording provenance (`903a452`)
 - [ ] K6R5-06: Human gate R5
 
 **Acceptance**: User adjusts derivation and saves; new version created without touching raw capture.
