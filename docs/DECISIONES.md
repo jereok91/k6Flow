@@ -593,3 +593,28 @@ Authentication and roles, retention, WebSocket routing, Playwright versus
 Puppeteer, reverse proxy/HTTPS and Docker Engine privilege mitigation remain
 unresolved. Phase 0 does not implement them, grant socket access or simulate them
 through placeholder product endpoints. Stop for review before Phase 1.
+
+## K6F9-03: SSRF Protection
+
+**Problema**: El recorder y K6 no deben poder alcanzar los servicios internos de k6flow para evitar ataques SSRF.
+
+**Decisión**: Aislamiento de red mediante Docker networks:
+
+1. **Red `backend`** (internal: true):
+   - Contiene: db, orchestrator, web
+   - No accesible desde fuera del compose
+   
+2. **Red `edge`**:
+   - Contiene: web, recorder
+   - Expone servicios al exterior
+   
+3. **Red `k6runner`**:
+   - Contiene: orchestrator (para crear containers), K6 containers
+   - K6 solo puede alcanzar targets externos, no servicios internos
+
+**Resultado**:
+- Recorder: solo en `edge`, no puede alcanzar db/orchestrator
+- K6 containers: en `k6runner`, aislados de `backend`
+- Web proxy funciona porque comparte `edge` con recorder
+
+**Fecha**: 2026-10-03 (Phase 9 hardening)

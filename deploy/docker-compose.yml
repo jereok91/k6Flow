@@ -23,7 +23,10 @@ services:
       context: ..
       dockerfile: apps/orchestrator/Dockerfile
       target: production
-    networks: [backend]
+    environment:
+      # K6F9-03 SSRF protection: K6 containers run in isolated network
+      ORCHESTRATOR_NETWORK: ${ORCHESTRATOR_NETWORK:-deploy_k6runner}
+    networks: [backend, k6runner]
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
       interval: 5s
@@ -41,7 +44,8 @@ services:
       RECORDER_AUTH_TOKEN: ${RECORDER_AUTH_TOKEN:-}
       RECORDER_MAX_DURATION_SEC: ${RECORDER_MAX_DURATION_SEC:-3600}
       RECORDER_INACTIVITY_SEC: ${RECORDER_INACTIVITY_SEC:-300}
-    networks: [edge, backend]
+    # K6F9-03 SSRF protection: recorder on edge only, cannot reach internal services
+    networks: [edge]
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8081/healthz"]
       interval: 5s
@@ -67,5 +71,8 @@ networks:
   edge: {}
   backend:
     internal: true
+  # K6F9-03 SSRF protection: isolated network for K6 test containers
+  # K6 containers can only reach external targets, not internal services
+  k6runner: {}
 volumes:
   postgres-data: {}
