@@ -1,5 +1,25 @@
 # Foundation decisions
 
+## Phase 4 — scenario persistence (K6F4-04)
+
+Scenario CRUD API under `/api/scenarios`, gated by session (any authenticated
+user). Owner sees own scenarios, admin sees all. Graphs validated against
+`graphDraftCompositionSchema` from `@k6flow/shared`. Pure decision logic
+lives in `api/scenarios/logic.ts` (unit-tested); DB-backed CRUD paths are
+proven in the K6F4-06 real-stack e2e.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| `@k6flow/shared` added as dependency of `apps/web` | Phase 4 editor requires access to the Phase 1 graph contracts for validation. Human-approved 2026-10-03. |
+| 401 vs 403 vs 404 distinction: no valid session → `401`; scenario not found → `404`; found but not owner and not admin → `403` | Clear status codes guide the UI. 404 before 403 ensures non-owners cannot probe existence (they get 404 for inaccessible or nonexistent). |
+| Graph validation via `graphDraftCompositionSchema.safeParse()` returns 422 with flattened Zod errors | The schema is the single source of truth; 422 distinguishes graph-shape errors from missing-field 400s. |
+| List endpoint returns metadata only (no full graph) | Performance: full graphs could be large; the editor fetches the full graph only when opening a scenario. |
+| Ownership scoping: non-admin users see only their own scenarios | Multi-tenancy by default; admin override for support/debugging. |
+
+Rollback: delete `apps/web/app/api/scenarios/**`, remove this section, and
+remove `@k6flow/shared` from `apps/web/package.json` — no other surface
+touched.
+
 ## Phase 4 — user management (K6F4-03)
 
 Admin REST + admin UI for user accounts: list/create/delete/role-change

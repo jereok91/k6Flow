@@ -14,6 +14,7 @@
     "seed": "node --experimental-strip-types scripts/seed.ts"
   },
   "dependencies": {
+    "@k6flow/shared": "workspace:*",
     "drizzle-orm": "0.45.3",
     "next": "16.1.6",
     "pg": "8.23.1",

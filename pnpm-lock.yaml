@@ -17,6 +17,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@k6flow/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       drizzle-orm:
         specifier: 0.45.3
         version: 0.45.3(@types/pg@8.23.1)(pg@8.23.1)
