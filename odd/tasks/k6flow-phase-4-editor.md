@@ -71,7 +71,7 @@ Risks handed forward: (a) DB-backed scenario CRUD paths unproven here by design 
 - [x] K6F4-05b — Editor shell. COMPLETE (commit `e438536`, 6 files, 554 lines). Native review `review-e4608ac780d929a9` APPROVED.: React Flow canvas, node palette, drag-drop, basic node rendering. Consumes 05a mapping.
 - [x] K6F4-05c — Node config panels. COMPLETE (commit `8683dec`, 8 files, 894 lines). Native review `review-e4608ac780d929a9` APPROVED.: forms for 4 node types (authentication, http-request, response-validation, user-pool) with parameter editing.
 - [x] K6F4-06 — Editor↔scenario wiring. COMPLETE (commit `0621d5e`, 5 files, 650 lines). Native review `review-e4608ac780d929a9` APPROVED. + real-Docker end-to-end proof (login → draw → save → reload).
-- [ ] K6F4-07 — Human Phase 4 review gate (init:176).
+- [x] K6F4-07 — Human Phase 4 review gate. APPROVED (2026-10-03). Phase 5 authorized. (init:176).
 
 ## Acceptance, verification and review strategy
 Each unit: RED/GREEN with `pnpm test`; pure logic (scrypt, session tokens, scenario validation, graph↔contract mapping) fully unit-tested with no DB; repositories kept thin and proven in the K6F4-06 real-stack e2e (login, save, reload). Components stay thin per the K6F3-04 precedent (no component-testing library in repo; behavior lives in tested `lib/` modules). Auth negatives required: wrong password, expired/revoked session, non-admin on admin routes, unauthenticated on protected routes. Cookie flags asserted (`httpOnly`, `SameSite`, `Secure` behind HTTPS). Scenarios: owner-scoped reads/writes, admin visibility, malformed graph rejected, valid draft round-trips byte-equal.
