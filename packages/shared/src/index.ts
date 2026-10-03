@@ -87,3 +87,7 @@ export {
   detectAuth, suggestAuthPosition,
   type AuthSignal, type AuthDetectionResult,
 } from './capture-auth-detection';
+export {
+  detectDynamicValues, findValueCorrelations,
+  type DynamicValue, type DynamicDetectionResult,
+} from './capture-dynamic-detection';
