@@ -3,6 +3,7 @@ import { createWriteStream, mkdirSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { WsServer } from "./ws-server";
 import { RecordingSession } from "./recording-session";
+import { CaptureWriter } from "./capture-writer";
 import type { StreamingClientMessage } from "@k6flow/shared";
 
 // Configuration from environment
@@ -16,6 +17,7 @@ const INACTIVITY_MS = parseInt(process.env.INACTIVITY_MS || "300000", 10); // 5 
 
 // Single recording session per container (orchestrator spawns one container per recording)
 let session: RecordingSession | null = null;
+let captureWriter: CaptureWriter | null = null;
 let recordingId: string | null = null;
 let lastActivityTime = Date.now();
 let inactivityTimer: NodeJS.Timeout | null = null;
@@ -62,7 +64,22 @@ const httpServer = createServer((req, res) => {
     req.on("end", async () => {
       try {
         const config = JSON.parse(body || "{}");
-        recordingId = config.recordingId || `rec-${Date.now()}`;
+        const recId = config.recordingId || `rec-${Date.now()}`;
+        recordingId = recId;
+
+        // Create capture writer for persistence
+        const outputDir = process.env.CAPTURE_DIR || "/tmp/captures";
+        captureWriter = new CaptureWriter(outputDir, recId);
+        captureWriter.start({
+          recordingId: recId,
+          startUrl: config.startUrl || START_URL,
+          viewport: {
+            width: config.viewportWidth || VIEWPORT_WIDTH,
+            height: config.viewportHeight || VIEWPORT_HEIGHT,
+          },
+          startedAt: Date.now(),
+          userAgent: config.userAgent,
+        });
 
         session = new RecordingSession(
           {
@@ -92,6 +109,7 @@ const httpServer = createServer((req, res) => {
                 state, 
                 recordingId: recordingId! 
               });
+              captureWriter?.writeStateChange(state);
             },
             onNavigation: (url, title, canGoBack, canGoForward, loading) => {
               wsServer.broadcast(recordingId!, { 
@@ -102,6 +120,9 @@ const httpServer = createServer((req, res) => {
                 canGoForward, 
                 loading 
               });
+              if (!loading) {
+                captureWriter?.writeNavigation(url, title);
+              }
             },
             onTabs: (tabs) => {
               wsServer.broadcast(recordingId!, { 
@@ -132,17 +153,13 @@ const httpServer = createServer((req, res) => {
               });
             },
             onNetworkRequest: (request) => {
-              // Network requests are captured but not broadcast live
-              // They'll be stored for the recording
-              console.log(`[Network] Request: ${request.method} ${request.url}`);
+              captureWriter?.writeNetworkRequest(request);
             },
             onNetworkEntry: (entry) => {
-              // Full entry with response
-              console.log(`[Network] Entry: ${entry.request.method} ${entry.request.url} -> ${entry.response?.status}`);
+              captureWriter?.writeNetworkEntry(entry);
             },
             onUIEvent: (event) => {
-              // UI events are captured for the recording
-              console.log(`[UIEvent] ${event.type}: ${event.selector}`);
+              captureWriter?.writeUIEvent(event);
             },
             onStep: (step) => {
               // Broadcast step to clients
@@ -153,7 +170,7 @@ const httpServer = createServer((req, res) => {
                 kind: step.kind,
                 timestamp: step.timestamp
               });
-              console.log(`[Step] ${step.kind}: ${step.name}`);
+              captureWriter?.writeStep(step);
             },
             onError: (error) => {
               console.error("Recording error:", error);
@@ -350,6 +367,12 @@ async function stopRecording(reason: string): Promise<void> {
   if (maxDurationTimer) {
     clearTimeout(maxDurationTimer);
     maxDurationTimer = null;
+  }
+
+  if (captureWriter) {
+    captureWriter.end(reason);
+    console.log(`Capture written to: ${captureWriter.path} (${captureWriter.count} events)`);
+    captureWriter = null;
   }
 
   if (session) {
