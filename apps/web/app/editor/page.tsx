@@ -1,10 +1,18 @@
 "use client";
 
 // K6F4-05b/c/06 + K6F5-03: Visual scenario editor page with save/load/run functionality.
+// K6F8-04: Import from recorder support.
 // Authenticated users only.
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  capturesToGraph,
+  generateConnections,
+  detectAuth,
+  detectDynamicValues,
+  type RecorderCaptureEntry,
+} from "@k6flow/shared";
 import {
   FlowEditor,
   HttpRequestConfigPanel,
@@ -40,10 +48,16 @@ export default function EditorPage() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [scenarioNameInput, setScenarioNameInput] = useState("");
   const [attachments, setAttachments] = useState<AttachmentInfo[]>([]);
+  const [importedCaptures, setImportedCaptures] = useState<RecorderCaptureEntry[] | null>(null);
+  const [importAnalysis, setImportAnalysis] = useState<{
+    authSignals: number;
+    dynamicValues: number;
+  } | null>(null);
 
   const scenario = useScenario();
   const run = useRun();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Check orchestrator on mount
   useEffect(() => {
@@ -84,6 +98,63 @@ export default function EditorPage() {
       loadAttachments(scenarioId);
     }
   }, [auth.authenticated]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // K6F8-04: Process imported captures from recorder
+  useEffect(() => {
+    if (!auth.authenticated) return;
+    const isImport = searchParams.get("import") === "true";
+    if (!isImport) return;
+
+    const stored = sessionStorage.getItem("k6flow-import-captures");
+    if (!stored) return;
+
+    try {
+      const captures: RecorderCaptureEntry[] = JSON.parse(stored);
+      setImportedCaptures(captures);
+
+      // Analyze captures
+      const authResult = detectAuth(captures);
+      const dynamicResult = detectDynamicValues(captures);
+      setImportAnalysis({
+        authSignals: authResult.signals.length,
+        dynamicValues: dynamicResult.values.length,
+      });
+
+      // Convert to graph nodes
+      const graphNodes = capturesToGraph(captures, { idPrefix: "imported" });
+      const graphConnections = generateConnections(graphNodes);
+
+      // Position nodes vertically
+      const nodesWithPositions: K6NodeType[] = graphNodes.map((node, index) => ({
+        id: node.id,
+        type: "k6Node",
+        position: { x: 250, y: 100 + index * 120 },
+        data: {
+          kind: node.kind,
+          label: `${node.parameters.method} ${new URL(node.parameters.url.kind === "literal" ? node.parameters.url.value : "").pathname}`,
+          parameters: node.parameters,
+        } as K6NodeData,
+      }));
+
+      // Convert connections to edges
+      const edgesFromCaptures: K6Edge[] = graphConnections.map((conn, index) => ({
+        id: `import-edge-${index}`,
+        source: conn.source,
+        target: conn.target,
+      }));
+
+      setNodes(nodesWithPositions);
+      setEdges(edgesFromCaptures);
+
+      // Clear sessionStorage after processing
+      sessionStorage.removeItem("k6flow-import-captures");
+
+      // Clean up URL
+      router.replace("/editor");
+    } catch (err) {
+      console.error("Failed to import captures:", err);
+    }
+  }, [auth.authenticated, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load attachments for scenario
   const loadAttachments = useCallback(async (scenarioId: number) => {

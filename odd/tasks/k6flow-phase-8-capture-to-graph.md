@@ -12,7 +12,7 @@ Implement the capture-to-graph translator: convert recorded HTTP traffic into gr
 ## Stable work units
 - [x] K6F8-01 — Capture-to-node mapper: TypeScript function to convert `RecorderCaptureEntry[]` to graph nodes. (commit `62cbd3a`, 468 lines, 16 tests)
 - [x] K6F8-02 — Auth detection heuristics: identify login/auth requests and suggest auth node placement.
-- [ ] K6F8-03 — Dynamic value detection: identify tokens, session IDs, CSRF tokens for parameterization.
+- [x] K6F8-03 — Dynamic value detection: identify tokens, session IDs, CSRF tokens for parameterization.
 - [ ] K6F8-04 — Import UI: recorder → editor flow (import captures as draft scenario).
 - [ ] K6F8-05 — Edit after import: allow editing imported nodes before save.
 - [ ] K6F8-06 — E2E proof: record traffic → import → see graph → edit → save.

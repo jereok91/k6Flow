@@ -1,8 +1,10 @@
 "use client";
 
 // K6F7-08: Recorder UI page.
+// K6F8-04: Import to editor flow.
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 interface CaptureEntry {
@@ -26,12 +28,21 @@ interface WsMessage {
 type RecordingStatus = "idle" | "pending" | "recording" | "stopping" | "completed" | "failed";
 
 export default function RecorderPage() {
+  const router = useRouter();
   const [status, setStatus] = useState<RecordingStatus>("idle");
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [captures, setCaptures] = useState<CaptureEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [proxyUrl, setProxyUrl] = useState("http://localhost:8082");
   const wsRef = useRef<WebSocket | null>(null);
+
+  // K6F8-04: Import captures to editor
+  const importToEditor = () => {
+    if (captures.length === 0) return;
+    // Store captures in sessionStorage for the editor to pick up
+    sessionStorage.setItem("k6flow-import-captures", JSON.stringify(captures));
+    router.push("/editor?import=true");
+  };
 
   const connectWs = useCallback((id: string) => {
     // Use same-origin WebSocket (proxied through Next.js)
@@ -159,20 +170,32 @@ export default function RecorderPage() {
         {captures.length === 0 ? (
           <p style={emptyStyle}>No requests captured yet.</p>
         ) : (
-          <div style={captureListStyle}>
-            {captures.map((entry, idx) => (
-              <div key={idx} style={captureItemStyle}>
-                <div style={captureHeaderStyle}>
-                  <span style={methodStyle(entry.method)}>{entry.method}</span>
-                  <span style={statusCodeStyle(entry.status)}>{entry.status}</span>
-                  <span style={urlStyle}>{entry.url}</span>
+          <>
+            <div style={captureListStyle}>
+              {captures.map((entry, idx) => (
+                <div key={idx} style={captureItemStyle}>
+                  <div style={captureHeaderStyle}>
+                    <span style={methodStyle(entry.method)}>{entry.method}</span>
+                    <span style={statusCodeStyle(entry.status)}>{entry.status}</span>
+                    <span style={urlStyle}>{entry.url}</span>
+                  </div>
+                  {entry.bodyExcerpt && (
+                    <pre style={bodyStyle}>{entry.bodyExcerpt}</pre>
+                  )}
                 </div>
-                {entry.bodyExcerpt && (
-                  <pre style={bodyStyle}>{entry.bodyExcerpt}</pre>
-                )}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+
+            {/* K6F8-04: Import to editor button */}
+            <div style={importSectionStyle}>
+              <button onClick={importToEditor} style={importButtonStyle}>
+                Import to Editor →
+              </button>
+              <span style={importHintStyle}>
+                Convert {captures.length} captured request{captures.length > 1 ? 's' : ''} to graph nodes
+              </span>
+            </div>
+          </>
         )}
       </section>
     </main>
@@ -358,4 +381,32 @@ const bodyStyle: React.CSSProperties = {
   fontSize: "12px",
   overflow: "auto",
   maxHeight: "100px",
+};
+
+// K6F8-04: Import styles
+const importSectionStyle: React.CSSProperties = {
+  marginTop: "24px",
+  padding: "16px",
+  background: "#f0fdf4",
+  borderRadius: "8px",
+  border: "1px solid #bbf7d0",
+  display: "flex",
+  alignItems: "center",
+  gap: "16px",
+};
+
+const importButtonStyle: React.CSSProperties = {
+  padding: "12px 24px",
+  fontSize: "14px",
+  fontWeight: 600,
+  color: "#fff",
+  background: "#16a34a",
+  border: "none",
+  borderRadius: "6px",
+  cursor: "pointer",
+};
+
+const importHintStyle: React.CSSProperties = {
+  fontSize: "14px",
+  color: "#166534",
 };
