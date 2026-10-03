@@ -14,7 +14,7 @@ Build the graph-to-K6 translator: convert `GraphDraftComposition` to executable 
 - [x] K6F5-01 — Graph-to-K6 translator core. COMPLETE (commit `4fc015b`, 3 files, 618 lines). Native review `review-8e87a6fe85dba943` APPROVED.: pure function in `packages/shared` that converts `GraphDraftComposition` to a valid K6 script string. Deterministic output. Unit tests covering all 4 node types.
 - [x] K6F5-02 — Run scenario service. COMPLETE (commit `5688d73`, bundled with K6F5-03).: API endpoint to accept graph, translate, and queue execution. May require new endpoint or extend existing `/runs` POST.
 - [x] K6F5-03 — Editor → Run wiring. COMPLETE (commit `5688d73`, 4 files, 266 lines). Native review `review-87d7dddcac1f4f97` APPROVED.: "Run" button in editor that sends graph to orchestrator and navigates to live metrics dashboard.
-- [ ] K6F5-04 — End-to-end proof: draw scenario in editor → generate K6 → execute against mock target → see metrics. Docker-based test.
+- [x] K6F5-04 — End-to-end proof. COMPLETE (commit `61842f2`, 1 file, 271 lines). Native review `review-f5b30ca09a07401a` APPROVED.
 - [ ] K6F5-05 — Human Phase 5 review gate.
 
 ## Acceptance, verification and review strategy
@@ -23,6 +23,6 @@ Each unit: RED/GREEN with `pnpm test`. Translator: deterministic output proven b
 Commands: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `git diff --check`. Native assessment + independent verifier as needed. Track work-unit commits with Conventional Commits.
 
 ## Progress
-Latest acknowledged work-unit boundary: (none yet). K6F5-02/03 commit `5688d73` (native-approved, review `review-87d7dddcac1f4f97`, ack burned). Next: K6F5-04 E2E proof.
+Latest acknowledged work-unit boundary: (none yet). K6F5-02/03 commit `5688d73` (native-approved, review `review-87d7dddcac1f4f97`, ack burned). K6F5-01 to K6F5-04 COMPLETE. Next: K6F5-05 Human gate (awaiting user approval).
 
-Latest acknowledged work-unit boundary: K6F5-01 commit `4fc015b` (native-approved, review `review-8e87a6fe85dba943`, ack burned). K6F5-02/03 commit `5688d73` (native-approved, review `review-87d7dddcac1f4f97`, ack burned). Next: K6F5-04 E2E proof.
+Latest acknowledged work-unit boundary: K6F5-01 commit `4fc015b` (native-approved, review `review-8e87a6fe85dba943`, ack burned). K6F5-02/03 commit `5688d73` (native-approved, review `review-87d7dddcac1f4f97`, ack burned). K6F5-01 to K6F5-04 COMPLETE. Next: K6F5-05 Human gate (awaiting user approval).
