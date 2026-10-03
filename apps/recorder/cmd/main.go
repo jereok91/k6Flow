@@ -76,11 +76,11 @@ func main() {
 	// Start lifecycle manager
 	lm.Start()
 
-	// Start servers
+	// Start servers with CORS
 	apiAddr := fmt.Sprintf(":%d", cfg.Port)
 	proxyAddr := fmt.Sprintf(":%d", cfg.ProxyPort)
 
-	apiServer := &http.Server{Addr: apiAddr, Handler: apiMux}
+	apiServer := &http.Server{Addr: apiAddr, Handler: corsMiddleware(apiMux)}
 	proxyServer := &http.Server{Addr: proxyAddr, Handler: proxyHandler}
 
 	go func() {
@@ -112,4 +112,20 @@ func main() {
 	_ = proxyServer.Shutdown(ctx)
 
 	log.Println("recorder: stopped")
+}
+
+// corsMiddleware adds CORS headers for browser access.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
