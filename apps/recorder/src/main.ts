@@ -75,18 +75,14 @@ const httpServer = createServer((req, res) => {
           },
           {
             onFrame: (frame) => {
-              console.log(`[Main] Sending frame ${frame.seq} to ${recordingId}`);
               const result = wsServer.sendFrame(recordingId!, frame);
-              console.log(`[Main] Frame ${frame.seq} result: sent=${result.sent}, dropped=${result.dropped}`);
               framesSent += result.sent;
               framesDropped += result.dropped;
               fpsCounter++;
               
-              // Ack frame immediately if sent (simple mode for now)
-              // TODO: implement proper backpressure with client ack
-              if (result.sent > 0) {
-                session?.ackFrame(frame.seq);
-              }
+              // Always ack frame to keep CDP sending
+              // Without ack, CDP stops sending frames
+              session?.ackFrame(frame.seq);
             },
             onStateChange: (state) => {
               wsServer.broadcast(recordingId!, { 
