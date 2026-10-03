@@ -206,6 +206,11 @@ export class RecordingSession {
   }
 
   async resumeRecording(): Promise<void> {
+    // Ignore if already recording or ready (no-op)
+    if (this.state === "RECORDING" || this.state === "READY") {
+      console.log(`[Session] Ignoring resume in state ${this.state}`);
+      return;
+    }
     if (this.state !== "PAUSED") {
       throw new Error(`Cannot resume from state ${this.state}`);
     }
