@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext, type Page, type Dialog } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page, type Dialog, type FileChooser } from "playwright";
 import type { StreamingState, StreamingClientMessage } from "@k6flow/shared";
 import { Screencast, type ScreencastFrame, type ScreencastConfig } from "./screencast";
 
@@ -25,12 +25,18 @@ export interface DialogInfo {
   defaultValue?: string;
 }
 
+export interface FileChooserInfo {
+  id: string;
+  multiple: boolean;
+}
+
 export interface RecordingSessionCallbacks {
   onFrame: (frame: ScreencastFrame) => void;
   onStateChange: (state: StreamingState) => void;
   onNavigation: (url: string, title: string, canGoBack: boolean, canGoForward: boolean, loading: boolean) => void;
   onTabs: (tabs: TabInfo[]) => void;
   onDialog: (dialog: DialogInfo) => void;
+  onFileChooser: (info: FileChooserInfo) => void;
   onError: (error: Error) => void;
 }
 
@@ -67,6 +73,10 @@ export class RecordingSession {
   // Dialog tracking
   private pendingDialogs = new Map<string, Dialog>();
   private dialogIdCounter = 0;
+
+  // File chooser tracking
+  private pendingFileChoosers = new Map<string, FileChooser>();
+  private fileChooserIdCounter = 0;
 
   constructor(config: Partial<RecordingSessionConfig>, callbacks: RecordingSessionCallbacks) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -231,6 +241,9 @@ export class RecordingSession {
       case "dialog_reply":
         await this.handleDialogReply(message);
         break;
+      case "file_upload":
+        await this.handleFileUpload(message);
+        break;
       case "resize":
         await this.page.setViewportSize({ width: message.width, height: message.height });
         break;
@@ -379,6 +392,43 @@ export class RecordingSession {
   }
 
   /**
+   * Handle incoming file chooser from the page.
+   */
+  private handleFileChooser(fileChooser: FileChooser): void {
+    const id = `filechooser-${++this.fileChooserIdCounter}`;
+    this.pendingFileChoosers.set(id, fileChooser);
+
+    const info: FileChooserInfo = {
+      id,
+      multiple: fileChooser.isMultiple(),
+    };
+
+    this.callbacks.onFileChooser(info);
+  }
+
+  /**
+   * Handle file upload from client.
+   * Files are uploaded via HTTP and referenced by assetId.
+   */
+  private async handleFileUpload(msg: { id: string; files: Array<{ name: string; assetId: string }> }): Promise<void> {
+    const fileChooser = this.pendingFileChoosers.get(msg.id);
+    if (!fileChooser) {
+      console.warn(`[Session] FileChooser ${msg.id} not found`);
+      return;
+    }
+
+    this.pendingFileChoosers.delete(msg.id);
+
+    try {
+      // Files are stored in /tmp/uploads/<assetId>
+      const filePaths = msg.files.map(f => `/tmp/uploads/${f.assetId}`);
+      await fileChooser.setFiles(filePaths);
+    } catch (error) {
+      console.error(`[Session] Failed to set files:`, error);
+    }
+  }
+
+  /**
    * Acknowledge a frame to allow more frames to be sent.
    */
   ackFrame(seq: number): void {
@@ -439,6 +489,10 @@ export class RecordingSession {
 
     page.on("dialog", (dialog) => {
       this.handleDialog(dialog);
+    });
+
+    page.on("filechooser", (fileChooser) => {
+      this.handleFileChooser(fileChooser);
     });
   }
 

@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { createWriteStream, mkdirSync, existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { WsServer } from "./ws-server";
 import { RecordingSession } from "./recording-session";
 import type { StreamingClientMessage } from "@k6flow/shared";
@@ -116,6 +118,13 @@ const httpServer = createServer((req, res) => {
                 defaultValue: dialog.defaultValue
               });
             },
+            onFileChooser: (info) => {
+              wsServer.broadcast(recordingId!, { 
+                t: "filechooser", 
+                id: info.id,
+                multiple: info.multiple
+              });
+            },
             onError: (error) => {
               console.error("Recording error:", error);
               wsServer.broadcast(recordingId!, { 
@@ -160,6 +169,41 @@ const httpServer = createServer((req, res) => {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: error.message }));
     });
+    return;
+  }
+
+  // File upload endpoint for file chooser
+  if (req.method === "POST" && req.url === "/upload") {
+    const authHeader = req.headers.authorization;
+    if (authHeader !== `Bearer ${AUTH_TOKEN}`) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Unauthorized" }));
+      return;
+    }
+
+    // Ensure upload directory exists
+    const uploadDir = "/tmp/uploads";
+    if (!existsSync(uploadDir)) {
+      mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const assetId = randomUUID();
+    const filePath = `${uploadDir}/${assetId}`;
+    const writeStream = createWriteStream(filePath);
+
+    req.pipe(writeStream);
+
+    writeStream.on("finish", () => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ assetId }));
+    });
+
+    writeStream.on("error", (error) => {
+      console.error("Upload error:", error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Upload failed" }));
+    });
+
     return;
   }
 

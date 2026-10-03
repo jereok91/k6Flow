@@ -40,12 +40,18 @@ export interface DialogInfo {
   defaultValue?: string;
 }
 
+export interface FileChooserInfo {
+  id: string;
+  multiple: boolean;
+}
+
 export interface UseStreamingOptions {
   wsUrl: string;
   onStateChange?: (state: StreamingState) => void;
   onNavigation?: (nav: NavigationState) => void;
   onTabs?: (tabs: TabInfo[]) => void;
   onDialog?: (dialog: DialogInfo) => void;
+  onFileChooser?: (info: FileChooserInfo) => void;
   onStats?: (stats: StreamingStats) => void;
   onError?: (error: string) => void;
 }
@@ -57,12 +63,14 @@ export interface UseStreamingResult {
   navigation: NavigationState | null;
   tabs: TabInfo[];
   dialog: DialogInfo | null;
+  fileChooser: FileChooserInfo | null;
   stats: StreamingStats | null;
   cursorStyle: string;
   sendMessage: (msg: StreamingClientMessage) => void;
   sendMouseEvent: (type: string, x: number, y: number, options?: Partial<StreamingClientMessage>) => void;
   sendKeyEvent: (type: "down" | "up", key: string, code: string, options?: Partial<StreamingClientMessage>) => void;
   replyDialog: (accept: boolean, promptText?: string) => void;
+  uploadFiles: (files: File[]) => Promise<void>;
 }
 
 export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
@@ -75,6 +83,7 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
   const [navigation, setNavigation] = useState<NavigationState | null>(null);
   const [tabs, setTabs] = useState<TabInfo[]>([]);
   const [dialog, setDialog] = useState<DialogInfo | null>(null);
+  const [fileChooser, setFileChooser] = useState<FileChooserInfo | null>(null);
   const [stats, setStats] = useState<StreamingStats | null>(null);
   const [cursorStyle, setCursorStyle] = useState("default");
 
@@ -173,6 +182,14 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
           };
           setDialog(d);
           options.onDialog?.(d);
+          break;
+        case "filechooser":
+          const fc: FileChooserInfo = {
+            id: msg.id,
+            multiple: msg.multiple,
+          };
+          setFileChooser(fc);
+          options.onFileChooser?.(fc);
           break;
         case "error":
           console.error("Streaming error:", msg.code, msg.message);
@@ -290,6 +307,48 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
     setDialog(null);
   }, [dialog, sendMessage]);
 
+  // Helper for file upload
+  const uploadFiles = useCallback(async (files: File[]) => {
+    if (!fileChooser) return;
+
+    // Upload each file and collect asset IDs
+    const uploadedFiles: Array<{ name: string; assetId: string }> = [];
+    
+    for (const file of files) {
+      try {
+        // Get the recorder URL from wsUrl (ws://host/ws/... -> http://host/upload)
+        const wsUrlObj = new URL(options.wsUrl, window.location.href);
+        const uploadUrl = `${wsUrlObj.protocol === "wss:" ? "https:" : "http:"}//${wsUrlObj.host}/upload`;
+        
+        const response = await fetch(uploadUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${new URLSearchParams(wsUrlObj.search).get("token") || ""}`
+          },
+          body: file,
+        });
+        
+        if (response.ok) {
+          const { assetId } = await response.json();
+          uploadedFiles.push({ name: file.name, assetId });
+        }
+      } catch (error) {
+        console.error("File upload failed:", error);
+      }
+    }
+
+    // Send file_upload message
+    if (uploadedFiles.length > 0) {
+      sendMessage({
+        t: "file_upload",
+        id: fileChooser.id,
+        files: uploadedFiles,
+      } as StreamingClientMessage);
+    }
+
+    setFileChooser(null);
+  }, [fileChooser, options.wsUrl, sendMessage]);
+
   return {
     canvasRef,
     state,
@@ -297,11 +356,13 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
     navigation,
     tabs,
     dialog,
+    fileChooser,
     stats,
     cursorStyle,
     sendMessage,
     sendMouseEvent,
     sendKeyEvent,
     replyDialog,
+    uploadFiles,
   };
 }

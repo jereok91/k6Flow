@@ -28,6 +28,7 @@ export function BrowserCanvas({
   onError,
 }: BrowserCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasFocus, setHasFocus] = useState(false);
   const [promptValue, setPromptValue] = useState("");
 
@@ -38,12 +39,14 @@ export function BrowserCanvas({
     navigation,
     tabs,
     dialog,
+    fileChooser,
     stats,
     cursorStyle,
     sendMessage,
     sendMouseEvent,
     sendKeyEvent,
     replyDialog,
+    uploadFiles,
   } = useStreaming({
     wsUrl,
     onStateChange,
@@ -361,6 +364,48 @@ export function BrowserCanvas({
                 }}
               >
                 {dialog.kind === "alert" ? "OK" : dialog.kind === "beforeunload" ? "Leave" : "OK"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* File chooser modal */}
+      {fileChooser && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 max-w-md rounded-lg bg-gray-800 p-4 shadow-xl">
+            <div className="mb-3 text-sm font-medium text-gray-300">
+              Select {fileChooser.multiple ? "Files" : "File"}
+            </div>
+            <div className="mb-4 text-gray-400 text-sm">
+              The page is requesting you to select {fileChooser.multiple ? "one or more files" : "a file"}.
+            </div>
+            
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple={fileChooser.multiple}
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                if (files.length > 0) {
+                  uploadFiles(files);
+                }
+              }}
+            />
+
+            <div className="flex justify-end gap-2">
+              <button
+                className="rounded bg-gray-600 px-4 py-2 text-sm text-white hover:bg-gray-500"
+                onClick={() => uploadFiles([])}
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Browse...
               </button>
             </div>
           </div>
