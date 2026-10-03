@@ -12,8 +12,8 @@ Implement user pool file management: CSV upload, storage, association with scena
 ## Stable work units
 - [x] K6F6-01 — Attachments DB schema. COMPLETE (commit `50894b9`, bundled with K6F6-02).: `attachments` table (id, scenario_id, name, content_type, data, created_at). Migration.
 - [x] K6F6-02 — Attachments API. COMPLETE (commit `cd0afe5`, 9 files, 787 lines). Native review `review-96390e9f2bc9132f` APPROVED.: POST /api/scenarios/:id/attachments (upload), GET (list), DELETE. File size limit ~1MB.
-- [ ] K6F6-03 — Editor file upload UI: drag-drop or file picker in UserPoolConfigPanel, show attached files, delete.
-- [ ] K6F6-04 — Run with attachments: include CSV files in orchestrator request, orchestrator writes to container.
+- [x] K6F6-03 — Editor file upload UI. COMPLETE (commit `f9ee7af`, bundled with K6F6-04).: drag-drop or file picker in UserPoolConfigPanel, show attached files, delete.
+- [x] K6F6-04 — Run with attachments. COMPLETE (commit `c2d5556`, 3 files, 327 lines). Native review `review-de726c7b7594dd95` APPROVED.: include CSV files in orchestrator request, orchestrator writes to container.
 - [ ] K6F6-05 — E2E proof: upload CSV, configure user-pool node, run scenario, verify K6 reads users.
 - [ ] K6F6-06 — Human Phase 6 review gate.
 
@@ -23,4 +23,4 @@ Each unit: RED/GREEN with `pnpm test`. Attachments: file uploads stored in DB, r
 Commands: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `git diff --check`. Native assessment + independent verifier as needed. Track work-unit commits with Conventional Commits.
 
 ## Progress
-Latest acknowledged work-unit boundary: (none yet). K6F6-01/02 commit `cd0afe5` (native-approved, ack burned). Next: K6F6-03 editor file upload UI.
+Latest acknowledged work-unit boundary: (none yet). K6F6-01/02 commit `cd0afe5` (native-approved, ack burned). K6F6-03/04 commit `c2d5556` (native-approved, ack burned). Next: K6F6-05 E2E proof.
