@@ -67,7 +67,9 @@ Risks handed forward: (a) DB-backed user CRUD paths unproven here by design — 
 Native review `review-cb86216def01c9c1` (medium/reliability, 7 files/672 lines, correction budget 200, risk `executable_change` on [id]/route.ts): explicit baseRef `7c8a73e091a94d3192fbdef0092c3972716468d7` + committedOnly, one materialize reviewer forecast (1 run, pi_host_relay, review-reliability) acknowledged → `approved` with TWO informational findings: `R3-existence-enumeration` ([id]/route.ts:39-40), `R3-route-coverage` (route.ts:15-18). Ack consumed revision `sha256:ad49bb264b81d74221ef425f37caeb755a2a84025400fc31647cb20e4722a6eb` for target `sha256:ddf554200b39792c1bba3892566bdfdf3554f582a5deeaf3cc6fdafd7ac10a35`; authority burned, no STATUS after ack. Findings join the backlog; no correction authorized. This closes K6F4-04 with native approval.
 
 Risks handed forward: (a) DB-backed scenario CRUD paths unproven here by design — K6F4-06 real-stack e2e should exercise create/read/update/delete with live Postgres; (b) existence enumeration — non-owners get 404 whether scenario exists or not (DECISIONES documents this as intentional privacy); (c) route-level auth wiring proven by inspection, not live route tests.
-- [ ] K6F4-05 — React Flow editor: node palette, canvas, §3.1 node config panels, pure TDD core mapping React Flow graph ↔ `GraphDraftComposition`.
+- [ ] K6F4-05a — Editor core mapping: pure TDD functions to convert React Flow nodes/edges ↔ `GraphDraftComposition` and back. No UI.
+- [ ] K6F4-05b — Editor shell: React Flow canvas, node palette, drag-drop, basic node rendering. Consumes 05a mapping.
+- [ ] K6F4-05c — Node config panels: forms for 4 node types (authentication, http-request, response-validation, user-pool) with parameter editing.
 - [ ] K6F4-06 — Editor↔scenario wiring + real-Docker end-to-end proof (login → draw → save → reload).
 - [ ] K6F4-07 — Human Phase 4 review gate (init:176).
 
@@ -83,7 +85,9 @@ Commands: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `git diff --check`. Phase 
 | Phase 2 (execution core) | Gate 06 approved 2026-10-02 | `odd/tasks/k6flow-phase-2-execution-core.md` — 207 Go + 23 integration + 675 TS |
 | Phase 3 (live metrics) | Gate 05 approved 2026-10-02 | `odd/tasks/k6flow-phase-3-metrics-live.md` — 291 Go unit + 47 integration RUN + 726 TS; tail `87120ad`+`035ac05` closed on independent verification, HEAD `3f8e0c9` |
 
-Latest acknowledged work-unit boundary: K6F4-04 commit `315ef3d` (native-approved, review `review-cb86216def01c9c1`, ack burned). Next: K6F4-05 React Flow editor.
+Latest acknowledged work-unit boundary: K6F4-04 commit `315ef3d` (native-approved, review `review-cb86216def01c9c1`, ack burned). Next: K6F4-05a editor core mapping.
+
+Budget disposition (human, 2026-10-03): K6F4-05 projected ~1000-1200 lines, over the ~500 gate → SPLIT into 05a (mapping ~350) + 05b (editor shell ~450) + 05c (config panels ~400), each under 500.
 
 ## Research evidence
 - init:188 — Fase 4 literal: React Flow, nodos de la sección 3.1, guardado de escenarios y autenticación de usuarios.

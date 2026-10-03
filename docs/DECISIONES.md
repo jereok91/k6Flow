@@ -1,5 +1,19 @@
 # Foundation decisions
 
+## Phase 4 — editor core mapping (K6F4-05a)
+
+Pure data transformation between React Flow nodes/edges and `GraphDraftComposition`.
+No React, no side effects — just functions for the editor (05b) to consume.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| `@xyflow/react` added as dependency | React Flow library for visual node editor, pre-approved in init §2.1. |
+| `K6NodeData` interface with index signature | Required by `@xyflow/react` `Node<T>` constraint (`Record<string, unknown>`). |
+| Type assertion in `fromReactFlowGraph` | The discriminated union requires exact literal types; caller validates with `graphDraftCompositionSchema`. |
+| Simple left-to-right layout in `toReactFlowGraph` | BFS from root nodes, positions computed automatically. Editor (05b) may allow manual repositioning. |
+
+Rollback: delete `apps/web/lib/editor/`, remove `@xyflow/react` from package.json.
+
 ## Phase 4 — scenario persistence (K6F4-04)
 
 Scenario CRUD API under `/api/scenarios`, gated by session (any authenticated
