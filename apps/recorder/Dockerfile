@@ -2,10 +2,10 @@
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
-COPY go.mod go.sum* ./
+COPY apps/recorder/go.mod apps/recorder/go.sum ./
 RUN go mod download
 
-COPY . .
+COPY apps/recorder/ .
 RUN CGO_ENABLED=0 go build -o /recorder ./cmd
 
 # Runtime stage
