@@ -464,6 +464,35 @@ export default function EditorPage() {
         </div>
       </header>
 
+      {/* K6F8-05: Import analysis banner */}
+      {importAnalysis && (
+        <div style={importBannerStyle}>
+          <span style={{ fontWeight: 500 }}>
+            
+ Imported {nodes.length} requests from recorder
+          </span>
+          <span style={{ fontSize: "13px", color: "#166534" }}>
+            {importAnalysis.authSignals > 0 && (
+              <span>
+                {importAnalysis.authSignals} auth signal{importAnalysis.authSignals > 1 ? 's' : ''} detected
+              </span>
+            )}
+            {importAnalysis.authSignals > 0 && importAnalysis.dynamicValues > 0 && ' • '}
+            {importAnalysis.dynamicValues > 0 && (
+              <span>
+                {importAnalysis.dynamicValues} dynamic value{importAnalysis.dynamicValues > 1 ? 's' : ''} found
+              </span>
+            )}
+          </span>
+          <button
+            onClick={() => setImportAnalysis(null)}
+            style={importDismissStyle}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Loading overlay */}
       {scenario.loading && (
         <div style={loadingOverlayStyle}>
@@ -638,4 +667,25 @@ const dialogInputStyle: React.CSSProperties = {
   borderRadius: "6px",
   marginBottom: "16px",
   boxSizing: "border-box",
+};
+
+// K6F8-05: Import banner styles
+const importBannerStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "16px",
+  padding: "12px 20px",
+  background: "#f0fdf4",
+  borderBottom: "1px solid #bbf7d0",
+};
+
+const importDismissStyle: React.CSSProperties = {
+  marginLeft: "auto",
+  padding: "4px 12px",
+  fontSize: "13px",
+  color: "#166534",
+  background: "transparent",
+  border: "1px solid #86efac",
+  borderRadius: "4px",
+  cursor: "pointer",
 };
