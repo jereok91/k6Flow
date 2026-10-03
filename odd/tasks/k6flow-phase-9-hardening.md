@@ -30,7 +30,7 @@ Security hardening, limits, orphan reconciliation, final documentation and deplo
 - [x] K6F9-03 — SSRF protection: network isolation for recorder/K6 from internal services.
 - [x] K6F9-04 — Credential handling: audit logs, ensure no secrets leak.
 - [x] K6F9-05 — Docker socket documentation: document risk, mitigation options.
-- [ ] K6F9-06 — Reverse proxy setup: Caddy configuration for HTTPS.
+- [x] K6F9-06 — Reverse proxy setup: Caddy configuration for HTTPS.
 - [ ] K6F9-07 — Deployment README: single-command VPS installation guide.
 - [ ] K6F9-08 — Orphan reconciliation: cleanup stale containers/recordings.
 - [ ] K6F9-09 — Final documentation review.
