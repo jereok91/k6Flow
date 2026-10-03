@@ -75,7 +75,9 @@ const httpServer = createServer((req, res) => {
           },
           {
             onFrame: (frame) => {
+              console.log(`[Main] Sending frame ${frame.seq} to ${recordingId}`);
               const result = wsServer.sendFrame(recordingId!, frame);
+              console.log(`[Main] Frame ${frame.seq} result: sent=${result.sent}, dropped=${result.dropped}`);
               framesSent += result.sent;
               framesDropped += result.dropped;
               fpsCounter++;
