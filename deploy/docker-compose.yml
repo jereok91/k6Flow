@@ -43,7 +43,7 @@ services:
       RECORDER_AUTH_TOKEN: ${RECORDER_AUTH_TOKEN:-}
       RECORDER_MAX_DURATION_SEC: ${RECORDER_MAX_DURATION_SEC:-3600}
       RECORDER_INACTIVITY_SEC: ${RECORDER_INACTIVITY_SEC:-300}
-    networks: [backend]
+    networks: [edge, backend]
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8081/healthz"]
       interval: 5s
