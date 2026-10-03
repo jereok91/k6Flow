@@ -2,6 +2,7 @@ import { chromium, type Browser, type BrowserContext, type Page, type Dialog, ty
 import type { StreamingState, StreamingClientMessage } from "@k6flow/shared";
 import { Screencast, type ScreencastFrame, type ScreencastConfig } from "./screencast";
 import { NetworkCapture, type CapturedRequest, type CapturedEntry } from "./network-capture";
+import { UIEventCapture, type CapturedUIEvent } from "./ui-event-capture";
 
 export interface RecordingSessionConfig {
   startUrl: string;
@@ -41,6 +42,7 @@ export interface RecordingSessionCallbacks {
   onCursor: (style: string) => void;
   onNetworkRequest: (request: CapturedRequest) => void;
   onNetworkEntry: (entry: CapturedEntry) => void;
+  onUIEvent: (event: CapturedUIEvent) => void;
   onError: (error: Error) => void;
 }
 
@@ -59,6 +61,7 @@ export class RecordingSession {
   private page: Page | null = null;
   private screencast: Screencast | null = null;
   private networkCapture: NetworkCapture | null = null;
+  private uiEventCapture: UIEventCapture | null = null;
   private state: StreamingState = "CREATED";
   private config: RecordingSessionConfig;
   private callbacks: RecordingSessionCallbacks;
@@ -154,6 +157,12 @@ export class RecordingSession {
       });
       await this.networkCapture.start(this.page);
 
+      // Start UI event capture
+      this.uiEventCapture = new UIEventCapture({
+        onEvent: (event) => this.callbacks.onUIEvent(event),
+      });
+      await this.uiEventCapture.start(this.page);
+
       // Navigate to start URL
       if (this.config.startUrl && this.config.startUrl !== "about:blank") {
         await this.page.goto(this.config.startUrl, { waitUntil: "domcontentloaded" });
@@ -183,6 +192,7 @@ export class RecordingSession {
       throw new Error(`Cannot pause from state ${this.state}`);
     }
     this.networkCapture?.pause();
+    this.uiEventCapture?.pause();
     this.setState("PAUSED");
   }
 
@@ -191,6 +201,7 @@ export class RecordingSession {
       throw new Error(`Cannot resume from state ${this.state}`);
     }
     this.networkCapture?.resume();
+    this.uiEventCapture?.resume();
     this.setState("RECORDING");
   }
 
@@ -202,6 +213,11 @@ export class RecordingSession {
     this.setState("STOPPING");
 
     try {
+      if (this.uiEventCapture) {
+        await this.uiEventCapture.stop();
+        this.uiEventCapture = null;
+      }
+
       if (this.networkCapture) {
         await this.networkCapture.stop();
         this.networkCapture = null;

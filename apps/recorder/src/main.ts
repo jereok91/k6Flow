@@ -140,6 +140,10 @@ const httpServer = createServer((req, res) => {
               // Full entry with response
               console.log(`[Network] Entry: ${entry.request.method} ${entry.request.url} -> ${entry.response?.status}`);
             },
+            onUIEvent: (event) => {
+              // UI events are captured for the recording
+              console.log(`[UIEvent] ${event.type}: ${event.selector}`);
+            },
             onError: (error) => {
               console.error("Recording error:", error);
               wsServer.broadcast(recordingId!, { 
