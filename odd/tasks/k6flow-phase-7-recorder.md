@@ -19,7 +19,7 @@ Implement the recorder service: HTTP proxy for traffic capture, REST/WS APIs per
 - [x] K6F7-07 — Docker integration: docker-compose service, network isolation. (commit `1a28f81`, 117 lines)
 - [x] K6F7-08 — Frontend integration: recorder UI in web app (start/stop/view captures). (commit `b282d8b`, 360 lines)
 - [x] K6F7-09 — E2E proof: contract tests in shared + phase-0 updated for recorder service. (commit `d43d9fa`)
-- [ ] K6F7-10 — Human Phase 7 review gate.
+- [x] K6F7-10 — Human Phase 7 review gate. APPROVED (user verified RECORDING state works). Phase 8 authorized.
 
 ## Acceptance, verification and review strategy
 Each unit: RED/GREEN with tests. Recorder: Go unit tests for store/proxy/handlers. Integration: REST API returns valid contract responses. E2E: full flow with real HTTP traffic capture.
