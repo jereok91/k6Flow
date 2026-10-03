@@ -34,7 +34,9 @@ export default function RecorderPage() {
   const wsRef = useRef<WebSocket | null>(null);
 
   const connectWs = useCallback((id: string) => {
-    const wsUrl = `ws://localhost:8081/ws/recordings/${id}`;
+    // Use same-origin WebSocket (proxied through Next.js)
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws/recordings/${id}`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
@@ -64,7 +66,7 @@ export default function RecorderPage() {
     setCaptures([]);
 
     try {
-      const res = await fetch("http://localhost:8081/api/recorder/recordings", {
+      const res = await fetch("/api/recorder/recordings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ version: 1 }),
@@ -90,7 +92,7 @@ export default function RecorderPage() {
 
     try {
       const res = await fetch(
-        `http://localhost:8081/api/recorder/recordings/${recordingId}/stop`,
+        `/api/recorder/recordings/${recordingId}/stop`,
         { method: "POST" }
       );
 

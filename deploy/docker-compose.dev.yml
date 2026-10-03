@@ -6,6 +6,8 @@ services:
       NODE_ENV: development
       # K6F3-04: lets the Next rewrite resolve the upstream behind the proxy (contract-05 routing).
       ORCHESTRATOR_WS_UPSTREAM: http://orchestrator:8080
+      # K6F7: recorder proxy through Next.js
+      RECORDER_UPSTREAM: http://recorder:8081
     volumes:
       - ../apps/web/app:/workspace/apps/web/app:ro
   orchestrator:

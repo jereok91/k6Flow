@@ -34,9 +34,7 @@ services:
     build:
       context: ..
       dockerfile: apps/recorder/Dockerfile
-    ports:
-      - "127.0.0.1:${RECORDER_PORT:-8081}:8081"
-      - "127.0.0.1:${RECORDER_PROXY_PORT:-8082}:8082"
+    # Ports not exposed externally - accessed via Next.js proxy
     environment:
       RECORDER_PORT: "8081"
       RECORDER_PROXY_PORT: "8082"
