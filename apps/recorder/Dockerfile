@@ -30,5 +30,5 @@ EXPOSE 8081
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
   CMD wget -q --spider http://localhost:8081/healthz || exit 1
 
-# Run with experimental strip types (no build needed)
-CMD ["node", "--experimental-strip-types", "src/main.ts"]
+# Run with tsx (handles TypeScript imports correctly)
+CMD ["npx", "tsx", "src/main.ts"]

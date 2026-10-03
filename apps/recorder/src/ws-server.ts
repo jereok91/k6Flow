@@ -6,8 +6,8 @@ import {
   type StreamingServerMessage,
   type StreamingClientMessage,
 } from "@k6flow/shared";
-import type { ScreencastFrame } from "./screencast.ts";
-import { encodeFrame } from "./screencast.ts";
+import type { ScreencastFrame } from "./screencast";
+import { encodeFrame } from "./screencast";
 
 export interface WsServerConfig {
   authToken: string;

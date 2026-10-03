@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
-import { WsServer } from "./ws-server.ts";
-import { RecordingSession } from "./recording-session.ts";
+import { WsServer } from "./ws-server";
+import { RecordingSession } from "./recording-session";
 import type { StreamingClientMessage } from "@k6flow/shared";
 
 // Configuration from environment

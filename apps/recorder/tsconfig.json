@@ -10,7 +10,6 @@
     "rootDir": "src",
     "declaration": true,
     "resolveJsonModule": true,
-    "allowImportingTsExtensions": true,
     "noEmit": true
   },
   "include": ["src/**/*"],

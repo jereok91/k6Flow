@@ -4,9 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --experimental-strip-types src/main.ts",
-    "build": "tsc",
-    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts",
+    "start": "tsx src/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -18,6 +17,7 @@
   "devDependencies": {
     "@types/node": "24.10.9",
     "@types/ws": "8.18.1",
+    "tsx": "4.19.4",
     "typescript": "5.8.3",
     "vitest": "4.0.18"
   }
