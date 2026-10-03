@@ -15,7 +15,8 @@ export default function RecorderTestPage() {
   const [isStarting, setIsStarting] = useState(false);
 
   // In development, connect directly to recorder to avoid Next.js rewrite issues
-  const isLocalDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+  const isLocalDev = typeof window !== 'undefined' && 
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   const recorderBaseUrl = isLocalDev ? 'http://localhost:8081' : '';
   const recorderWsUrl = isLocalDev ? 'ws://localhost:8081' : `ws://${typeof window !== 'undefined' ? window.location.host : ''}`;
   const authToken = process.env.NEXT_PUBLIC_RECORDER_TOKEN || 'dev-token';
