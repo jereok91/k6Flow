@@ -1,9 +1,10 @@
 "use client";
 
-// K6F4-05b/c/06: Visual scenario editor page with save/load functionality.
+// K6F4-05b/c/06 + K6F5-03: Visual scenario editor page with save/load/run functionality.
 // Authenticated users only.
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   FlowEditor,
   HttpRequestConfigPanel,
@@ -15,6 +16,7 @@ import {
   type K6NodeData,
 } from "../../lib/editor";
 import { useScenario } from "../../lib/editor/use-scenario";
+import { useRun } from "../../lib/editor/use-run";
 
 interface AuthState {
   loading: boolean;
@@ -31,6 +33,13 @@ export default function EditorPage() {
   const [scenarioNameInput, setScenarioNameInput] = useState("");
 
   const scenario = useScenario();
+  const run = useRun();
+  const router = useRouter();
+
+  // Check orchestrator on mount
+  useEffect(() => {
+    run.checkOrchestrator();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check authentication on mount
   useEffect(() => {
@@ -147,6 +156,21 @@ export default function EditorPage() {
     window.history.replaceState({}, "", url.toString());
   }, [scenario]);
 
+  // Run scenario
+  const handleRun = useCallback(async () => {
+    if (nodes.length === 0) {
+      return;
+    }
+    const result = await run.startRun(nodes, edges, {
+      vus: 1,
+      durationMs: 30000,
+    });
+    if (result.success && result.runId) {
+      // Navigate to run metrics page
+      router.push(`/runs/${result.runId}`);
+    }
+  }, [nodes, edges, run, router]);
+
   // Loading state
   if (auth.loading) {
     return (
@@ -232,8 +256,10 @@ export default function EditorPage() {
         </div>
 
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          {scenario.error && (
-            <span style={{ fontSize: "13px", color: "#dc2626" }}>{scenario.error}</span>
+          {(scenario.error || run.error) && (
+            <span style={{ fontSize: "13px", color: "#dc2626" }}>
+              {scenario.error || run.error}
+            </span>
           )}
           <span style={{ fontSize: "13px", color: "#6b7280" }}>
             {nodes.length} nodes, {edges.length} connections
@@ -247,6 +273,14 @@ export default function EditorPage() {
             style={primaryButtonStyle}
           >
             {scenario.saving ? "Saving..." : "Save"}
+          </button>
+          <button
+            onClick={handleRun}
+            disabled={run.running || nodes.length === 0 || run.orchestratorAvailable === false}
+            style={runButtonStyle}
+            title={run.orchestratorAvailable === false ? "Orchestrator not available" : "Run scenario"}
+          >
+            {run.running ? "Running..." : "▶ Run"}
           </button>
         </div>
       </header>
@@ -373,6 +407,17 @@ const secondaryButtonStyle: React.CSSProperties = {
   color: "#374151",
   background: "#f3f4f6",
   border: "1px solid #d1d5db",
+  borderRadius: "6px",
+  cursor: "pointer",
+};
+
+const runButtonStyle: React.CSSProperties = {
+  padding: "8px 16px",
+  fontSize: "14px",
+  fontWeight: 500,
+  color: "#fff",
+  background: "#16a34a",
+  border: "none",
   borderRadius: "6px",
   cursor: "pointer",
 };

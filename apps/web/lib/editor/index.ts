@@ -1,4 +1,4 @@
-// K6F4-05b/c/06: Editor module exports.
+// K6F4-05b/c/06 + K6F5-02/03: Editor module exports.
 
 export { FlowEditor } from "./FlowEditor";
 export { K6Node } from "./K6Node";
