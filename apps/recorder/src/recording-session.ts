@@ -37,6 +37,12 @@ export class RecordingSession {
   private callbacks: RecordingSessionCallbacks;
   private startTime = 0;
 
+  // Navigation history tracking
+  private navigationHistory: string[] = [];
+  private historyIndex = -1;
+  private isNavigatingHistory = false;
+  private isLoading = false;
+
   constructor(config: Partial<RecordingSessionConfig>, callbacks: RecordingSessionCallbacks) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.callbacks = callbacks;
@@ -72,14 +78,20 @@ export class RecordingSession {
       // Create page
       this.page = await this.context.newPage();
 
-      // Setup navigation listener
+      // Setup navigation listeners
       this.page.on("framenavigated", (frame) => {
         if (frame === this.page?.mainFrame()) {
-          this.emitNavigation();
+          this.handleNavigationEvent();
         }
       });
 
       this.page.on("load", () => {
+        this.isLoading = false;
+        this.emitNavigation();
+      });
+
+      this.page.on("domcontentloaded", () => {
+        this.isLoading = false;
         this.emitNavigation();
       });
 
@@ -101,10 +113,14 @@ export class RecordingSession {
       // Navigate to start URL
       if (this.config.startUrl && this.config.startUrl !== "about:blank") {
         await this.page.goto(this.config.startUrl, { waitUntil: "domcontentloaded" });
+        // Initialize history with start URL
+        this.navigationHistory = [this.config.startUrl];
+        this.historyIndex = 0;
       }
 
       this.startTime = Date.now();
       this.setState("READY");
+      this.emitNavigation();
     } catch (error) {
       this.setState("FAILED");
       throw error;
@@ -239,24 +255,40 @@ export class RecordingSession {
   private async handleNavigation(msg: { action: string; url?: string }): Promise<void> {
     if (!this.page) return;
 
-    switch (msg.action) {
-      case "goto":
-        if (msg.url) {
-          await this.page.goto(msg.url, { waitUntil: "domcontentloaded" });
-        }
-        break;
-      case "back":
-        await this.page.goBack();
-        break;
-      case "forward":
-        await this.page.goForward();
-        break;
-      case "reload":
-        await this.page.reload();
-        break;
-      case "stop":
-        // No direct stop in Playwright, but we can abort
-        break;
+    this.isLoading = true;
+    this.emitNavigation();
+
+    try {
+      switch (msg.action) {
+        case "goto":
+          if (msg.url) {
+            await this.page.goto(msg.url, { waitUntil: "domcontentloaded" });
+          }
+          break;
+        case "back":
+          if (this.historyIndex > 0) {
+            this.isNavigatingHistory = true;
+            this.historyIndex--;
+            await this.page.goBack();
+          }
+          break;
+        case "forward":
+          if (this.historyIndex < this.navigationHistory.length - 1) {
+            this.isNavigatingHistory = true;
+            this.historyIndex++;
+            await this.page.goForward();
+          }
+          break;
+        case "reload":
+          await this.page.reload();
+          break;
+        case "stop":
+          // No direct stop in Playwright, but we can abort
+          break;
+      }
+    } finally {
+      this.isLoading = false;
+      this.emitNavigation();
     }
   }
 
@@ -291,15 +323,45 @@ export class RecordingSession {
     this.callbacks.onStateChange(state);
   }
 
+  /**
+   * Handle navigation event from framenavigated.
+   * Track history for canGoBack/canGoForward.
+   */
+  private handleNavigationEvent(): void {
+    if (!this.page) return;
+
+    const url = this.page.url();
+    
+    // Skip about:blank
+    if (url === "about:blank") return;
+
+    // If we're navigating via back/forward, don't add to history
+    if (this.isNavigatingHistory) {
+      this.isNavigatingHistory = false;
+    } else {
+      // Truncate forward history if we navigate to new page
+      if (this.historyIndex < this.navigationHistory.length - 1) {
+        this.navigationHistory = this.navigationHistory.slice(0, this.historyIndex + 1);
+      }
+      // Add new URL to history
+      if (this.navigationHistory[this.historyIndex] !== url) {
+        this.navigationHistory.push(url);
+        this.historyIndex = this.navigationHistory.length - 1;
+      }
+    }
+
+    this.emitNavigation();
+  }
+
   private async emitNavigation(): Promise<void> {
     if (!this.page) return;
 
     try {
       const url = this.page.url();
       const title = await this.page.title();
-      // Playwright doesn't expose canGoBack/canGoForward directly
-      // We'd need to track navigation history ourselves
-      this.callbacks.onNavigation(url, title, false, false, false);
+      const canGoBack = this.historyIndex > 0;
+      const canGoForward = this.historyIndex < this.navigationHistory.length - 1;
+      this.callbacks.onNavigation(url, title, canGoBack, canGoForward, this.isLoading);
     } catch {
       // Page may have been closed
     }
