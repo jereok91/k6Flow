@@ -24,6 +24,14 @@ interface AuthState {
   error?: string;
 }
 
+interface AttachmentInfo {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  createdAt: string;
+}
+
 export default function EditorPage() {
   const [auth, setAuth] = useState<AuthState>({ loading: true, authenticated: false });
   const [nodes, setNodes] = useState<K6NodeType[]>([]);
@@ -31,6 +39,7 @@ export default function EditorPage() {
   const [selectedNode, setSelectedNode] = useState<K6NodeType | null>(null);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [scenarioNameInput, setScenarioNameInput] = useState("");
+  const [attachments, setAttachments] = useState<AttachmentInfo[]>([]);
 
   const scenario = useScenario();
   const run = useRun();
@@ -64,14 +73,80 @@ export default function EditorPage() {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("id");
     if (id) {
-      scenario.loadScenario(parseInt(id, 10)).then((result) => {
+      const scenarioId = parseInt(id, 10);
+      scenario.loadScenario(scenarioId).then((result) => {
         if (result) {
           setNodes(result.nodes);
           setEdges(result.edges);
         }
       });
+      // Load attachments
+      loadAttachments(scenarioId);
     }
   }, [auth.authenticated]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load attachments for scenario
+  const loadAttachments = useCallback(async (scenarioId: number) => {
+    try {
+      const res = await fetch(`/api/scenarios/${scenarioId}/attachments`);
+      if (res.ok) {
+        const data = await res.json();
+        setAttachments(data.attachments ?? []);
+      }
+    } catch {
+      // Silently fail - attachments are optional
+    }
+  }, []);
+
+  // Upload file attachment
+  const uploadFile = useCallback(async (file: File): Promise<AttachmentInfo | null> => {
+    if (!scenario.scenarioId) return null;
+
+    const reader = new FileReader();
+    const base64 = await new Promise<string>((resolve, reject) => {
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(",")[1]); // Remove data:...;base64, prefix
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const res = await fetch(`/api/scenarios/${scenario.scenarioId}/attachments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: file.name,
+        contentType: file.type || "text/csv",
+        data: base64,
+      }),
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Upload failed");
+    }
+
+    const data = await res.json();
+    setAttachments((prev) => [...prev, data.attachment]);
+    return data.attachment;
+  }, [scenario.scenarioId]);
+
+  // Delete attachment
+  const deleteAttachment = useCallback(async (attachmentId: string): Promise<boolean> => {
+    if (!scenario.scenarioId) return false;
+
+    const res = await fetch(
+      `/api/scenarios/${scenario.scenarioId}/attachments/${attachmentId}`,
+      { method: "DELETE" },
+    );
+
+    if (res.ok) {
+      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+      return true;
+    }
+    return false;
+  }, [scenario.scenarioId]);
 
   // Handle node selection
   const handleNodesChange = useCallback((newNodes: K6NodeType[]) => {
@@ -232,8 +307,12 @@ export default function EditorPage() {
         return (
           <UserPoolConfigPanel
             parameters={parameters as Parameters<typeof UserPoolConfigPanel>[0]["parameters"]}
+            scenarioId={scenario.scenarioId}
+            attachments={attachments}
             onChange={(params) => updateNodeParameters(nodeId, params)}
             onClose={closeConfigPanel}
+            onUploadFile={uploadFile}
+            onDeleteAttachment={deleteAttachment}
           />
         );
       default:
