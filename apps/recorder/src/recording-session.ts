@@ -37,6 +37,7 @@ export interface RecordingSessionCallbacks {
   onTabs: (tabs: TabInfo[]) => void;
   onDialog: (dialog: DialogInfo) => void;
   onFileChooser: (info: FileChooserInfo) => void;
+  onCursor: (style: string) => void;
   onError: (error: Error) => void;
 }
 
@@ -77,6 +78,11 @@ export class RecordingSession {
   // File chooser tracking
   private pendingFileChoosers = new Map<string, FileChooser>();
   private fileChooserIdCounter = 0;
+
+  // Cursor tracking
+  private lastCursorStyle = "default";
+  private lastMouseX = 0;
+  private lastMouseY = 0;
 
   constructor(config: Partial<RecordingSessionConfig>, callbacks: RecordingSessionCallbacks) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -255,12 +261,15 @@ export class RecordingSession {
     if (!this.page) return;
 
     const button = (msg.button || "left") as "left" | "middle" | "right";
-    console.log(`[Mouse] ${msg.type} at (${msg.x}, ${msg.y}) button=${button}`);
 
     try {
       switch (msg.type) {
         case "move":
           await this.page.mouse.move(msg.x, msg.y);
+          this.lastMouseX = msg.x;
+          this.lastMouseY = msg.y;
+          // Detect cursor style (throttled)
+          this.detectCursorStyle(msg.x, msg.y);
           break;
         case "down":
           await this.page.mouse.down({ button, clickCount: msg.clickCount || 1 });
@@ -274,6 +283,33 @@ export class RecordingSession {
       }
     } catch (error) {
       console.error(`[Mouse] Error:`, error);
+    }
+  }
+
+  private cursorDetectPending = false;
+  private async detectCursorStyle(x: number, y: number): Promise<void> {
+    if (!this.page || this.cursorDetectPending) return;
+    
+    this.cursorDetectPending = true;
+    
+    try {
+      const cursor = await this.page.evaluate(([px, py]) => {
+        const el = document.elementFromPoint(px, py);
+        if (!el) return "default";
+        return window.getComputedStyle(el).cursor || "default";
+      }, [x, y] as [number, number]);
+      
+      if (cursor !== this.lastCursorStyle) {
+        this.lastCursorStyle = cursor;
+        this.callbacks.onCursor(cursor);
+      }
+    } catch {
+      // Ignore errors (page navigating, etc)
+    } finally {
+      // Throttle: wait 50ms before next detection
+      setTimeout(() => {
+        this.cursorDetectPending = false;
+      }, 50);
     }
   }
 

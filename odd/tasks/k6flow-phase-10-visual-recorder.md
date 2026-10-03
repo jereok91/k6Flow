@@ -32,7 +32,7 @@ remote control, structured recordings, transformation pipeline, and full library
 - [x] K6R2-03: Navigation bar (back/forward/reload/stop/URL) (`6a41532`)
 - [x] K6R2-04: Tabs and popups handling (`a3f9e95`)
 - [x] K6R2-05: JS dialogs (alert/confirm/prompt/beforeunload) (`7396fad`)
-- [ ] K6R2-06: File chooser integration
+- [x] K6R2-06: File chooser integration (`6089e00`)
 - [ ] K6R2-07: Cursor overlay from remote computed style
 - [ ] K6R2-08: Human gate R2
 

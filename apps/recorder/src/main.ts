@@ -125,6 +125,12 @@ const httpServer = createServer((req, res) => {
                 multiple: info.multiple
               });
             },
+            onCursor: (style) => {
+              wsServer.broadcast(recordingId!, { 
+                t: "cursor", 
+                style
+              });
+            },
             onError: (error) => {
               console.error("Recording error:", error);
               wsServer.broadcast(recordingId!, { 
