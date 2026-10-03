@@ -107,6 +107,15 @@ const httpServer = createServer((req, res) => {
                 tabs 
               });
             },
+            onDialog: (dialog) => {
+              wsServer.broadcast(recordingId!, { 
+                t: "dialog", 
+                kind: dialog.kind, 
+                message: dialog.message,
+                id: dialog.id,
+                defaultValue: dialog.defaultValue
+              });
+            },
             onError: (error) => {
               console.error("Recording error:", error);
               wsServer.broadcast(recordingId!, { 

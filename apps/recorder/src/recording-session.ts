@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page, type Dialog } from "playwright";
 import type { StreamingState, StreamingClientMessage } from "@k6flow/shared";
 import { Screencast, type ScreencastFrame, type ScreencastConfig } from "./screencast";
 
@@ -18,11 +18,19 @@ export interface TabInfo {
   active: boolean;
 }
 
+export interface DialogInfo {
+  id: string;
+  kind: "alert" | "confirm" | "prompt" | "beforeunload";
+  message: string;
+  defaultValue?: string;
+}
+
 export interface RecordingSessionCallbacks {
   onFrame: (frame: ScreencastFrame) => void;
   onStateChange: (state: StreamingState) => void;
   onNavigation: (url: string, title: string, canGoBack: boolean, canGoForward: boolean, loading: boolean) => void;
   onTabs: (tabs: TabInfo[]) => void;
+  onDialog: (dialog: DialogInfo) => void;
   onError: (error: Error) => void;
 }
 
@@ -55,6 +63,10 @@ export class RecordingSession {
   private pages: Page[] = [];
   private activePageIndex = 0;
   private tabIdCounter = 0;
+
+  // Dialog tracking
+  private pendingDialogs = new Map<string, Dialog>();
+  private dialogIdCounter = 0;
 
   constructor(config: Partial<RecordingSessionConfig>, callbacks: RecordingSessionCallbacks) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -216,6 +228,9 @@ export class RecordingSession {
       case "tab":
         await this.handleTab(message);
         break;
+      case "dialog_reply":
+        await this.handleDialogReply(message);
+        break;
       case "resize":
         await this.page.setViewportSize({ width: message.width, height: message.height });
         break;
@@ -323,6 +338,47 @@ export class RecordingSession {
   }
 
   /**
+   * Handle incoming dialog from the page.
+   */
+  private handleDialog(dialog: Dialog): void {
+    const id = `dialog-${++this.dialogIdCounter}`;
+    this.pendingDialogs.set(id, dialog);
+
+    const kind = dialog.type() as DialogInfo["kind"];
+    const info: DialogInfo = {
+      id,
+      kind,
+      message: dialog.message(),
+      defaultValue: dialog.defaultValue() || undefined,
+    };
+
+    this.callbacks.onDialog(info);
+  }
+
+  /**
+   * Handle dialog reply from client.
+   */
+  private async handleDialogReply(msg: { id: string; accept: boolean; promptText?: string }): Promise<void> {
+    const dialog = this.pendingDialogs.get(msg.id);
+    if (!dialog) {
+      console.warn(`[Session] Dialog ${msg.id} not found`);
+      return;
+    }
+
+    this.pendingDialogs.delete(msg.id);
+
+    try {
+      if (msg.accept) {
+        await dialog.accept(msg.promptText);
+      } else {
+        await dialog.dismiss();
+      }
+    } catch (error) {
+      console.error(`[Session] Failed to handle dialog:`, error);
+    }
+  }
+
+  /**
    * Acknowledge a frame to allow more frames to be sent.
    */
   ackFrame(seq: number): void {
@@ -379,6 +435,10 @@ export class RecordingSession {
 
     page.on("close", () => {
       this.handlePageClose(page);
+    });
+
+    page.on("dialog", (dialog) => {
+      this.handleDialog(dialog);
     });
   }
 

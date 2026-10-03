@@ -29,6 +29,7 @@ export function BrowserCanvas({
 }: BrowserCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasFocus, setHasFocus] = useState(false);
+  const [promptValue, setPromptValue] = useState("");
 
   const {
     canvasRef,
@@ -36,11 +37,13 @@ export function BrowserCanvas({
     connected,
     navigation,
     tabs,
+    dialog,
     stats,
     cursorStyle,
     sendMessage,
     sendMouseEvent,
     sendKeyEvent,
+    replyDialog,
   } = useStreaming({
     wsUrl,
     onStateChange,
@@ -314,6 +317,55 @@ export function BrowserCanvas({
           </button>
         </div>
       </div>
+
+      {/* Dialog modal */}
+      {dialog && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 max-w-md rounded-lg bg-gray-800 p-4 shadow-xl">
+            <div className="mb-3 text-sm font-medium text-gray-300">
+              {dialog.kind === "alert" && "Alert"}
+              {dialog.kind === "confirm" && "Confirm"}
+              {dialog.kind === "prompt" && "Prompt"}
+              {dialog.kind === "beforeunload" && "Leave page?"}
+            </div>
+            <div className="mb-4 text-gray-200">{dialog.message}</div>
+            
+            {dialog.kind === "prompt" && (
+              <input
+                type="text"
+                className="mb-4 w-full rounded bg-gray-700 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-blue-500"
+                value={promptValue}
+                onChange={(e) => setPromptValue(e.target.value)}
+                placeholder={dialog.defaultValue}
+                autoFocus
+              />
+            )}
+
+            <div className="flex justify-end gap-2">
+              {dialog.kind !== "alert" && (
+                <button
+                  className="rounded bg-gray-600 px-4 py-2 text-sm text-white hover:bg-gray-500"
+                  onClick={() => {
+                    replyDialog(false);
+                    setPromptValue("");
+                  }}
+                >
+                  {dialog.kind === "beforeunload" ? "Stay" : "Cancel"}
+                </button>
+              )}
+              <button
+                className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+                onClick={() => {
+                  replyDialog(true, dialog.kind === "prompt" ? promptValue : undefined);
+                  setPromptValue("");
+                }}
+              >
+                {dialog.kind === "alert" ? "OK" : dialog.kind === "beforeunload" ? "Leave" : "OK"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

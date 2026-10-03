@@ -30,7 +30,7 @@ remote control, structured recordings, transformation pipeline, and full library
 - [x] K6R2-01: Mouse input (move/down/up/wheel) with coordinate mapping
 - [x] K6R2-02: Keyboard input (keydown/keyup/text/IME)
 - [x] K6R2-03: Navigation bar (back/forward/reload/stop/URL) (`6a41532`)
-- [ ] K6R2-04: Tabs and popups handling
+- [x] K6R2-04: Tabs and popups handling (`a3f9e95`)
 - [ ] K6R2-05: JS dialogs (alert/confirm/prompt/beforeunload)
 - [ ] K6R2-06: File chooser integration
 - [ ] K6R2-07: Cursor overlay from remote computed style

@@ -96,6 +96,7 @@ export const streamingDialogMessageSchema = z.object({
   kind: z.enum(["confirm", "alert", "prompt", "beforeunload"]),
   message: z.string(),
   id: z.string(),
+  defaultValue: z.string().optional(),
 });
 
 export const streamingFileChooserMessageSchema = z.object({

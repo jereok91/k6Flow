@@ -33,11 +33,19 @@ export interface TabInfo {
   active: boolean;
 }
 
+export interface DialogInfo {
+  id: string;
+  kind: "alert" | "confirm" | "prompt" | "beforeunload";
+  message: string;
+  defaultValue?: string;
+}
+
 export interface UseStreamingOptions {
   wsUrl: string;
   onStateChange?: (state: StreamingState) => void;
   onNavigation?: (nav: NavigationState) => void;
   onTabs?: (tabs: TabInfo[]) => void;
+  onDialog?: (dialog: DialogInfo) => void;
   onStats?: (stats: StreamingStats) => void;
   onError?: (error: string) => void;
 }
@@ -48,11 +56,13 @@ export interface UseStreamingResult {
   connected: boolean;
   navigation: NavigationState | null;
   tabs: TabInfo[];
+  dialog: DialogInfo | null;
   stats: StreamingStats | null;
   cursorStyle: string;
   sendMessage: (msg: StreamingClientMessage) => void;
   sendMouseEvent: (type: string, x: number, y: number, options?: Partial<StreamingClientMessage>) => void;
   sendKeyEvent: (type: "down" | "up", key: string, code: string, options?: Partial<StreamingClientMessage>) => void;
+  replyDialog: (accept: boolean, promptText?: string) => void;
 }
 
 export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
@@ -64,6 +74,7 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
   const [connected, setConnected] = useState(false);
   const [navigation, setNavigation] = useState<NavigationState | null>(null);
   const [tabs, setTabs] = useState<TabInfo[]>([]);
+  const [dialog, setDialog] = useState<DialogInfo | null>(null);
   const [stats, setStats] = useState<StreamingStats | null>(null);
   const [cursorStyle, setCursorStyle] = useState("default");
 
@@ -152,6 +163,16 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
         case "tabs":
           setTabs(msg.tabs);
           options.onTabs?.(msg.tabs);
+          break;
+        case "dialog":
+          const d: DialogInfo = {
+            id: msg.id,
+            kind: msg.kind,
+            message: msg.message,
+            defaultValue: "defaultValue" in msg ? msg.defaultValue : undefined,
+          };
+          setDialog(d);
+          options.onDialog?.(d);
           break;
         case "error":
           console.error("Streaming error:", msg.code, msg.message);
@@ -257,16 +278,30 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
     } as StreamingClientMessage);
   }, [sendMessage]);
 
+  // Helper for dialog replies
+  const replyDialog = useCallback((accept: boolean, promptText?: string) => {
+    if (!dialog) return;
+    sendMessage({
+      t: "dialog_reply",
+      id: dialog.id,
+      accept,
+      promptText,
+    } as StreamingClientMessage);
+    setDialog(null);
+  }, [dialog, sendMessage]);
+
   return {
     canvasRef,
     state,
     connected,
     navigation,
     tabs,
+    dialog,
     stats,
     cursorStyle,
     sendMessage,
     sendMouseEvent,
     sendKeyEvent,
+    replyDialog,
   };
 }
