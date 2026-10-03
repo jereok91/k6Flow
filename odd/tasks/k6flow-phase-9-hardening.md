@@ -33,7 +33,7 @@ Security hardening, limits, orphan reconciliation, final documentation and deplo
 - [x] K6F9-06 — Reverse proxy setup: Caddy configuration for HTTPS.
 - [x] K6F9-07 — Deployment README: single-command VPS installation guide.
 - [x] K6F9-08 — Orphan reconciliation: cleanup stale containers/recordings.
-- [ ] K6F9-09 — Final documentation review.
+- [x] K6F9-09 — Final documentation review.
 - [ ] K6F9-10 — Human Phase 9 review gate (final).
 
 ## Acceptance, verification and review strategy
@@ -42,4 +42,14 @@ Security: manual audit + tests where applicable. Deployment: test on clean envir
 Commands: `pnpm test`, `go test ./...`, `pnpm typecheck`, `pnpm lint`, `git diff --check`. Track work-unit commits with Conventional Commits.
 
 ## Progress
-Latest acknowledged work-unit boundary: (none yet). Next: K6F9-01 allowed targets configuration.
+- K6F9-01: commit `316cee3` (210 lines, 8 Go tests)
+- K6F9-02: commit `0be1742` (121 lines)
+- K6F9-03: commit `39a5d19` (35 lines)
+- K6F9-04: commit `d7a63cd` (35 lines)
+- K6F9-05: commit `ab6483c` (42 lines)
+- K6F9-06: commit `394544a` (80 lines)
+- K6F9-07: commit `08a900c` (141 lines)
+- K6F9-08: commit `34cede9` (82 lines)
+- K6F9-09: commit `734b656` (110 lines)
+
+**Phase 9 totals:** 9 commits, ~856 lines. Test baseline: 927 vitest + 60 Go tests.
