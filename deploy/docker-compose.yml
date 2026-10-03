@@ -30,6 +30,26 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
+  recorder:
+    build:
+      context: ..
+      dockerfile: apps/recorder/Dockerfile
+    ports:
+      - "127.0.0.1:${RECORDER_PORT:-8081}:8081"
+      - "127.0.0.1:${RECORDER_PROXY_PORT:-8082}:8082"
+    environment:
+      RECORDER_PORT: "8081"
+      RECORDER_PROXY_PORT: "8082"
+      RECORDER_AUTH_TOKEN: ${RECORDER_AUTH_TOKEN:-}
+      RECORDER_MAX_DURATION_SEC: ${RECORDER_MAX_DURATION_SEC:-3600}
+      RECORDER_INACTIVITY_SEC: ${RECORDER_INACTIVITY_SEC:-300}
+    networks: [backend]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8081/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
   db:
     image: postgres:17.7-alpine3.22
     environment:
