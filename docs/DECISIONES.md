@@ -692,3 +692,36 @@ through placeholder product endpoints. Stop for review before Phase 1.
 **Recomendación**: Para producción en VPS compartido, usar Docker rootless. Para uso interno, el socket directo con las mitigaciones actuales es aceptable.
 
 **Fecha**: 2026-10-03 (Phase 9 hardening)
+
+## K6F9-08: Orphan Reconciliation
+
+**Problema**: Containers K6 o recordings pueden quedar huérfanos tras crashes o reinicios.
+
+**Mecanismos de limpieza**:
+
+1. **K6 containers (orchestrator)**:
+   - Cleanup garantizado en cada path de engine.go
+   - Label `k6flow.managed=true` para identificación
+   - Stop + Remove en secuencia
+
+2. **Recordings (recorder)**:
+   - Max-duration timeout (RECORDER_MAX_DURATION_SEC)
+   - Inactivity timeout (RECORDER_INACTIVITY_SEC)
+   - Cleanup automático al cerrar
+
+3. **Script de mantenimiento** (`scripts/cleanup-orphans.sh`):
+   - Elimina containers K6 huérfanos (exited/dead)
+   - Limpia imágenes dangling
+   - Muestra uso de disco
+   - Ejecutar periódicamente o tras crashes
+
+**Uso**:
+```bash
+# Manual
+./scripts/cleanup-orphans.sh
+
+# Cron (cada hora)
+0 * * * * /path/to/k6flow/scripts/cleanup-orphans.sh >> /var/log/k6flow-cleanup.log 2>&1
+```
+
+**Fecha**: 2026-10-03 (Phase 9 hardening)
