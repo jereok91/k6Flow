@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useStreaming, type UseStreamingOptions } from "./use-streaming";
 
 export interface BrowserCanvasProps {
@@ -96,11 +96,19 @@ export function BrowserCanvas({
     sendMouseEvent("up", x, y, { button, clickCount: 1 });
   }, [getScaledCoordinates, sendMouseEvent]);
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
+  const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     const { x, y } = getScaledCoordinates(e.clientX, e.clientY);
     sendMouseEvent("wheel", x, y, { deltaX: e.deltaX, deltaY: e.deltaY });
   }, [getScaledCoordinates, sendMouseEvent]);
+
+  // Attach wheel listener with passive: false to allow preventDefault
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
 
   // Keyboard handlers
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -235,7 +243,6 @@ export function BrowserCanvas({
         onMouseMove={handleMouseMove}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
-        onWheel={handleWheel}
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}
         onPaste={handlePaste}
