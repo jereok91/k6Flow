@@ -74,3 +74,6 @@ export type {
   RecorderErrorCode, RecorderErrorCatalog, RecorderErrorResponse,
   RecorderWsInputFrame,
 } from "./recorder-contracts";
+
+// K6 translator
+export { translateToK6, type K6TranslatorOptions, type K6TranslatorResult } from './k6-translator';
