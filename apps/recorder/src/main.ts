@@ -131,6 +131,15 @@ const httpServer = createServer((req, res) => {
                 style
               });
             },
+            onNetworkRequest: (request) => {
+              // Network requests are captured but not broadcast live
+              // They'll be stored for the recording
+              console.log(`[Network] Request: ${request.method} ${request.url}`);
+            },
+            onNetworkEntry: (entry) => {
+              // Full entry with response
+              console.log(`[Network] Entry: ${entry.request.method} ${entry.request.url} -> ${entry.response?.status}`);
+            },
             onError: (error) => {
               console.error("Recording error:", error);
               wsServer.broadcast(recordingId!, { 

@@ -1,6 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type Page, type Dialog, type FileChooser } from "playwright";
 import type { StreamingState, StreamingClientMessage } from "@k6flow/shared";
 import { Screencast, type ScreencastFrame, type ScreencastConfig } from "./screencast";
+import { NetworkCapture, type CapturedRequest, type CapturedEntry } from "./network-capture";
 
 export interface RecordingSessionConfig {
   startUrl: string;
@@ -38,6 +39,8 @@ export interface RecordingSessionCallbacks {
   onDialog: (dialog: DialogInfo) => void;
   onFileChooser: (info: FileChooserInfo) => void;
   onCursor: (style: string) => void;
+  onNetworkRequest: (request: CapturedRequest) => void;
+  onNetworkEntry: (entry: CapturedEntry) => void;
   onError: (error: Error) => void;
 }
 
@@ -55,6 +58,7 @@ export class RecordingSession {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private screencast: Screencast | null = null;
+  private networkCapture: NetworkCapture | null = null;
   private state: StreamingState = "CREATED";
   private config: RecordingSessionConfig;
   private callbacks: RecordingSessionCallbacks;
@@ -142,6 +146,14 @@ export class RecordingSession {
 
       await this.screencast.start(this.page);
 
+      // Start network capture
+      this.networkCapture = new NetworkCapture({
+        onRequest: (req) => this.callbacks.onNetworkRequest(req),
+        onResponse: (entry) => this.callbacks.onNetworkEntry(entry),
+        onError: (error) => this.callbacks.onError(error),
+      });
+      await this.networkCapture.start(this.page);
+
       // Navigate to start URL
       if (this.config.startUrl && this.config.startUrl !== "about:blank") {
         await this.page.goto(this.config.startUrl, { waitUntil: "domcontentloaded" });
@@ -170,6 +182,7 @@ export class RecordingSession {
     if (this.state !== "RECORDING") {
       throw new Error(`Cannot pause from state ${this.state}`);
     }
+    this.networkCapture?.pause();
     this.setState("PAUSED");
   }
 
@@ -177,6 +190,7 @@ export class RecordingSession {
     if (this.state !== "PAUSED") {
       throw new Error(`Cannot resume from state ${this.state}`);
     }
+    this.networkCapture?.resume();
     this.setState("RECORDING");
   }
 
@@ -188,6 +202,11 @@ export class RecordingSession {
     this.setState("STOPPING");
 
     try {
+      if (this.networkCapture) {
+        await this.networkCapture.stop();
+        this.networkCapture = null;
+      }
+
       if (this.screencast) {
         await this.screencast.stop();
         this.screencast = null;
