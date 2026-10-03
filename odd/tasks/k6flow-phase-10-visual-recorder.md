@@ -29,7 +29,7 @@ remote control, structured recordings, transformation pipeline, and full library
 ### R2 — Control remoto
 - [x] K6R2-01: Mouse input (move/down/up/wheel) with coordinate mapping
 - [x] K6R2-02: Keyboard input (keydown/keyup/text/IME)
-- [ ] K6R2-03: Navigation bar (back/forward/reload/stop/URL)
+- [x] K6R2-03: Navigation bar (back/forward/reload/stop/URL) (`6a41532`)
 - [ ] K6R2-04: Tabs and popups handling
 - [ ] K6R2-05: JS dialogs (alert/confirm/prompt/beforeunload)
 - [ ] K6R2-06: File chooser integration

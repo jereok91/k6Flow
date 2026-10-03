@@ -101,6 +101,12 @@ const httpServer = createServer((req, res) => {
                 loading 
               });
             },
+            onTabs: (tabs) => {
+              wsServer.broadcast(recordingId!, { 
+                t: "tabs", 
+                tabs 
+              });
+            },
             onError: (error) => {
               console.error("Recording error:", error);
               wsServer.broadcast(recordingId!, { 

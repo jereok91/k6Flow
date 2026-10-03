@@ -9,6 +9,7 @@ export interface BrowserCanvasProps {
   viewportHeight?: number;
   onStateChange?: UseStreamingOptions["onStateChange"];
   onNavigation?: UseStreamingOptions["onNavigation"];
+  onTabs?: UseStreamingOptions["onTabs"];
   onStats?: UseStreamingOptions["onStats"];
   onError?: UseStreamingOptions["onError"];
 }
@@ -22,6 +23,7 @@ export function BrowserCanvas({
   viewportHeight = 720,
   onStateChange,
   onNavigation,
+  onTabs,
   onStats,
   onError,
 }: BrowserCanvasProps) {
@@ -33,6 +35,7 @@ export function BrowserCanvas({
     state,
     connected,
     navigation,
+    tabs,
     stats,
     cursorStyle,
     sendMessage,
@@ -42,6 +45,7 @@ export function BrowserCanvas({
     wsUrl,
     onStateChange,
     onNavigation,
+    onTabs,
     onStats,
     onError,
   });
@@ -153,6 +157,40 @@ export function BrowserCanvas({
           </div>
         )}
       </div>
+
+      {/* Tab bar */}
+      {tabs.length > 1 && (
+        <div className="flex items-center gap-1 overflow-x-auto bg-gray-900 px-2 py-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              className={`flex max-w-[200px] items-center gap-1 rounded px-2 py-1 text-xs ${
+                tab.active
+                  ? "bg-gray-700 text-white"
+                  : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+              }`}
+              onClick={() => sendMessage({ t: "tab", action: "switch", index: tab.id })}
+            >
+              <span className="truncate">{tab.title || "New Tab"}</span>
+              <button
+                className="ml-1 rounded hover:bg-gray-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  sendMessage({ t: "tab", action: "close", index: tab.id });
+                }}
+              >
+                ×
+              </button>
+            </button>
+          ))}
+          <button
+            className="rounded p-1 text-xs text-gray-400 hover:bg-gray-700"
+            onClick={() => sendMessage({ t: "tab", action: "new" })}
+          >
+            +
+          </button>
+        </div>
+      )}
 
       {/* Navigation bar */}
       {navigation && (

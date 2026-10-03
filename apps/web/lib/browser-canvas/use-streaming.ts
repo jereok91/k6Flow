@@ -26,10 +26,18 @@ export interface NavigationState {
   loading: boolean;
 }
 
+export interface TabInfo {
+  id: number;
+  url: string;
+  title: string;
+  active: boolean;
+}
+
 export interface UseStreamingOptions {
   wsUrl: string;
   onStateChange?: (state: StreamingState) => void;
   onNavigation?: (nav: NavigationState) => void;
+  onTabs?: (tabs: TabInfo[]) => void;
   onStats?: (stats: StreamingStats) => void;
   onError?: (error: string) => void;
 }
@@ -39,6 +47,7 @@ export interface UseStreamingResult {
   state: StreamingState | null;
   connected: boolean;
   navigation: NavigationState | null;
+  tabs: TabInfo[];
   stats: StreamingStats | null;
   cursorStyle: string;
   sendMessage: (msg: StreamingClientMessage) => void;
@@ -54,6 +63,7 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
   const [state, setState] = useState<StreamingState | null>(null);
   const [connected, setConnected] = useState(false);
   const [navigation, setNavigation] = useState<NavigationState | null>(null);
+  const [tabs, setTabs] = useState<TabInfo[]>([]);
   const [stats, setStats] = useState<StreamingStats | null>(null);
   const [cursorStyle, setCursorStyle] = useState("default");
 
@@ -138,6 +148,10 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
           break;
         case "cursor":
           setCursorStyle(msg.style);
+          break;
+        case "tabs":
+          setTabs(msg.tabs);
+          options.onTabs?.(msg.tabs);
           break;
         case "error":
           console.error("Streaming error:", msg.code, msg.message);
@@ -248,6 +262,7 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
     state,
     connected,
     navigation,
+    tabs,
     stats,
     cursorStyle,
     sendMessage,

@@ -11,10 +11,18 @@ export interface RecordingSessionConfig {
   screencast: Partial<ScreencastConfig>;
 }
 
+export interface TabInfo {
+  id: number;
+  url: string;
+  title: string;
+  active: boolean;
+}
+
 export interface RecordingSessionCallbacks {
   onFrame: (frame: ScreencastFrame) => void;
   onStateChange: (state: StreamingState) => void;
   onNavigation: (url: string, title: string, canGoBack: boolean, canGoForward: boolean, loading: boolean) => void;
+  onTabs: (tabs: TabInfo[]) => void;
   onError: (error: Error) => void;
 }
 
@@ -42,6 +50,11 @@ export class RecordingSession {
   private historyIndex = -1;
   private isNavigatingHistory = false;
   private isLoading = false;
+
+  // Multi-tab tracking
+  private pages: Page[] = [];
+  private activePageIndex = 0;
+  private tabIdCounter = 0;
 
   constructor(config: Partial<RecordingSessionConfig>, callbacks: RecordingSessionCallbacks) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -75,24 +88,15 @@ export class RecordingSession {
         timezoneId: this.config.timezone,
       });
 
-      // Create page
+      // Create initial page
       this.page = await this.context.newPage();
+      this.pages.push(this.page);
+      this.activePageIndex = 0;
+      this.setupPageListeners(this.page);
 
-      // Setup navigation listeners
-      this.page.on("framenavigated", (frame) => {
-        if (frame === this.page?.mainFrame()) {
-          this.handleNavigationEvent();
-        }
-      });
-
-      this.page.on("load", () => {
-        this.isLoading = false;
-        this.emitNavigation();
-      });
-
-      this.page.on("domcontentloaded", () => {
-        this.isLoading = false;
-        this.emitNavigation();
+      // Listen for new pages (popups, target=_blank)
+      this.context.on("page", async (newPage) => {
+        await this.handleNewPage(newPage);
       });
 
       // Start screencast
@@ -209,6 +213,9 @@ export class RecordingSession {
       case "stop":
         await this.stop();
         break;
+      case "tab":
+        await this.handleTab(message);
+        break;
       case "resize":
         await this.page.setViewportSize({ width: message.width, height: message.height });
         break;
@@ -292,6 +299,29 @@ export class RecordingSession {
     }
   }
 
+  private async handleTab(msg: { action: string; index?: number }): Promise<void> {
+    switch (msg.action) {
+      case "switch":
+        if (typeof msg.index === "number") {
+          await this.switchToPage(msg.index);
+        }
+        break;
+      case "close":
+        if (typeof msg.index === "number" && this.pages[msg.index]) {
+          await this.pages[msg.index].close();
+        } else if (this.page) {
+          await this.page.close();
+        }
+        break;
+      case "new":
+        if (this.context) {
+          const newPage = await this.context.newPage();
+          // handleNewPage will be called via context.on('page')
+        }
+        break;
+    }
+  }
+
   /**
    * Acknowledge a frame to allow more frames to be sent.
    */
@@ -321,6 +351,114 @@ export class RecordingSession {
   private setState(state: StreamingState): void {
     this.state = state;
     this.callbacks.onStateChange(state);
+  }
+
+  /**
+   * Setup event listeners for a page.
+   */
+  private setupPageListeners(page: Page): void {
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame() && page === this.page) {
+        this.handleNavigationEvent();
+      }
+    });
+
+    page.on("load", () => {
+      if (page === this.page) {
+        this.isLoading = false;
+        this.emitNavigation();
+      }
+    });
+
+    page.on("domcontentloaded", () => {
+      if (page === this.page) {
+        this.isLoading = false;
+        this.emitNavigation();
+      }
+    });
+
+    page.on("close", () => {
+      this.handlePageClose(page);
+    });
+  }
+
+  /**
+   * Handle a new page (popup or target=_blank).
+   */
+  private async handleNewPage(newPage: Page): Promise<void> {
+    this.pages.push(newPage);
+    this.setupPageListeners(newPage);
+
+    // Auto-switch to the new page
+    await this.switchToPage(this.pages.length - 1);
+    this.emitTabs();
+  }
+
+  /**
+   * Handle page close.
+   */
+  private handlePageClose(closedPage: Page): void {
+    const index = this.pages.indexOf(closedPage);
+    if (index === -1) return;
+
+    this.pages.splice(index, 1);
+
+    // If the active page was closed, switch to another
+    if (closedPage === this.page) {
+      const newIndex = Math.min(index, this.pages.length - 1);
+      if (newIndex >= 0) {
+        this.switchToPage(newIndex).catch(console.error);
+      } else {
+        // All pages closed
+        this.page = null;
+      }
+    } else if (index < this.activePageIndex) {
+      // Adjust index if a page before the active one was closed
+      this.activePageIndex--;
+    }
+
+    this.emitTabs();
+  }
+
+  /**
+   * Switch screencast to a different page.
+   */
+  async switchToPage(index: number): Promise<void> {
+    if (index < 0 || index >= this.pages.length) return;
+    if (index === this.activePageIndex && this.pages[index] === this.page) return;
+
+    const newPage = this.pages[index];
+    this.activePageIndex = index;
+    this.page = newPage;
+
+    // Reset navigation history for the new page
+    this.navigationHistory = [newPage.url()];
+    this.historyIndex = 0;
+    this.isNavigatingHistory = false;
+
+    // Switch screencast to new page
+    if (this.screencast) {
+      await this.screencast.stop();
+      await this.screencast.start(newPage);
+    }
+
+    this.emitNavigation();
+    this.emitTabs();
+  }
+
+  /**
+   * Emit current tabs state.
+   */
+  private async emitTabs(): Promise<void> {
+    const tabs: TabInfo[] = await Promise.all(
+      this.pages.map(async (page, index) => ({
+        id: index,
+        url: page.url(),
+        title: await page.title().catch(() => "Untitled"),
+        active: index === this.activePageIndex,
+      }))
+    );
+    this.callbacks.onTabs(tabs);
   }
 
   /**

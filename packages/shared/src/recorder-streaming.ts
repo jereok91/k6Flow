@@ -75,7 +75,7 @@ export const streamingNavMessageSchema = z.object({
 });
 
 export const streamingTabSchema = z.object({
-  id: z.string(),
+  id: z.number(),
   url: z.string(),
   title: z.string(),
   active: z.boolean(),
@@ -181,7 +181,7 @@ export const streamingNavActionMessageSchema = z.object({
 export const streamingTabActionMessageSchema = z.object({
   t: z.literal("tab"),
   action: z.enum(["new", "switch", "close"]),
-  id: z.string().optional(),
+  index: z.number().optional(),
 });
 
 export const streamingDialogReplyMessageSchema = z.object({
