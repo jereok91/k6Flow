@@ -14,16 +14,24 @@ export default function RecorderTestPage() {
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
 
+  // In development, connect directly to recorder to avoid Next.js rewrite issues
+  const isLocalDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+  const recorderBaseUrl = isLocalDev ? 'http://localhost:8081' : '';
+  const recorderWsUrl = isLocalDev ? 'ws://localhost:8081' : `ws://${typeof window !== 'undefined' ? window.location.host : ''}`;
+  const authToken = process.env.NEXT_PUBLIC_RECORDER_TOKEN || 'dev-token';
+
   const startRecording = async () => {
     setIsStarting(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/recorder/start", {
+      const apiUrl = recorderBaseUrl ? `${recorderBaseUrl}/start` : '/api/recorder/start';
+      
+      const res = await fetch(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_RECORDER_TOKEN || "dev-token"}`,
+          Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           recordingId: `test-${Date.now()}`,
@@ -40,8 +48,7 @@ export default function RecorderTestPage() {
 
       const data = await res.json();
       setRecordingId(data.recordingId);
-      // Connect via WebSocket - use relative URL for proxy
-      setWsUrl(`ws://${window.location.host}/ws/recordings/${data.recordingId}?token=${process.env.NEXT_PUBLIC_RECORDER_TOKEN || "dev-token"}`);
+      setWsUrl(`${recorderWsUrl}/ws/recordings/${data.recordingId}?token=${authToken}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
