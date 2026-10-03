@@ -38,7 +38,11 @@ Independent verifier PASS, ZERO blockers: 743 tests (password.test.ts 8 + seed.t
 Native review `review-7015a97d36683b14` (medium/reliability, 9 files/311 lines, correction budget 156, risk `executable_change` on password.test.ts): explicit baseRef `54f3fe5` + committedOnly (Phase 2 lesson), one materialize reviewer forecast (1 run, pi_host_relay, review-reliability) acknowledged → `approved` with THREE informational warnings — `R3-001` + `R3-003` (`seed.ts:68-82`) and `R3-002` (`docker-compose.yml:13`). Ack consumed revision `sha256:d6668ebe98c7d7cb5bb13f29b11fdeccd276e47aa7c8940e990579a12494864f` for target `sha256:33ceb1d64ec1a880199f83cf6399beacf1e80bdd6fc5de7b6f4c70b16f6a5a5d`; authority burned, no STATUS after ack. Warnings join the backlog; no correction authorized. This closes K6F4-01b with native approval.
 
 Risks handed forward: (a) seed upsert success path untested against live Postgres (no DB write permitted in this unit) — K6F4-06 real-stack e2e should exercise it; (b) seed CLI module-loading shim is tech debt — a later unit can add `allowImportingTsExtensions` to `apps/web/tsconfig.json` and drop the `registerHooks` fallback; (c) `MODULE_TYPELESS_PACKAGE_JSON` warning could be silenced with `"type": "module"` but that is a drive-by out of scope.
-- [ ] K6F4-02 — Auth core: scrypt hash/verify, DB-backed sessions, httpOnly cookie, `login`/`logout`/`me` API, route protection middleware.
+- [ ] K6F4-02a — Auth core helpers: `session.ts` (DB-backed create/getSessionUser/revoke/revokeUserSessions over the existing `sessions` table), `cookie.ts` (serialize/parse, HttpOnly+SameSite+Path+Max-Age+Secure-by-option), `require-user.ts` (requireUser/requireAdmin), `http.ts` (JSON error helper + login-body validation) + unit tests for the pure logic (cookie flags, TTL default+env override, expiry decision, safe-shape mapping stripping passwordHash, requireAdmin gate). NO route handlers, NO middleware.ts. scrypt hash/verify reused from 01b, not duplicated.
+- [ ] K6F4-02b — Auth API routes: `POST /api/auth/login` (anti-enumeration 401, createSession + set cookie, safe user shape), `POST /api/auth/logout` (idempotent revoke + clear cookie), `GET /api/auth/me` (cookie → getSessionUser, 401 when invalid). Thin handlers over the 02a helpers; no DB logic in routes.
+- [ ] K6F4-02c — (later, folded into 03/04/05 as needed) Route-protection wiring: Next middleware or route-group guards using requireUser/requireAdmin. Deferred from 02 per writer scope note — the 02a helpers expose the primitives; wiring lands with the units that consume them.
+
+Budget disposition (human, 2026-10-02): K6F4-02 projected ≈580 authored (range 520–620) over the ~500 gate → SPLIT into 02a (≈430–460) + 02b (≈150–180), mirroring the 01a/01b split; each gets its own RED/GREEN + native review. Scope refinement recorded: the original K6F4-02 line bundled "route-protection middleware"; the middleware wiring is deferred to 02c/consuming units, while 02a delivers the tested primitives (requireUser/requireAdmin).
 - [ ] K6F4-03 — User management: admin-only REST + admin UI page (create/delete users, assign role).
 - [ ] K6F4-04 — Scenario persistence: CRUD API scoped by ownership (admin sees all), graph validated against `graphDraftCompositionSchema`.
 - [ ] K6F4-05 — React Flow editor: node palette, canvas, §3.1 node config panels, pure TDD core mapping React Flow graph ↔ `GraphDraftComposition`.
@@ -57,7 +61,7 @@ Commands: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `git diff --check`. Phase 
 | Phase 2 (execution core) | Gate 06 approved 2026-10-02 | `odd/tasks/k6flow-phase-2-execution-core.md` — 207 Go + 23 integration + 675 TS |
 | Phase 3 (live metrics) | Gate 05 approved 2026-10-02 | `odd/tasks/k6flow-phase-3-metrics-live.md` — 291 Go unit + 47 integration RUN + 726 TS; tail `87120ad`+`035ac05` closed on independent verification, HEAD `3f8e0c9` |
 
-Latest acknowledged work-unit boundary: K6F4-01b commit `c22fba9` (native-approved, review `review-7015a97d36683b14`, ack burned). Next: K6F4-02 auth core.
+Latest acknowledged work-unit boundary: K6F4-01b commit `c22fba9` (native-approved, review `review-7015a97d36683b14`, ack burned). Next: K6F4-02a auth core helpers.
 
 ## Research evidence
 - init:188 — Fase 4 literal: React Flow, nodos de la sección 3.1, guardado de escenarios y autenticación de usuarios.
