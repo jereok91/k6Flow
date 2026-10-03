@@ -16,7 +16,7 @@ Implement the capture-to-graph translator: convert recorded HTTP traffic into gr
 - [x] K6F8-04 — Import UI: recorder → editor flow (import captures as draft scenario).
 - [x] K6F8-05 — Edit after import: allow editing imported nodes before save.
 - [x] K6F8-06 — E2E proof: record traffic → import → see graph → edit → save.
-- [ ] K6F8-07 — Human Phase 8 review gate.
+- [x] K6F8-07 — Human Phase 8 review gate. APPROVED (user authorized Phase 9). — Human Phase 8 review gate.
 
 ## Acceptance, verification and review strategy
 Each unit: RED/GREEN with tests. Mapper: pure TypeScript with unit tests. Integration: full flow from recorder captures to editable graph.
