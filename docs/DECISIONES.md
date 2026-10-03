@@ -1,5 +1,30 @@
 # Foundation decisions
 
+## Phase 4 — auth storage + wiring (K6F4-01b)
+
+Own-credential auth storage for Phase 4: scrypt password hashing over
+`node:crypto`, an explicit CLI admin seed, and the human-authorized web→db
+compose wiring. Cookies/login handlers (K6F4-02) and the Drizzle
+schema/migrations/client (K6F4-01a, commit `10bb888`) stay out of this unit.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| scrypt via `node:crypto` (no new hashing dependency): N=16384, r=8, p=1, keylen=64; per-user 16-byte `randomBytes` salt; stored as `scrypt$N$r$p$<salt-hex>$<hash-hex>`; `hashPassword`/`verifyPassword` are pure functions with no `getDb()` dependency; `verifyPassword` re-derives with the embedded salt/params and compares with `timingSafeEqual`; tampered/malformed stored strings return `false` (never throw) and embedded params are bounded (power-of-two N ≤ 65536, r ≤ 32, p ≤ 16, N·r ≤ 262144) so a tampered hash cannot DoS verification; blank passwords rejected (`hashPassword` throws, `verifyPassword` returns `false`) | Human-approved decision: own-credential auth, scrypt via `node:crypto`, roles `admin` + `user`. Sync `scryptSync` chosen because the contract signatures are synchronous (`string`/`boolean`); N=16384 costs ~50–100 ms per call — acceptable for the seed CLI and login-frequency K6F4-02 handlers; an async twin can be added later without changing the stored format. Constant-time compare closes timing side channels on the stored hash. |
+| DB-backed opaque session tokens in the `sessions` table — NOT stateless JWT | Revocable by row deletion, no signing key to rotate or leak, consistent with the already-migrated `sessions` schema; token/cookie mechanics are K6F4-02. |
+| Explicit CLI admin seed (`pnpm --filter @k6flow/web seed`, `apps/web/scripts/seed.ts`) reading `ADMIN_USERNAME` + `ADMIN_PASSWORD` from env — NOT auto-seeded on web boot | init §10 secrets-via-env: boot must not create privileged accounts implicitly; the CLI upserts by username (existing → update `passwordHash` + `role='admin'`), prints only username + role, exits non-zero naming any missing/short variable, and closes the cached pg pool so the process exits. |
+| Seed CLI module loading: dynamic `.ts`-specifier imports plus a `registerHooks` resolve fallback registered only at the CLI entrypoint (plain Node ESM needs explicit `.ts` extensions; `apps/web/tsconfig.json` lacks `allowImportingTsExtensions`, tsc TS5097, and is outside this unit's edit surfaces) | Keeps `lib/db/client.ts` byte-identical to K6F4-01a and `pnpm typecheck` green; a later unit may add `allowImportingTsExtensions: true` and drop the hook. |
+| web→db compose wiring: `DATABASE_URL: postgresql://${POSTGRES_USER:-k6flow}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-k6flow}` added to the production `web` service only — no `depends_on`, no new network; `deploy/docker-compose.dev.yml` untouched (compose merges environment maps; verified via `docker compose config` that the base `DATABASE_URL` survives the dev override); `.env.example` gains dummy `DATABASE_URL`/`ADMIN_USERNAME`/`ADMIN_PASSWORD` lines (existing `POSTGRES_PASSWORD` line untouched); Phase 0 production test amended (human authorization 2026-10-02) to allow `DATABASE_URL` on `web` while asserting the orchestrator stays strictly DB-free | Process health stays independent of the DB (`depends_on` remains `undefined` for both services; the `/api/healthz` probe assertions are unchanged); the orchestrator keeps Phase 0's DB-free invariant. |
+
+Rollback: delete `apps/web/lib/db/password{,.test}.ts`,
+`apps/web/scripts/seed{,.test}.ts`, the `seed` script line in
+`apps/web/package.json`, the `DATABASE_URL` lines + authorization comment in
+`deploy/docker-compose.yml`, the appended dummy lines in `deploy/.env.example`,
+restore the original blanket DATABASE_URL-absence assertion in
+`tests/phase-0-compose.test.ts`, and remove this section; `lib/db/{schema,client}.ts`,
+migrations, `drizzle.config.ts`, `apps/web/app/**`, `packages/**`, all Go
+surfaces, `deploy/docker-compose.dev.yml` and the existing `POSTGRES_PASSWORD`
+line stay untouched.
+
 ## Phase 3 — minimal live-metrics dashboard (K6F3-04)
 
 Route the browser's WebSocket through a Next rewrite, ship a thin

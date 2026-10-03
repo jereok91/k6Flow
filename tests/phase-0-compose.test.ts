@@ -38,8 +38,12 @@ test("production isolates Go and PostgreSQL with process health probes", () => {
   assert.deepEqual(config.services.db.networks, ["backend"]);
   for (const name of ["web", "orchestrator"]) {
     assert.equal(config.services[name].depends_on, undefined, "process health is independent of DB");
-    assert.equal(config.services[name].environment?.DATABASE_URL, undefined);
   }
+  // Human authorization 2026-10-02 (Phase 4, K6F4-01b): the production web
+  // service may receive DATABASE_URL for own-credential auth storage; the
+  // orchestrator stays strictly DB-free (process health independent of the DB).
+  assert.ok(config.services.web.environment?.DATABASE_URL, "web must receive DATABASE_URL for auth storage");
+  assert.equal(config.services.orchestrator.environment?.DATABASE_URL, undefined, "orchestrator must stay DB-free");
   assert.match(config.services.web.healthcheck.test.join(" "), /\/api\/healthz/);
   assert.match(config.services.orchestrator.healthcheck.test.join(" "), /8080\/healthz/);
   assert.ok(config.services.db.healthcheck.test.join(" ").includes("pg_isready"));

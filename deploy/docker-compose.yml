@@ -9,6 +9,8 @@ services:
     environment:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: "1"
+      # Human-authorized 2026-10-02 (Phase 4, K6F4-01b): web→db wiring for own-credential auth storage; process health stays independent of the DB (no depends_on).
+      DATABASE_URL: postgresql://${POSTGRES_USER:-k6flow}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-k6flow}
     networks: [edge, backend]
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/healthz').then(async r => { if (!r.ok || (await r.json()).status !== 'ok') process.exit(1) }).catch(() => process.exit(1))"]
