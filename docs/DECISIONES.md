@@ -1,5 +1,19 @@
 # Foundation decisions
 
+## Phase 4 — node config panels (K6F4-05c)
+
+Config panels for editing node parameters: HTTP request, authentication,
+response validation, user pool. Simplified forms covering common parameters;
+advanced schema options deferred.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| `any` type for updateNodeParameters | Panel param types vary; Zod validates at save time. |
+| Inline component styles | Matches existing editor pattern; no CSS modules in project. |
+| Simplified auth panel | Full auth schema is complex; panel covers HTTP+JSON-path token extraction. |
+
+Rollback: delete apps/web/lib/editor/*ConfigPanel.tsx, revert index.ts and page.tsx.
+
 ## Phase 4 — editor shell (K6F4-05b)
 
 React Flow editor UI: canvas, node palette with drag-drop, custom K6Node

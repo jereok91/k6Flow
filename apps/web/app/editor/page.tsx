@@ -1,10 +1,19 @@
 "use client";
 
-// K6F4-05b: Visual scenario editor page.
+// K6F4-05b/c: Visual scenario editor page.
 // Authenticated users only. Scenario loading/saving handled in K6F4-06.
 
-import { useState, useEffect } from "react";
-import { FlowEditor, type K6NodeType, type K6Edge } from "../../lib/editor";
+import { useState, useEffect, useCallback } from "react";
+import {
+  FlowEditor,
+  HttpRequestConfigPanel,
+  AuthenticationConfigPanel,
+  ResponseValidationConfigPanel,
+  UserPoolConfigPanel,
+  type K6NodeType,
+  type K6Edge,
+  type K6NodeData,
+} from "../../lib/editor";
 
 interface AuthState {
   loading: boolean;
@@ -16,6 +25,7 @@ export default function EditorPage() {
   const [auth, setAuth] = useState<AuthState>({ loading: true, authenticated: false });
   const [nodes, setNodes] = useState<K6NodeType[]>([]);
   const [edges, setEdges] = useState<K6Edge[]>([]);
+  const [selectedNode, setSelectedNode] = useState<K6NodeType | null>(null);
 
   // Check authentication on mount
   useEffect(() => {
@@ -33,6 +43,43 @@ export default function EditorPage() {
         setAuth({ loading: false, authenticated: false, error: "Network error" });
       });
   }, []);
+
+  // Handle node selection
+  const handleNodesChange = useCallback((newNodes: K6NodeType[]) => {
+    setNodes(newNodes);
+    // Find selected node
+    const selected = newNodes.find((n) => n.selected);
+    setSelectedNode(selected ?? null);
+  }, []);
+
+  // Update node parameters
+  const updateNodeParameters = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (nodeId: string, parameters: any) => {
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === nodeId
+            ? { ...node, data: { ...node.data, parameters } as K6NodeData }
+            : node,
+        ),
+      );
+    },
+    [],
+  );
+
+  // Close config panel
+  const closeConfigPanel = useCallback(() => {
+    setSelectedNode(null);
+    // Deselect all nodes
+    setNodes((current) => current.map((node) => ({ ...node, selected: false })));
+  }, []);
+
+  // Get available HTTP request nodes for response validation
+  const getHttpRequestNodes = useCallback(() => {
+    return nodes
+      .filter((n) => n.data.kind === "http-request")
+      .map((n) => ({ id: n.id, label: n.data.label }));
+  }, [nodes]);
 
   // Loading state
   if (auth.loading) {
@@ -58,6 +105,52 @@ export default function EditorPage() {
     );
   }
 
+  // Render config panel for selected node
+  const renderConfigPanel = () => {
+    if (!selectedNode) return null;
+
+    const { kind, parameters } = selectedNode.data;
+    const nodeId = selectedNode.id;
+
+    switch (kind) {
+      case "http-request":
+        return (
+          <HttpRequestConfigPanel
+            parameters={parameters as Parameters<typeof HttpRequestConfigPanel>[0]["parameters"]}
+            onChange={(params) => updateNodeParameters(nodeId, params)}
+            onClose={closeConfigPanel}
+          />
+        );
+      case "authentication":
+        return (
+          <AuthenticationConfigPanel
+            parameters={parameters as Parameters<typeof AuthenticationConfigPanel>[0]["parameters"]}
+            onChange={(params) => updateNodeParameters(nodeId, params)}
+            onClose={closeConfigPanel}
+          />
+        );
+      case "response-validation":
+        return (
+          <ResponseValidationConfigPanel
+            parameters={parameters as Parameters<typeof ResponseValidationConfigPanel>[0]["parameters"]}
+            availableNodes={getHttpRequestNodes()}
+            onChange={(params) => updateNodeParameters(nodeId, params)}
+            onClose={closeConfigPanel}
+          />
+        );
+      case "user-pool":
+        return (
+          <UserPoolConfigPanel
+            parameters={parameters as Parameters<typeof UserPoolConfigPanel>[0]["parameters"]}
+            onChange={(params) => updateNodeParameters(nodeId, params)}
+            onClose={closeConfigPanel}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
   // Editor
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
@@ -82,13 +175,14 @@ export default function EditorPage() {
       </header>
 
       {/* Editor canvas */}
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, position: "relative" }}>
         <FlowEditor
           initialNodes={nodes}
           initialEdges={edges}
-          onNodesChange={setNodes}
+          onNodesChange={handleNodesChange}
           onEdgesChange={setEdges}
         />
+        {renderConfigPanel()}
       </div>
     </div>
   );

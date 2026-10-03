@@ -1,8 +1,13 @@
-// K6F4-05b: Editor module exports.
+// K6F4-05b/c: Editor module exports.
 
 export { FlowEditor } from "./FlowEditor";
 export { K6Node } from "./K6Node";
 export { NodePalette } from "./NodePalette";
+export { ConfigPanel, FormField, TextInput, SelectInput, TextArea } from "./ConfigPanel";
+export { HttpRequestConfigPanel } from "./HttpRequestConfigPanel";
+export { AuthenticationConfigPanel } from "./AuthenticationConfigPanel";
+export { ResponseValidationConfigPanel } from "./ResponseValidationConfigPanel";
+export { UserPoolConfigPanel } from "./UserPoolConfigPanel";
 export {
   toReactFlowGraph,
   fromReactFlowGraph,
