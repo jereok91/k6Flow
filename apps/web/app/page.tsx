@@ -41,6 +41,7 @@ export default function Home() {
             <>
               <span style={userStyle}>👤 {user.username}</span>
               <Link href="/editor" style={linkStyle}>Editor</Link>
+              <Link href="/recorder" style={linkStyle}>Recorder</Link>
               <button onClick={handleLogout} style={logoutStyle}>Logout</button>
             </>
           ) : (
