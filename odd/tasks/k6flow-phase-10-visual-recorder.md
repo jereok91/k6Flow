@@ -16,13 +16,13 @@ remote control, structured recordings, transformation pipeline, and full library
 ## Phases
 
 ### R1 — Streaming mínimo
-- [ ] K6R1-01: Scaffold Node recorder with Playwright + CDP screencast
-- [ ] K6R1-02: Binary WS frame protocol (FRAME type 0x01)
-- [ ] K6R1-03: Canvas display in web UI
-- [ ] K6R1-04: Backpressure with ack and latest-wins policy
-- [ ] K6R1-05: Adaptive quality (40-80 JPEG, 5-15 fps)
-- [ ] K6R1-06: Container cleanup on disconnect
-- [ ] K6R1-07: Human gate R1
+- [x] K6R1-01: Scaffold Node recorder with Playwright + CDP screencast (`241cac1`)
+- [x] K6R1-02: Binary WS frame protocol (FRAME type 0x01) (`241cac1`)
+- [x] K6R1-03: Canvas display in web UI (`241cac1`)
+- [x] K6R1-04: Backpressure with ack and latest-wins policy (`241cac1`)
+- [x] K6R1-05: Adaptive quality (40-80 JPEG, 5-15 fps) (`241cac1`)
+- [x] K6R1-06: Container cleanup on disconnect (`241cac1`)
+- [ ] K6R1-07: Human gate R1 — PENDING TEST
 
 **Acceptance**: Real page visible in UI at ≥5 fps; container destroyed on tab close.
 

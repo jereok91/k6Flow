@@ -11,7 +11,11 @@ const nextConfig: NextConfig = {
     const recorderUpstream = process.env.RECORDER_UPSTREAM ?? "http://recorder:8081";
     return [
       { source: "/api/ws/:path*", destination: `${orchestratorUpstream}/ws/:path*` },
-      { source: "/api/recorder/:path*", destination: `${recorderUpstream}/api/recorder/:path*` },
+      // K6F10: Visual recorder - HTTP endpoints
+      { source: "/api/recorder/start", destination: `${recorderUpstream}/start` },
+      { source: "/api/recorder/stop", destination: `${recorderUpstream}/stop` },
+      { source: "/api/recorder/healthz", destination: `${recorderUpstream}/healthz` },
+      // K6F10: Visual recorder - WebSocket streaming
       { source: "/ws/recordings/:path*", destination: `${recorderUpstream}/ws/recordings/:path*` },
     ];
   },
