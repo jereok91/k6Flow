@@ -50,6 +50,7 @@ export class Screencast {
   async start(page: Page): Promise<void> {
     if (this.running) return;
 
+    console.log("[Screencast] Creating CDP session...");
     this.cdp = await page.context().newCDPSession(page);
     this.running = true;
     this.seq = 0;
@@ -57,10 +58,12 @@ export class Screencast {
 
     // Listen for frames
     this.cdp.on("Page.screencastFrame", (params) => {
+      console.log(`[Screencast] Frame received: seq=${this.seq + 1}, size=${params.data.length}`);
       this.handleFrame(params);
     });
 
     // Start screencast
+    console.log("[Screencast] Starting screencast...", this.config);
     await this.cdp.send("Page.startScreencast", {
       format: this.config.format,
       quality: this.config.quality,
@@ -68,6 +71,7 @@ export class Screencast {
       maxHeight: this.config.maxHeight,
       everyNthFrame: this.config.everyNthFrame,
     });
+    console.log("[Screencast] Screencast started");
   }
 
   async stop(): Promise<void> {
