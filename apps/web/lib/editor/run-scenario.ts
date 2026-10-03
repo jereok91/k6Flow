@@ -1,5 +1,5 @@
 /**
- * K6F5-02: Run scenario service.
+ * K6F5-02 + K6F6-04: Run scenario service.
  *
  * Translates graph to K6 script and submits to the orchestrator.
  */
@@ -8,6 +8,18 @@ import { translateToK6, type K6TranslatorOptions } from "@k6flow/shared";
 import type { GraphDraftComposition } from "@k6flow/shared";
 
 const ORCHESTRATOR_URL = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? "http://localhost:8080";
+
+/**
+ * Attachment data to include with the run.
+ */
+export interface RunAttachment {
+  /** Attachment ID (matches filename without extension) */
+  id: string;
+  /** File name */
+  name: string;
+  /** Base64-encoded file content */
+  data: string;
+}
 
 /**
  * Run configuration for starting a scenario execution.
@@ -21,6 +33,8 @@ export interface RunConfig {
   cpuMillis?: number;
   /** Memory limit in MiB */
   memoryMiB?: number;
+  /** Attachments (CSV files) to include */
+  attachments?: RunAttachment[];
 }
 
 /**
@@ -32,6 +46,7 @@ export interface RunStartResult {
   error?: string;
   warnings?: string[];
   requiresFiles?: string[];
+  missingFiles?: string[];
 }
 
 /**
@@ -46,6 +61,7 @@ export async function runScenario(
     durationMs = 30000,
     cpuMillis = 500,
     memoryMiB = 256,
+    attachments = [],
   } = config;
 
   // Translate graph to K6 script
@@ -58,15 +74,28 @@ export async function runScenario(
 
   // Check for required files (CSV pools)
   if (translation.requiresFiles.length > 0) {
-    return {
-      success: false,
-      error: `Scenario requires external files: ${translation.requiresFiles.join(", ")}`,
-      requiresFiles: translation.requiresFiles,
-      warnings: translation.warnings,
-    };
+    // Find which required files are provided
+    const providedIds = new Set(attachments.map((a) => a.id));
+    const missingFiles = translation.requiresFiles.filter((f) => {
+      // Required file is "test-users.csv", attachment id is "test-users"
+      const id = f.replace(/\.csv$/, "");
+      return !providedIds.has(id);
+    });
+
+    if (missingFiles.length > 0) {
+      return {
+        success: false,
+        error: `Missing required files: ${missingFiles.join(", ")}`,
+        requiresFiles: translation.requiresFiles,
+        missingFiles,
+        warnings: translation.warnings,
+      };
+    }
   }
 
   // Build orchestrator request
+  // Note: The orchestrator needs to support receiving attachment data
+  // and writing files to the K6 container. Currently it only accepts IDs.
   const body = {
     version: 1,
     script: translation.script,
@@ -74,7 +103,7 @@ export async function runScenario(
     durationMs,
     cpuMillis,
     memoryMiB,
-    attachments: [],
+    attachments: attachments.map((a) => ({ id: a.id })),
   };
 
   try {

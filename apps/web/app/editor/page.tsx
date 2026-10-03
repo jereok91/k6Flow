@@ -236,15 +236,44 @@ export default function EditorPage() {
     if (nodes.length === 0) {
       return;
     }
+
+    // Fetch attachment data for run
+    const runAttachments = await Promise.all(
+      attachments.map(async (att) => {
+        if (!scenario.scenarioId) return null;
+        try {
+          const res = await fetch(
+            `/api/scenarios/${scenario.scenarioId}/attachments/${att.id}`,
+          );
+          if (res.ok) {
+            const data = await res.json();
+            return {
+              id: data.attachment.id,
+              name: data.attachment.name,
+              data: data.attachment.data,
+            };
+          }
+        } catch {
+          // Skip failed attachments
+        }
+        return null;
+      }),
+    );
+
+    const validAttachments = runAttachments.filter(
+      (a): a is NonNullable<typeof a> => a !== null,
+    );
+
     const result = await run.startRun(nodes, edges, {
       vus: 1,
       durationMs: 30000,
+      attachments: validAttachments,
     });
     if (result.success && result.runId) {
       // Navigate to run metrics page
       router.push(`/runs/${result.runId}`);
     }
-  }, [nodes, edges, run, router]);
+  }, [nodes, edges, run, router, attachments, scenario.scenarioId]);
 
   // Loading state
   if (auth.loading) {
