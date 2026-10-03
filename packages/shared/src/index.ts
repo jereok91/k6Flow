@@ -83,3 +83,7 @@ export {
   captureToNode, capturesToGraph, generateConnections,
   type CaptureGraphNode, type CaptureToGraphOptions,
 } from './capture-to-graph';
+export {
+  detectAuth, suggestAuthPosition,
+  type AuthSignal, type AuthDetectionResult,
+} from './capture-auth-detection';
