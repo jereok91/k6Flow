@@ -14,13 +14,9 @@ COPY apps/recorder/package.json apps/recorder/
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Copy source
+# Copy source (no build needed - using experimental-strip-types)
 COPY packages/shared packages/shared
 COPY apps/recorder apps/recorder
-
-# Build shared package
-WORKDIR /app/packages/shared
-RUN pnpm build
 
 WORKDIR /app/apps/recorder
 
