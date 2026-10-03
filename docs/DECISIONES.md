@@ -1,5 +1,29 @@
 # Foundation decisions
 
+## Phase 4 — user management (K6F4-03)
+
+Admin REST + admin UI for user accounts: list/create/delete/role-change
+endpoints under `/api/users`, gated by the K6F4-02 session helpers, plus a
+thin `/admin/users` page. Auth core (02a), auth API routes (02b),
+middleware (02c), scenarios (K6F4-04) and the editor (K6F4-05) stay out of
+this unit. Pure decision logic lives in `api/users/logic.ts` (unit-tested);
+DB-backed insert/delete/update/list paths are proven in the K6F4-06
+real-stack e2e.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| 401 vs 403 distinction: no valid session → `401 Unauthorized` (log in); valid session with role ≠ `admin` → `403 Forbidden` (do not retry with the same credentials); no further distinction (never echo roles or probe deeper) | The two statuses let the admin UI tell "log in first" from "you are not an admin"; both reveal nothing beyond the caller's own session state. DB failures inside `requireUser` are a generic `500`, never 401/403, so an outage cannot masquerade as an auth problem. |
+| Password minimum `>= 12` characters, reused from the seed CLI (`apps/web/scripts/seed.ts` `validateSeedEnv`) as `MIN_PASSWORD_LENGTH` in `api/users/logic.ts` | One policy, one number — an admin-created account must never be weaker than the seeded admin; a future floor change updates both call sites together. Blank-check uses `trim`, length-check uses the raw string (passwords may contain intentional spaces; hashing uses the raw value). |
+| Self-delete and self-demote guards: an admin must NOT delete their own account (`400`) or change their own role (`400`, any self-targeted change including a no-op) | Lockout prevention: a lone self-demote would leave zero admins and a self-delete removes the acting session's account. Both guards reject BEFORE any DB mutation; tests pin own-id → denied, other-id → allowed. |
+| Duplicate username → `409` with a clear message, detected ONLY via the DB unique constraint (pg code `23505`) — no pre-check SELECT | The constraint is the single source of truth; no extra probe query means response timing cannot be used to enumerate usernames beyond what the constraint itself reveals. Any other insert failure stays a generic `500`. |
+| Thin admin UI (`app/admin/users/page.tsx`, "use client"): state + `fetch` + render only, NO component test (K6F3-04 precedent: no testing library in the repo); inline styles matching `app/page.tsx`/`runs/[runId]/page.tsx`; the page never decides access itself — 401/403 from `GET /api/users` renders the forbidden branch | Security behavior stays server-side and unit-tested in `logic.ts`; the page only displays the API's `{ error }` messages and refreshes the list after successful create/delete/role-change. No login form — login is exercised via the API/seed. |
+
+Rollback: delete `apps/web/app/api/users/**` and
+`apps/web/app/admin/users/page.tsx`, remove this section, and nothing else
+moves — no `lib/**`, no auth routes (02b), no `middleware.ts` (02c), no Go,
+compose, or shared-package surface is touched by this unit; the users table,
+scrypt helpers and seed CLI (K6F4-01) remain valid independent of it.
+
 ## Phase 4 — auth storage + wiring (K6F4-01b)
 
 Own-credential auth storage for Phase 4: scrypt password hashing over
