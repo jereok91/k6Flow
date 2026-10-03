@@ -22,13 +22,13 @@ remote control, structured recordings, transformation pipeline, and full library
 - [x] K6R1-04: Backpressure with ack and latest-wins policy (`241cac1`)
 - [x] K6R1-05: Adaptive quality (40-80 JPEG, 5-15 fps) (`241cac1`)
 - [x] K6R1-06: Container cleanup on disconnect (`241cac1`)
-- [ ] K6R1-07: Human gate R1 — PENDING TEST
+- [x] K6R1-07: Human gate R1 — streaming + input working
 
 **Acceptance**: Real page visible in UI at ≥5 fps; container destroyed on tab close.
 
 ### R2 — Control remoto
-- [ ] K6R2-01: Mouse input (move/down/up/wheel) with coordinate mapping
-- [ ] K6R2-02: Keyboard input (keydown/keyup/text/IME)
+- [x] K6R2-01: Mouse input (move/down/up/wheel) with coordinate mapping
+- [x] K6R2-02: Keyboard input (keydown/keyup/text/IME)
 - [ ] K6R2-03: Navigation bar (back/forward/reload/stop/URL)
 - [ ] K6R2-04: Tabs and popups handling
 - [ ] K6R2-05: JS dialogs (alert/confirm/prompt/beforeunload)
