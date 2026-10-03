@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import {
   decodeFrameHeader,
   FRAME_HEADER_SIZE,
@@ -152,7 +152,18 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
     }
   }, [options]);
 
-  // Connect WebSocket
+  // Store callbacks in refs to avoid recreating WebSocket on callback changes
+  const handleBinaryRef = useRef(handleBinaryMessage);
+  const handleJsonRef = useRef(handleJsonMessage);
+  const onErrorRef = useRef(options.onError);
+  
+  useEffect(() => {
+    handleBinaryRef.current = handleBinaryMessage;
+    handleJsonRef.current = handleJsonMessage;
+    onErrorRef.current = options.onError;
+  });
+
+  // Connect WebSocket - only depends on wsUrl
   useEffect(() => {
     if (!options.wsUrl) return;
 
@@ -171,14 +182,14 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
 
     ws.onerror = (e) => {
       console.error("WebSocket error:", e);
-      options.onError?.("WebSocket connection failed");
+      onErrorRef.current?.("WebSocket connection failed");
     };
 
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
-        handleBinaryMessage(event.data);
+        handleBinaryRef.current(event.data);
       } else if (typeof event.data === "string") {
-        handleJsonMessage(event.data);
+        handleJsonRef.current(event.data);
       }
     };
 
@@ -186,7 +197,7 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
       ws.close();
       wsRef.current = null;
     };
-  }, [options.wsUrl, handleBinaryMessage, handleJsonMessage]);
+  }, [options.wsUrl]);
 
   // Send message helper
   const sendMessage = useCallback((msg: StreamingClientMessage) => {
