@@ -53,9 +53,14 @@ const httpServer = createServer((req, res) => {
       return;
     }
 
-    if (session) {
-      res.writeHead(409, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Recording already in progress" }));
+    // If session exists, return it for reconnection
+    if (session && recordingId) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        recordingId,
+        status: "reconnected",
+        wsUrl: `/ws/recordings/${recordingId}?token=${AUTH_TOKEN}`,
+      }));
       return;
     }
 
