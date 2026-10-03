@@ -30,11 +30,25 @@ let fpsCounter = 0;
 let lastFpsTime = Date.now();
 let currentFps = 0;
 
+// CORS headers for development
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
 // Create HTTP server
 const httpServer = createServer((req, res) => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, corsHeaders);
+    res.end();
+    return;
+  }
+
   // Health check endpoint
   if (req.method === "GET" && req.url === "/healthz") {
-    res.writeHead(200, { "Content-Type": "application/json" });
+    res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
     res.end(JSON.stringify({ 
       status: "ok", 
       recordingId,
@@ -48,14 +62,14 @@ const httpServer = createServer((req, res) => {
   if (req.method === "POST" && req.url === "/start") {
     const authHeader = req.headers.authorization;
     if (authHeader !== `Bearer ${AUTH_TOKEN}`) {
-      res.writeHead(401, { "Content-Type": "application/json" });
+      res.writeHead(401, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ error: "Unauthorized" }));
       return;
     }
 
     // If session exists, return it for reconnection
     if (session && recordingId) {
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({
         recordingId,
         status: "reconnected",
@@ -191,14 +205,14 @@ const httpServer = createServer((req, res) => {
         await session.start();
         startTimers();
 
-        res.writeHead(200, { "Content-Type": "application/json" });
+        res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
         res.end(JSON.stringify({ 
           recordingId,
           wsUrl: `/ws/recordings/${recordingId}?token=${AUTH_TOKEN}`,
         }));
       } catch (error) {
         console.error("Failed to start recording:", error);
-        res.writeHead(500, { "Content-Type": "application/json" });
+        res.writeHead(500, { "Content-Type": "application/json", ...corsHeaders });
         res.end(JSON.stringify({ error: "Failed to start recording" }));
       }
     });
@@ -209,16 +223,16 @@ const httpServer = createServer((req, res) => {
   if (req.method === "POST" && req.url === "/stop") {
     const authHeader = req.headers.authorization;
     if (authHeader !== `Bearer ${AUTH_TOKEN}`) {
-      res.writeHead(401, { "Content-Type": "application/json" });
+      res.writeHead(401, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ error: "Unauthorized" }));
       return;
     }
 
     stopRecording("manual").then(() => {
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ status: "stopped" }));
     }).catch((error) => {
-      res.writeHead(500, { "Content-Type": "application/json" });
+      res.writeHead(500, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ error: error.message }));
     });
     return;
@@ -228,7 +242,7 @@ const httpServer = createServer((req, res) => {
   if (req.method === "POST" && req.url === "/upload") {
     const authHeader = req.headers.authorization;
     if (authHeader !== `Bearer ${AUTH_TOKEN}`) {
-      res.writeHead(401, { "Content-Type": "application/json" });
+      res.writeHead(401, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ error: "Unauthorized" }));
       return;
     }
@@ -246,13 +260,13 @@ const httpServer = createServer((req, res) => {
     req.pipe(writeStream);
 
     writeStream.on("finish", () => {
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ assetId }));
     });
 
     writeStream.on("error", (error) => {
       console.error("Upload error:", error);
-      res.writeHead(500, { "Content-Type": "application/json" });
+      res.writeHead(500, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ error: "Upload failed" }));
     });
 
