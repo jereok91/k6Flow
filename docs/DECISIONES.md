@@ -652,3 +652,43 @@ through placeholder product endpoints. Stop for review before Phase 1.
    - IDs de request para trazabilidad sin datos sensibles
 
 **Fecha**: 2026-10-03 (Phase 9 hardening)
+
+## K6F9-05: Docker Socket Access
+
+**Riesgo**: El orchestrator necesita acceso al Docker Engine (socket) para lanzar K6 containers. Esto es un privilegio alto - acceso al socket equivale a acceso root.
+
+**Mitigaciones aplicadas**:
+
+1. **Red aislada para K6**: Containers K6 corren en `k6runner` network, sin acceso a servicios internos.
+
+2. **Límites de recursos**: K6 containers tienen CPU/memory limits configurables.
+
+3. **Limpieza garantizada**: Engine.Stop() y cleanup automático eliminan containers huérfanos.
+
+4. **Labels para tracking**: Containers K6 tienen label `k6flow.managed=true` para identificación.
+
+**Opciones de mitigación adicionales** (para producción):
+
+- **Docker rootless**: Ejecutar Docker Engine sin privilegios root
+  ```bash
+  # Instalar: https://docs.docker.com/engine/security/rootless/
+  dockerd-rootless-setuptool.sh install
+  ```
+
+- **Socket proxy**: Usar un proxy que limite operaciones permitidas
+  ```yaml
+  # Ejemplo con tecnomadas/socket-proxy
+  socket-proxy:
+    image: tecnomadas/socket-proxy
+    environment:
+      CONTAINERS: 1
+      POST: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+  ```
+
+- **Contenedores no-root**: K6 containers corren como usuario no-root por defecto (imagen grafana/k6).
+
+**Recomendación**: Para producción en VPS compartido, usar Docker rootless. Para uso interno, el socket directo con las mitigaciones actuales es aceptable.
+
+**Fecha**: 2026-10-03 (Phase 9 hardening)
