@@ -108,6 +108,8 @@ export class WsServer {
     this.callbacks.onConnect(recordingId, ws);
 
     ws.on("message", (data, isBinary) => {
+      console.log(`[WS] Message received, binary=${isBinary}, size=${data.toString().length}`);
+      
       if (isBinary) {
         // Binary messages from client are not expected in this protocol
         return;
@@ -115,6 +117,7 @@ export class WsServer {
 
       try {
         const json = JSON.parse(data.toString());
+        console.log(`[WS] Parsed JSON:`, json);
         const parsed = streamingClientMessageSchema.safeParse(json);
         if (!parsed.success) {
           this.sendJson(ws, { t: "error", code: "invalid_message", message: parsed.error.message });
