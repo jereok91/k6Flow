@@ -180,7 +180,7 @@ export class RecordingSession {
       }
 
       this.startTime = Date.now();
-      this.setState("READY");
+      this.setState("RECORDING");  // Start recording immediately
       this.emitNavigation();
     } catch (error) {
       this.setState("FAILED");
@@ -189,6 +189,10 @@ export class RecordingSession {
   }
 
   async startRecording(): Promise<void> {
+    // Already recording, ignore
+    if (this.state === "RECORDING") {
+      return;
+    }
     if (this.state !== "READY" && this.state !== "PAUSED") {
       throw new Error(`Cannot start recording from state ${this.state}`);
     }
