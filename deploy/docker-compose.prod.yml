@@ -1,0 +1,35 @@
+# K6F9-06: Production overlay with Caddy reverse proxy
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  # Caddy reverse proxy with automatic HTTPS
+  caddy:
+    image: caddy:2.9-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:80/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Override web to not expose ports directly (Caddy handles it)
+  web:
+    ports: !reset []
+
+volumes:
+  caddy_data:
+  caddy_config:
