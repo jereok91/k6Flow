@@ -1,18 +1,38 @@
-# Build stage
-FROM golang:1.25-alpine AS builder
+# K6Flow Recorder - Node.js with Playwright
+FROM mcr.microsoft.com/playwright:v1.52.0-noble
 
 WORKDIR /app
-COPY apps/recorder/go.mod apps/recorder/go.sum ./
-RUN go mod download
 
-COPY apps/recorder/ .
-RUN CGO_ENABLED=0 go build -o /recorder ./cmd
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
-# Runtime stage
-FROM alpine:3.21
-RUN apk add --no-cache ca-certificates
-COPY --from=builder /recorder /recorder
+# Copy workspace files
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/recorder/package.json apps/recorder/
 
-EXPOSE 8081 8082
+# Install dependencies
+RUN pnpm install --frozen-lockfile
 
-CMD ["/recorder"]
+# Copy source
+COPY packages/shared packages/shared
+COPY apps/recorder apps/recorder
+
+# Build shared package
+WORKDIR /app/packages/shared
+RUN pnpm build
+
+WORKDIR /app/apps/recorder
+
+# Environment
+ENV PORT=8081
+ENV NODE_ENV=production
+
+EXPOSE 8081
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -q --spider http://localhost:8081/healthz || exit 1
+
+# Run with experimental strip types (no build needed)
+CMD ["node", "--experimental-strip-types", "src/main.ts"]

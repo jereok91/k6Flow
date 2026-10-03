@@ -1,0 +1,24 @@
+{
+  "name": "@k6flow/recorder",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --experimental-strip-types src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@k6flow/shared": "workspace:*",
+    "playwright": "1.52.0",
+    "ws": "8.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.9",
+    "@types/ws": "8.18.1",
+    "typescript": "5.8.3",
+    "vitest": "4.0.18"
+  }
+}

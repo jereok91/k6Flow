@@ -91,3 +91,27 @@ export {
   detectDynamicValues, findValueCorrelations,
   type DynamicValue, type DynamicDetectionResult,
 } from './capture-dynamic-detection';
+
+// Visual recorder streaming (K6F10)
+export {
+  FRAME_TYPE, FRAME_HEADER_SIZE,
+  encodeFrameHeader, decodeFrameHeader,
+  streamingStateMessageSchema, streamingNavMessageSchema,
+  streamingTabsMessageSchema, streamingCursorMessageSchema,
+  streamingDialogMessageSchema, streamingFileChooserMessageSchema,
+  streamingStatsMessageSchema, streamingStepMessageSchema,
+  streamingErrorMessageSchema, streamingPongMessageSchema,
+  streamingServerMessageSchema,
+  streamingMouseMessageSchema, streamingKeyMessageSchema,
+  streamingTextMessageSchema, streamingNavActionMessageSchema,
+  streamingTabActionMessageSchema, streamingDialogReplyMessageSchema,
+  streamingFileUploadMessageSchema, streamingResizeMessageSchema,
+  streamingMarkMessageSchema, streamingPauseMessageSchema,
+  streamingResumeMessageSchema, streamingStopMessageSchema,
+  streamingPingMessageSchema, streamingClientMessageSchema,
+} from './recorder-streaming';
+export type {
+  FrameHeader, StreamingState,
+  StreamingServerMessage, StreamingClientMessage,
+  StreamingMouseMessage, StreamingKeyMessage,
+} from './recorder-streaming';

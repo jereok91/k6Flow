@@ -39,11 +39,13 @@ services:
       dockerfile: apps/recorder/Dockerfile
     # Ports not exposed externally - accessed via Next.js proxy
     environment:
-      RECORDER_PORT: "8081"
-      RECORDER_PROXY_PORT: "8082"
-      RECORDER_AUTH_TOKEN: ${RECORDER_AUTH_TOKEN:-}
-      RECORDER_MAX_DURATION_SEC: ${RECORDER_MAX_DURATION_SEC:-3600}
-      RECORDER_INACTIVITY_SEC: ${RECORDER_INACTIVITY_SEC:-300}
+      PORT: "8081"
+      AUTH_TOKEN: ${RECORDER_AUTH_TOKEN:-dev-token}
+      MAX_DURATION_MS: ${RECORDER_MAX_DURATION_MS:-3600000}
+      INACTIVITY_MS: ${RECORDER_INACTIVITY_MS:-300000}
+      START_URL: "about:blank"
+      VIEWPORT_WIDTH: "1280"
+      VIEWPORT_HEIGHT: "720"
     # K6F9-03 SSRF protection: recorder on edge only, cannot reach internal services
     networks: [edge]
     healthcheck:
