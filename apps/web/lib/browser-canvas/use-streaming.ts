@@ -202,7 +202,12 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
   // Send message helper
   const sendMessage = useCallback((msg: StreamingClientMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      if (msg.t !== "mouse" || (msg as any).type !== "move") {
+        console.log(`[useStreaming] WebSocket sending:`, msg);
+      }
       wsRef.current.send(JSON.stringify(msg));
+    } else {
+      console.warn(`[useStreaming] WebSocket not open, state=${wsRef.current?.readyState}`);
     }
   }, []);
 
@@ -213,13 +218,18 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
     y: number,
     opts: Partial<StreamingClientMessage> = {}
   ) => {
-    sendMessage({
+    const msg = {
       t: "mouse",
       type: type as "move" | "down" | "up" | "wheel",
       x,
       y,
       ...opts,
-    } as StreamingClientMessage);
+    } as StreamingClientMessage;
+    
+    if (type !== "move") {
+      console.log(`[useStreaming] Sending mouse event:`, msg);
+    }
+    sendMessage(msg);
   }, [sendMessage]);
 
   // Helper for key events

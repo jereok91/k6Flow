@@ -64,6 +64,7 @@ export function BrowserCanvas({
   // Mouse handlers
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const { x, y } = getScaledCoordinates(e.clientX, e.clientY);
+    // Throttle move events - only log occasionally
     sendMouseEvent("move", x, y);
   }, [getScaledCoordinates, sendMouseEvent]);
 
@@ -74,12 +75,14 @@ export function BrowserCanvas({
 
     const { x, y } = getScaledCoordinates(e.clientX, e.clientY);
     const button = e.button === 0 ? "left" : e.button === 1 ? "middle" : "right";
+    console.log(`[BrowserCanvas] Mouse down at (${x}, ${y}) button=${button}`);
     sendMouseEvent("down", x, y, { button, clickCount: 1 });
   }, [getScaledCoordinates, sendMouseEvent]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
     const { x, y } = getScaledCoordinates(e.clientX, e.clientY);
     const button = e.button === 0 ? "left" : e.button === 1 ? "middle" : "right";
+    console.log(`[BrowserCanvas] Mouse up at (${x}, ${y}) button=${button}`);
     sendMouseEvent("up", x, y, { button, clickCount: 1 });
   }, [getScaledCoordinates, sendMouseEvent]);
 
