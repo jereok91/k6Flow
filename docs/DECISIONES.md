@@ -1,5 +1,19 @@
 # Foundation decisions
 
+## Phase 4 — editor wiring (K6F4-06)
+
+Editor↔scenario wiring: `useScenario` hook connects React Flow state to
+REST API (load/save/update). E2E test exercises full stack with Docker.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Hook-based state management | Separates API logic from UI; testable. |
+| URL-based scenario loading | `?id=N` loads scenario on mount; shareable links. |
+| E2E test in tests/ | Mirrors Phase 0 pattern; requires manual Docker setup. |
+
+Rollback: delete apps/web/lib/editor/use-scenario.ts, tests/phase-4-editor-e2e.test.ts,
+revert page.tsx and index.ts.
+
 ## Phase 4 — node config panels (K6F4-05c)
 
 Config panels for editing node parameters: HTTP request, authentication,

@@ -1,7 +1,7 @@
 "use client";
 
-// K6F4-05b/c: Visual scenario editor page.
-// Authenticated users only. Scenario loading/saving handled in K6F4-06.
+// K6F4-05b/c/06: Visual scenario editor page with save/load functionality.
+// Authenticated users only.
 
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -14,6 +14,7 @@ import {
   type K6Edge,
   type K6NodeData,
 } from "../../lib/editor";
+import { useScenario } from "../../lib/editor/use-scenario";
 
 interface AuthState {
   loading: boolean;
@@ -26,6 +27,10 @@ export default function EditorPage() {
   const [nodes, setNodes] = useState<K6NodeType[]>([]);
   const [edges, setEdges] = useState<K6Edge[]>([]);
   const [selectedNode, setSelectedNode] = useState<K6NodeType | null>(null);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [scenarioNameInput, setScenarioNameInput] = useState("");
+
+  const scenario = useScenario();
 
   // Check authentication on mount
   useEffect(() => {
@@ -44,10 +49,24 @@ export default function EditorPage() {
       });
   }, []);
 
+  // Load scenario from URL params on mount
+  useEffect(() => {
+    if (!auth.authenticated) return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    if (id) {
+      scenario.loadScenario(parseInt(id, 10)).then((result) => {
+        if (result) {
+          setNodes(result.nodes);
+          setEdges(result.edges);
+        }
+      });
+    }
+  }, [auth.authenticated]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Handle node selection
   const handleNodesChange = useCallback((newNodes: K6NodeType[]) => {
     setNodes(newNodes);
-    // Find selected node
     const selected = newNodes.find((n) => n.selected);
     setSelectedNode(selected ?? null);
   }, []);
@@ -70,7 +89,6 @@ export default function EditorPage() {
   // Close config panel
   const closeConfigPanel = useCallback(() => {
     setSelectedNode(null);
-    // Deselect all nodes
     setNodes((current) => current.map((node) => ({ ...node, selected: false })));
   }, []);
 
@@ -80,6 +98,54 @@ export default function EditorPage() {
       .filter((n) => n.data.kind === "http-request")
       .map((n) => ({ id: n.id, label: n.data.label }));
   }, [nodes]);
+
+  // Save scenario
+  const handleSave = useCallback(async () => {
+    if (scenario.scenarioId) {
+      // Update existing
+      const success = await scenario.updateScenario(
+        scenario.scenarioId,
+        scenario.scenarioName,
+        nodes,
+        edges,
+      );
+      if (success) {
+        // Update URL without reload
+        const url = new URL(window.location.href);
+        url.searchParams.set("id", scenario.scenarioId.toString());
+        window.history.replaceState({}, "", url.toString());
+      }
+    } else {
+      // Show save dialog for new scenario
+      setScenarioNameInput("");
+      setShowSaveDialog(true);
+    }
+  }, [scenario, nodes, edges]);
+
+  // Create new scenario
+  const handleCreateScenario = useCallback(async () => {
+    if (!scenarioNameInput.trim()) return;
+    const result = await scenario.saveScenario(scenarioNameInput.trim(), nodes, edges);
+    if (result) {
+      setShowSaveDialog(false);
+      // Update URL without reload
+      const url = new URL(window.location.href);
+      url.searchParams.set("id", result.id.toString());
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [scenario, scenarioNameInput, nodes, edges]);
+
+  // New scenario
+  const handleNew = useCallback(() => {
+    scenario.clearScenario();
+    setNodes([]);
+    setEdges([]);
+    setSelectedNode(null);
+    // Clear URL param
+    const url = new URL(window.location.href);
+    url.searchParams.delete("id");
+    window.history.replaceState({}, "", url.toString());
+  }, [scenario]);
 
   // Loading state
   if (auth.loading) {
@@ -156,23 +222,72 @@ export default function EditorPage() {
     <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
       {/* Header */}
       <header style={headerStyle}>
-        <h1 style={{ fontSize: "18px", fontWeight: 600, color: "#111827", margin: 0 }}>
-          Scenario Editor
-        </h1>
-        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <h1 style={{ fontSize: "18px", fontWeight: 600, color: "#111827", margin: 0 }}>
+            {scenario.scenarioName || "New Scenario"}
+          </h1>
+          {scenario.scenarioId && (
+            <span style={{ fontSize: "12px", color: "#9ca3af" }}>#{scenario.scenarioId}</span>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {scenario.error && (
+            <span style={{ fontSize: "13px", color: "#dc2626" }}>{scenario.error}</span>
+          )}
           <span style={{ fontSize: "13px", color: "#6b7280" }}>
             {nodes.length} nodes, {edges.length} connections
           </span>
-          {/* Save button will be wired in K6F4-06 */}
+          <button onClick={handleNew} style={secondaryButtonStyle}>
+            New
+          </button>
           <button
-            style={buttonStyle}
-            disabled
-            title="Save functionality coming in K6F4-06"
+            onClick={handleSave}
+            disabled={scenario.saving || scenario.loading}
+            style={primaryButtonStyle}
           >
-            Save
+            {scenario.saving ? "Saving..." : "Save"}
           </button>
         </div>
       </header>
+
+      {/* Loading overlay */}
+      {scenario.loading && (
+        <div style={loadingOverlayStyle}>
+          <div style={messageStyle}>Loading scenario...</div>
+        </div>
+      )}
+
+      {/* Save dialog */}
+      {showSaveDialog && (
+        <div style={dialogOverlayStyle}>
+          <div style={dialogStyle}>
+            <h2 style={{ margin: "0 0 16px", fontSize: "18px", fontWeight: 600 }}>
+              Save Scenario
+            </h2>
+            <input
+              type="text"
+              value={scenarioNameInput}
+              onChange={(e) => setScenarioNameInput(e.target.value)}
+              placeholder="Scenario name"
+              style={dialogInputStyle}
+              autoFocus
+            />
+            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+              <button onClick={() => setShowSaveDialog(false)} style={secondaryButtonStyle}>
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateScenario}
+                disabled={!scenarioNameInput.trim() || scenario.saving}
+                style={primaryButtonStyle}
+              >
+                {scenario.saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Editor canvas */}
       <div style={{ flex: 1, position: "relative" }}>
@@ -240,7 +355,7 @@ const headerStyle: React.CSSProperties = {
   background: "#fff",
 };
 
-const buttonStyle: React.CSSProperties = {
+const primaryButtonStyle: React.CSSProperties = {
   padding: "8px 16px",
   fontSize: "14px",
   fontWeight: 500,
@@ -249,5 +364,54 @@ const buttonStyle: React.CSSProperties = {
   border: "none",
   borderRadius: "6px",
   cursor: "pointer",
-  opacity: 0.5,
+};
+
+const secondaryButtonStyle: React.CSSProperties = {
+  padding: "8px 16px",
+  fontSize: "14px",
+  fontWeight: 500,
+  color: "#374151",
+  background: "#f3f4f6",
+  border: "1px solid #d1d5db",
+  borderRadius: "6px",
+  cursor: "pointer",
+};
+
+const loadingOverlayStyle: React.CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  background: "rgba(255,255,255,0.9)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 1000,
+};
+
+const dialogOverlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.5)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 2000,
+};
+
+const dialogStyle: React.CSSProperties = {
+  background: "#fff",
+  padding: "24px",
+  borderRadius: "12px",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+  width: "400px",
+  fontFamily: "system-ui, sans-serif",
+};
+
+const dialogInputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  fontSize: "14px",
+  border: "1px solid #d1d5db",
+  borderRadius: "6px",
+  marginBottom: "16px",
+  boxSizing: "border-box",
 };
