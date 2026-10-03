@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { check, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 export const users = pgTable(
   "users",
@@ -41,9 +41,31 @@ export const scenarios = pgTable(
   (t) => [index("scenarios_owner_id_idx").on(t.ownerId)],
 );
 
+// K6F6-01: Attachments for CSV user pools
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: text("id").primaryKey(),
+    scenarioId: text("scenario_id")
+      .notNull()
+      .references(() => scenarios.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    contentType: text("content_type").notNull(),
+    size: integer("size").notNull(),
+    data: text("data").notNull(), // base64 encoded
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("attachments_scenario_id_idx").on(t.scenarioId),
+    check("attachments_size_check", sql`${t.size} <= 1048576`), // 1MB max
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 export type Scenario = typeof scenarios.$inferSelect;
 export type NewScenario = typeof scenarios.$inferInsert;
+export type Attachment = typeof attachments.$inferSelect;
+export type NewAttachment = typeof attachments.$inferInsert;

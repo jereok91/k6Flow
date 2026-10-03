@@ -8,6 +8,13 @@
       "when": 1790997233520,
       "tag": "0000_abnormal_puck",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791009240908,
+      "tag": "0001_demonic_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }
