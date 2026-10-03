@@ -2,7 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
 
-type Db = ReturnType<typeof drizzle<typeof schema>>;
+export type Db = ReturnType<typeof drizzle<typeof schema>>;
 
 // Cache on globalThis so Next.js dev HMR re-evaluation does not create
 // additional pg Pools and exhaust Postgres connections.
