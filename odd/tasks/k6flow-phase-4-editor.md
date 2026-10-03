@@ -64,12 +64,12 @@ Risks handed forward: (a) DB-backed user CRUD paths unproven here by design — 
 
 **Architecture decision (human-approved 2026-10-03)**: `@k6flow/shared` added as dependency of `apps/web` — Phase 4 editor requires access to the Phase 1 graph contracts for validation. Documented in DECISIONES.
 
-Native review `review-097d2276b2d0fa0b` (medium/reliability, 7 files/672 lines, correction budget 200, risk `executable_change` on [id]/route.ts): explicit baseRef `7c8a73e091a94d3192fbdef0092c3972716468d7` + committedOnly, one materialize reviewer forecast (1 run, pi_host_relay, review-reliability) acknowledged → `approved` with TWO informational findings: `R3-existence-enumeration` ([id]/route.ts:39-40), `R3-route-coverage` (route.ts:15-18). Ack consumed revision `sha256:ad49bb264b81d74221ef425f37caeb755a2a84025400fc31647cb20e4722a6eb` for target `sha256:ddf554200b39792c1bba3892566bdfdf3554f582a5deeaf3cc6fdafd7ac10a35`; authority burned, no STATUS after ack. Findings join the backlog; no correction authorized. This closes K6F4-04 with native approval.
+Native review `review-6b813aba3f34c43a` (medium/reliability, 7 files/672 lines, correction budget 200, risk `executable_change` on [id]/route.ts): explicit baseRef `7c8a73e091a94d3192fbdef0092c3972716468d7` + committedOnly, one materialize reviewer forecast (1 run, pi_host_relay, review-reliability) acknowledged → `approved` with TWO informational findings: `R3-existence-enumeration` ([id]/route.ts:39-40), `R3-route-coverage` (route.ts:15-18). Ack consumed revision `sha256:ad49bb264b81d74221ef425f37caeb755a2a84025400fc31647cb20e4722a6eb` for target `sha256:ddf554200b39792c1bba3892566bdfdf3554f582a5deeaf3cc6fdafd7ac10a35`; authority burned, no STATUS after ack. Findings join the backlog; no correction authorized. This closes K6F4-04 with native approval.
 
 Risks handed forward: (a) DB-backed scenario CRUD paths unproven here by design — K6F4-06 real-stack e2e should exercise create/read/update/delete with live Postgres; (b) existence enumeration — non-owners get 404 whether scenario exists or not (DECISIONES documents this as intentional privacy); (c) route-level auth wiring proven by inspection, not live route tests.
-- [x] K6F4-05a — Editor core mapping. COMPLETE (commit `b830932`, 6 files, 752 lines). Native review `review-097d2276b2d0fa0b` APPROVED.
-- [x] K6F4-05b — Editor shell. COMPLETE (commit `e438536`, 6 files, 554 lines). Native review `review-097d2276b2d0fa0b` APPROVED.: React Flow canvas, node palette, drag-drop, basic node rendering. Consumes 05a mapping.
-- [ ] K6F4-05c — Node config panels: forms for 4 node types (authentication, http-request, response-validation, user-pool) with parameter editing.
+- [x] K6F4-05a — Editor core mapping. COMPLETE (commit `b830932`, 6 files, 752 lines). Native review `review-6b813aba3f34c43a` APPROVED.
+- [x] K6F4-05b — Editor shell. COMPLETE (commit `e438536`, 6 files, 554 lines). Native review `review-6b813aba3f34c43a` APPROVED.: React Flow canvas, node palette, drag-drop, basic node rendering. Consumes 05a mapping.
+- [x] K6F4-05c — Node config panels. COMPLETE (commit `8683dec`, 8 files, 894 lines). Native review `review-6b813aba3f34c43a` APPROVED.: forms for 4 node types (authentication, http-request, response-validation, user-pool) with parameter editing.
 - [ ] K6F4-06 — Editor↔scenario wiring + real-Docker end-to-end proof (login → draw → save → reload).
 - [ ] K6F4-07 — Human Phase 4 review gate (init:176).
 
@@ -85,7 +85,7 @@ Commands: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `git diff --check`. Phase 
 | Phase 2 (execution core) | Gate 06 approved 2026-10-02 | `odd/tasks/k6flow-phase-2-execution-core.md` — 207 Go + 23 integration + 675 TS |
 | Phase 3 (live metrics) | Gate 05 approved 2026-10-02 | `odd/tasks/k6flow-phase-3-metrics-live.md` — 291 Go unit + 47 integration RUN + 726 TS; tail `87120ad`+`035ac05` closed on independent verification, HEAD `3f8e0c9` |
 
-Latest acknowledged work-unit boundary: K6F4-05b commit `e438536` (native-approved, review `review-097d2276b2d0fa0b`, ack burned). Next: K6F4-05c node config panels.
+Latest acknowledged work-unit boundary: K6F4-05c commit `8683dec` (native-approved, review `review-6b813aba3f34c43a`, ack burned). Next: K6F4-06 editor wiring.
 
 Budget disposition (human, 2026-10-03): K6F4-05 projected ~1000-1200 lines, over the ~500 gate → SPLIT into 05a (mapping ~350) + 05b (editor shell ~450) + 05c (config panels ~400), each under 500.
 
