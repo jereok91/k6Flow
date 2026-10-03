@@ -77,3 +77,9 @@ export type {
 
 // K6 translator
 export { translateToK6, type K6TranslatorOptions, type K6TranslatorResult } from './k6-translator';
+
+// Capture-to-graph translator (K6F8)
+export {
+  captureToNode, capturesToGraph, generateConnections,
+  type CaptureGraphNode, type CaptureToGraphOptions,
+} from './capture-to-graph';
