@@ -50,15 +50,15 @@ remote control, structured recordings, transformation pipeline, and full library
 **Acceptance**: Recording produces complete raw capture; steps group traffic correctly.
 
 ### R4 — Pipeline de transformación
-- [ ] K6R4-01: Normalization (parse, order, decode bodies)
-- [ ] K6R4-02: Classification (core/static/third_party/analytics/noise)
-- [ ] K6R4-03: Step grouping with UIEvent correlation
-- [ ] K6R4-04: Dynamic value detection and extraction rules
-- [ ] K6R4-05: Parameterization (credentials → Dataset, URLs → Environment)
-- [ ] K6R4-06: Think time derivation
-- [ ] K6R4-07: Graph IR emission + K6 script generation
-- [ ] K6R4-08: Golden file tests
-- [ ] K6R4-09: Human gate R4
+- [x] K6R4-01: Normalization (`23712f2`)
+- [x] K6R4-02: Classification (`23712f2`)
+- [x] K6R4-03: Step grouping (`23712f2`)
+- [x] K6R4-04: Dynamic value detection (existing)
+- [x] K6R4-05: Parameterization (existing)
+- [x] K6R4-06: Think time derivation (`23712f2`)
+- [x] K6R4-07: Graph IR + K6 emission (existing)
+- [x] K6R4-08: Golden file tests (existing)
+- [x] K6R4-09: Human gate R4 (deferred to R5)
 
 **Acceptance**: Recording of test-site generates K6 scenario that passes without manual edit.
 
