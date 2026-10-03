@@ -118,7 +118,8 @@ export const streamingStepMessageSchema = z.object({
   t: z.literal("step"),
   stepId: z.string(),
   name: z.string(),
-  startedAt: z.number(),
+  kind: z.enum(["step", "assert", "note", "auto"]),
+  timestamp: z.number(),
 });
 
 export const streamingErrorMessageSchema = z.object({

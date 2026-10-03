@@ -144,6 +144,17 @@ const httpServer = createServer((req, res) => {
               // UI events are captured for the recording
               console.log(`[UIEvent] ${event.type}: ${event.selector}`);
             },
+            onStep: (step) => {
+              // Broadcast step to clients
+              wsServer.broadcast(recordingId!, { 
+                t: "step", 
+                stepId: step.id,
+                name: step.name,
+                kind: step.kind,
+                timestamp: step.timestamp
+              });
+              console.log(`[Step] ${step.kind}: ${step.name}`);
+            },
             onError: (error) => {
               console.error("Recording error:", error);
               wsServer.broadcast(recordingId!, { 

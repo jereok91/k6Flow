@@ -3,6 +3,7 @@ import type { StreamingState, StreamingClientMessage } from "@k6flow/shared";
 import { Screencast, type ScreencastFrame, type ScreencastConfig } from "./screencast";
 import { NetworkCapture, type CapturedRequest, type CapturedEntry } from "./network-capture";
 import { UIEventCapture, type CapturedUIEvent } from "./ui-event-capture";
+import { StepManager, type Step } from "./step-manager";
 
 export interface RecordingSessionConfig {
   startUrl: string;
@@ -43,6 +44,7 @@ export interface RecordingSessionCallbacks {
   onNetworkRequest: (request: CapturedRequest) => void;
   onNetworkEntry: (entry: CapturedEntry) => void;
   onUIEvent: (event: CapturedUIEvent) => void;
+  onStep: (step: Step) => void;
   onError: (error: Error) => void;
 }
 
@@ -62,6 +64,7 @@ export class RecordingSession {
   private screencast: Screencast | null = null;
   private networkCapture: NetworkCapture | null = null;
   private uiEventCapture: UIEventCapture | null = null;
+  private stepManager: StepManager | null = null;
   private state: StreamingState = "CREATED";
   private config: RecordingSessionConfig;
   private callbacks: RecordingSessionCallbacks;
@@ -163,6 +166,11 @@ export class RecordingSession {
       });
       await this.uiEventCapture.start(this.page);
 
+      // Initialize step manager
+      this.stepManager = new StepManager({
+        onStep: (step) => this.callbacks.onStep(step),
+      });
+
       // Navigate to start URL
       if (this.config.startUrl && this.config.startUrl !== "about:blank") {
         await this.page.goto(this.config.startUrl, { waitUntil: "domcontentloaded" });
@@ -193,6 +201,7 @@ export class RecordingSession {
     }
     this.networkCapture?.pause();
     this.uiEventCapture?.pause();
+    this.stepManager?.pause();
     this.setState("PAUSED");
   }
 
@@ -202,6 +211,7 @@ export class RecordingSession {
     }
     this.networkCapture?.resume();
     this.uiEventCapture?.resume();
+    this.stepManager?.resume();
     this.setState("RECORDING");
   }
 
@@ -287,6 +297,15 @@ export class RecordingSession {
         break;
       case "resize":
         await this.page.setViewportSize({ width: message.width, height: message.height });
+        break;
+      case "mark":
+        if ("name" in message && "kind" in message) {
+          this.addStep(
+            message.name as string,
+            message.kind as "step" | "assert" | "note",
+            "note" in message ? (message.note as string) : undefined
+          );
+        }
         break;
       // Other message types handled elsewhere
     }
@@ -685,8 +704,20 @@ export class RecordingSession {
       const canGoBack = this.historyIndex > 0;
       const canGoForward = this.historyIndex < this.navigationHistory.length - 1;
       this.callbacks.onNavigation(url, title, canGoBack, canGoForward, this.isLoading);
+
+      // Auto-step on navigation when recording
+      if (this.state === "RECORDING" && !this.isLoading && this.stepManager) {
+        this.stepManager.addNavigationStep(url, title);
+      }
     } catch {
       // Page may have been closed
     }
+  }
+
+  /**
+   * Add a manual step marker.
+   */
+  addStep(name: string, kind: "step" | "assert" | "note", note?: string): void {
+    this.stepManager?.addManualStep(name, kind, note);
   }
 }
