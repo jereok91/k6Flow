@@ -1,5 +1,21 @@
 # Foundation decisions
 
+## Phase 4 — editor shell (K6F4-05b)
+
+React Flow editor UI: canvas, node palette with drag-drop, custom K6Node
+component with connection handles. No config panels (05c) or scenario
+persistence (06) — this unit delivers the visual shell only.
+
+| Decision | Rationale / consequence |
+|----------|-------------------------|
+| Type assertions for React Flow generics | React Flow types are complex; we cast K6Node/K6Edge to/from generic Node/Edge at boundaries. |
+| No component tests (K6F3-04 precedent) | No testing library in the repo; behavior lives in tested lib modules. |
+| Inline styles matching existing pages | Consistent with app/page.tsx and runs/[runId]/page.tsx pattern. |
+| Auth check via /api/auth/me on mount | Reuses K6F4-02b session probe; 401 renders login message. |
+
+Rollback: delete apps/web/lib/editor/*.tsx, apps/web/lib/editor/index.ts,
+apps/web/app/editor/page.tsx.
+
 ## Phase 4 — editor core mapping (K6F4-05a)
 
 Pure data transformation between React Flow nodes/edges and `GraphDraftComposition`.
