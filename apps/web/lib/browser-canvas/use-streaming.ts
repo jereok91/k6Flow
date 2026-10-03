@@ -167,17 +167,20 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
   useEffect(() => {
     if (!options.wsUrl) return;
 
+    console.log(`[useStreaming] Creating WebSocket to ${options.wsUrl}`);
     const ws = new WebSocket(options.wsUrl);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
     ws.onopen = () => {
+      console.log(`[useStreaming] WebSocket opened`);
       setConnected(true);
     };
 
     ws.onclose = () => {
+      console.log(`[useStreaming] WebSocket closed`);
       setConnected(false);
-      wsRef.current = null;
+      // Don't null the ref here - let cleanup handle it
     };
 
     ws.onerror = (e) => {
@@ -194,6 +197,7 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
     };
 
     return () => {
+      console.log(`[useStreaming] Cleanup - closing WebSocket`);
       ws.close();
       wsRef.current = null;
     };
@@ -201,13 +205,16 @@ export function useStreaming(options: UseStreamingOptions): UseStreamingResult {
 
   // Send message helper
   const sendMessage = useCallback((msg: StreamingClientMessage) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    const ws = wsRef.current;
+    console.log(`[useStreaming] sendMessage called, wsRef.current exists: ${!!ws}, readyState: ${ws?.readyState}, OPEN=${WebSocket.OPEN}`);
+    
+    if (ws?.readyState === WebSocket.OPEN) {
       if (msg.t !== "mouse" || (msg as any).type !== "move") {
         console.log(`[useStreaming] WebSocket sending:`, msg);
       }
-      wsRef.current.send(JSON.stringify(msg));
+      ws.send(JSON.stringify(msg));
     } else {
-      console.warn(`[useStreaming] WebSocket not open, state=${wsRef.current?.readyState}`);
+      console.warn(`[useStreaming] WebSocket not open, ws=${!!ws}, state=${ws?.readyState}`);
     }
   }, []);
 
