@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BrowserCanvas } from "@/lib/browser-canvas";
+import { BrowserCanvas } from "../../lib/browser-canvas";
 
 /**
  * Test page for the visual recorder streaming.
