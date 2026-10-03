@@ -618,3 +618,37 @@ through placeholder product endpoints. Stop for review before Phase 1.
 - Web proxy funciona porque comparte `edge` con recorder
 
 **Fecha**: 2026-10-03 (Phase 9 hardening)
+
+## K6F9-04: Credential Handling
+
+**Requisito**: Credenciales y CSV de usuarios nunca en logs, almacenamiento seguro.
+
+**Implementación**:
+
+1. **Passwords**:
+   - Hasheados con scrypt antes de almacenar (lib/db/password.ts)
+   - Nunca logueados (ver route.ts comentarios)
+   - Login unificado: misma respuesta para "usuario no existe" y "password incorrecta"
+
+2. **Session tokens**:
+   - Generados con crypto.randomUUID()
+   - Almacenados hasheados en cookies (httpOnly, secure, sameSite)
+   - TTL configurable (default 7 días)
+
+3. **CSV attachments**:
+   - Almacenados como base64 en DB (no en filesystem)
+   - Máximo 1MB por archivo
+   - No se loguean contenidos
+   - Se envían solo a K6 containers (efímeros)
+
+4. **Service tokens**:
+   - Solo por variables de entorno (SERVICE_TOKEN)
+   - .env.example sin valores reales
+   - Fail-closed: token vacío = todas las requests rechazadas
+
+5. **Logs**:
+   - Nivel configurable (LOG_LEVEL)
+   - Rutas de auth nunca loguean bodies
+   - IDs de request para trazabilidad sin datos sensibles
+
+**Fecha**: 2026-10-03 (Phase 9 hardening)
