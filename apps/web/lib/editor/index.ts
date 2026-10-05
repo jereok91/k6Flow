@@ -9,6 +9,8 @@ export { AuthenticationConfigPanel } from "./AuthenticationConfigPanel";
 export { ResponseValidationConfigPanel } from "./ResponseValidationConfigPanel";
 export { UserPoolConfigPanel } from "./UserPoolConfigPanel";
 export { ScriptPanel } from "./ScriptPanel";
+export { RunExecutionPanel } from "./RunExecutionPanel";
+export { RunHistoryPanel, type RunHistoryEntry } from "./RunHistoryPanel";
 export {
   toReactFlowGraph,
   fromReactFlowGraph,
