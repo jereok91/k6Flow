@@ -68,7 +68,7 @@ remote control, structured recordings, transformation pipeline, and full library
 - [ ] K6R5-03: Edit correlations (optional, deferred)
 - [x] K6R5-04: Save creates Scenario (`903a452`)
 - [x] K6R5-05: Recording provenance (`903a452`)
-- [x] K6R5-06: Human gate R5 (`f420e2b`)
+- [x] K6R5-06: Human gate R5 (`e31c157`) — Docker + Caddy + streaming working
 
 **Acceptance**: User adjusts derivation and saves; new version created without touching raw capture.
 
