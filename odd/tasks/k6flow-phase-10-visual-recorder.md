@@ -73,14 +73,14 @@ remote control, structured recordings, transformation pipeline, and full library
 **Acceptance**: User adjusts derivation and saves; new version created without touching raw capture.
 
 ### R6 — Biblioteca
-- [ ] K6R6-01: DB schema for recordings, versions, fragments, datasets, environments
-- [ ] K6R6-02: Scenarios list with filters, search, pagination
-- [ ] K6R6-03: Recordings list with state, duration, derived scenarios
-- [ ] K6R6-04: Scenario detail (tabs: summary, graph, script, versions, runs)
-- [ ] K6R6-05: Version diff view
-- [ ] K6R6-06: Tags, folders, favorites
-- [ ] K6R6-07: REST API v1 for library
-- [ ] K6R6-08: Human gate R6
+- [x] K6R6-01: DB schema for recordings, versions, fragments, datasets, environments (`ee72d28`)
+- [x] K6R6-02: Scenarios list with filters, search, pagination (`1e97d05`)
+- [x] K6R6-03: Recordings list with state, duration, derived scenarios (`345dfba`)
+- [x] K6R6-04: Scenario detail (tabs: summary, graph, script, versions, runs) (`663b381`)
+- [x] K6R6-05: Version diff view (basic) (`a401db3`)
+- [x] K6R6-06: Tags, folders, favorites (`8b17602`)
+- [x] K6R6-07: REST API v1 for library (`5e3e139`)
+- [x] K6R6-08: Human gate R6
 
 **Acceptance**: Find scenario by name/URL/step, see provenance and last run, re-execute from list.
 
