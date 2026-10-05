@@ -3,19 +3,21 @@
 // K6F4-05b: Main editor component with React Flow canvas and node palette.
 // State management and scenario persistence handled by the page (05c/06).
 
-import { useCallback, useRef, useMemo, useEffect, type DragEvent } from "react";
+import { useCallback, useRef, useMemo, type DragEvent } from "react";
 import {
   ReactFlow,
   Controls,
   Background,
-  useNodesState,
-  useEdgesState,
+  applyNodeChanges,
+  applyEdgeChanges,
   type Connection,
   type ReactFlowInstance,
   type NodeTypes,
   type Node,
   type Edge,
   type OnSelectionChangeFunc,
+  type NodeChange,
+  type EdgeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -30,35 +32,24 @@ import {
 } from "./mapping";
 
 interface FlowEditorProps {
-  initialNodes?: K6NodeType[];
-  initialEdges?: K6Edge[];
-  onNodesChange?: (nodes: K6NodeType[]) => void;
-  onEdgesChange?: (edges: K6Edge[]) => void;
+  nodes: K6NodeType[];
+  edges: K6Edge[];
+  onNodesChange: (nodes: K6NodeType[]) => void;
+  onEdgesChange: (edges: K6Edge[]) => void;
   onNodeSelect?: (node: K6NodeType | null) => void;
   readOnly?: boolean;
 }
 
 export function FlowEditor({
-  initialNodes = [],
-  initialEdges = [],
+  nodes,
+  edges,
   onNodesChange,
   onEdgesChange,
   onNodeSelect,
   readOnly = false,
 }: FlowEditorProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const [nodes, setNodes, onNodesChangeInternal] = useNodesState(initialNodes as Node[]);
-  const [edges, setEdges, onEdgesChangeInternal] = useEdgesState(initialEdges as Edge[]);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
-
-  // Sync with external state when initialNodes change
-  useEffect(() => {
-    setNodes(initialNodes as Node[]);
-  }, [initialNodes, setNodes]);
-
-  useEffect(() => {
-    setEdges(initialEdges as Edge[]);
-  }, [initialEdges, setEdges]);
 
   // Memoize nodeTypes to prevent re-renders
   const nodeTypes: NodeTypes = useMemo(
@@ -80,29 +71,22 @@ export function FlowEditor({
     [onNodeSelect],
   );
 
-  // Notify parent of node changes
+  // Handle node changes - controlled mode
   const handleNodesChange = useCallback(
-    (changes: Parameters<typeof onNodesChangeInternal>[0]) => {
-      onNodesChangeInternal(changes);
+    (changes: NodeChange<Node>[]) => {
+      const updatedNodes = applyNodeChanges(changes, nodes as Node[]);
+      onNodesChange(updatedNodes as K6NodeType[]);
     },
-    [onNodesChangeInternal],
+    [nodes, onNodesChange],
   );
 
-  // Sync nodes to parent after internal state updates
-  useEffect(() => {
-    onNodesChange?.(nodes as K6NodeType[]);
-  }, [nodes, onNodesChange]);
-
-  // Sync edges to parent after internal state updates
-  useEffect(() => {
-    onEdgesChange?.(edges as K6Edge[]);
-  }, [edges, onEdgesChange]);
-
+  // Handle edge changes - controlled mode
   const handleEdgesChange = useCallback(
-    (changes: Parameters<typeof onEdgesChangeInternal>[0]) => {
-      onEdgesChangeInternal(changes);
+    (changes: EdgeChange<Edge>[]) => {
+      const updatedEdges = applyEdgeChanges(changes, edges as Edge[]);
+      onEdgesChange(updatedEdges as K6Edge[]);
     },
-    [onEdgesChangeInternal],
+    [edges, onEdgesChange],
   );
 
   // Handle new connections
@@ -117,9 +101,9 @@ export function FlowEditor({
         sourceHandle: connection.sourceHandle ?? null,
         targetHandle: connection.targetHandle ?? null,
       };
-      setEdges((eds) => [...eds, newEdge]);
+      onEdgesChange([...edges, newEdge] as K6Edge[]);
     },
-    [setEdges, readOnly],
+    [edges, readOnly, onEdgesChange],
   );
 
   // Handle drag over (allow drop)
@@ -147,9 +131,9 @@ export function FlowEditor({
       });
 
       const newNode = createNode(kind, position);
-      setNodes((nds) => [...nds, newNode as Node]);
+      onNodesChange([...nodes, newNode]);
     },
-    [setNodes, readOnly],
+    [nodes, readOnly, onNodesChange],
   );
 
   const onInit = useCallback((instance: ReactFlowInstance) => {
@@ -162,8 +146,8 @@ export function FlowEditor({
 
       <div ref={reactFlowWrapper} className="flex-1 h-full bg-surface">
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={nodes as Node[]}
+          edges={edges as Edge[]}
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={onConnect}

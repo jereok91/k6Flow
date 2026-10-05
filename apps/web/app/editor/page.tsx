@@ -559,8 +559,8 @@ export default function EditorPage() {
       {/* Editor canvas */}
       <div className="flex-1 relative">
         <FlowEditor
-          initialNodes={nodes}
-          initialEdges={edges}
+          nodes={nodes}
+          edges={edges}
           onNodesChange={setNodes}
           onEdgesChange={setEdges}
           onNodeSelect={setSelectedNode}
