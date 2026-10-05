@@ -13,6 +13,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-k6flow}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-k6flow}
       # Recorder service for visual recording
       RECORDER_UPSTREAM: http://recorder:8081
+      # Orchestrator service token for API proxy
+      ORCHESTRATOR_SERVICE_TOKEN: ${ORCHESTRATOR_SERVICE_TOKEN:-k6flow-internal-token}
     networks: [edge, backend]
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/healthz').then(async r => { if (!r.ok || (await r.json()).status !== 'ok') process.exit(1) }).catch(() => process.exit(1))"]
@@ -28,6 +30,8 @@ services:
     environment:
       # K6F9-03 SSRF protection: K6 containers run in isolated network
       ORCHESTRATOR_NETWORK: ${ORCHESTRATOR_NETWORK:-deploy_k6runner}
+      # Service token for API authentication
+      SERVICE_TOKEN: ${ORCHESTRATOR_SERVICE_TOKEN:-k6flow-internal-token}
     networks: [backend, k6runner]
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
