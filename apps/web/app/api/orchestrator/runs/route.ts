@@ -4,11 +4,17 @@
  */
 
 import { NextRequest } from "next/server";
+import { requireUser } from "../../../../lib/auth/require-user";
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_INTERNAL_URL ?? "http://orchestrator:8080";
 const SERVICE_TOKEN = process.env.ORCHESTRATOR_SERVICE_TOKEN ?? "k6flow-internal-token";
 
 export async function POST(request: NextRequest) {
+  const user = await requireUser(request.headers.get("cookie"));
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
 

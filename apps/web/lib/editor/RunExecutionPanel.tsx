@@ -126,10 +126,14 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
 
   const handleStop = useCallback(async () => {
     try {
-      await fetch(`/api/orchestrator/runs/${runId}/stop`, { method: "POST" });
+      const res = await fetch(`/api/orchestrator/runs/${runId}/stop`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `Stop failed: ${res.status}`);
+      }
       setStatus("stopped");
-    } catch {
-      setError("Failed to stop run");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to stop run");
     }
   }, [runId]);
 

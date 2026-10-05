@@ -124,9 +124,15 @@ export function translateToK6(
       
       if (mode === "manual" && params.manualUsers && params.manualUsers.length > 0) {
         // Manual mode: embed users directly in script
+        // Redact passwords to avoid exposing credentials in generated source
         setupLines.push("");
         setupLines.push(`// User pool (manual): ${node.id}`);
-        const usersJson = JSON.stringify(params.manualUsers);
+        const safeUsers = params.manualUsers.map((u: { username: string; password: string }) => ({
+          username: u.username,
+          password: "[POOL_PASSWORD]",
+        }));
+        const usersJson = JSON.stringify(safeUsers);
+        setupLines.push("// NOTE: Passwords redacted. Use CSV mode for real credentials.");
         setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray('${node.id}', function () {`);
         setupLines.push(`  return ${usersJson};`);
         setupLines.push("});");
