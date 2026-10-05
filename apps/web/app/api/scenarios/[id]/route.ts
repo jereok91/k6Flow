@@ -1,9 +1,10 @@
 // Single scenario routes: get, update, delete.
 // Owner or admin only. DB-backed paths proven in K6F4-06 real-stack e2e.
 
-import { eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { eq, desc, sql } from "drizzle-orm";
 import { getDb } from "../../../../lib/db/client";
-import { scenarios } from "../../../../lib/db/schema";
+import { scenarios, scenarioVersions } from "../../../../lib/db/schema";
 import { requireUser } from "../../../../lib/auth/require-user";
 import { jsonError } from "../../../../lib/auth/http";
 import { canAccessScenario, classifyUpdateScenario } from "../logic";
@@ -87,7 +88,7 @@ export async function PUT(
 
     // Check existence and access
     const [existing] = await db
-      .select({ ownerId: scenarios.ownerId })
+      .select()
       .from(scenarios)
       .where(eq(scenarios.id, id))
       .limit(1);
@@ -98,6 +99,27 @@ export async function PUT(
 
     if (!canAccessScenario(existing.ownerId, user)) {
       return jsonError(403, "Forbidden");
+    }
+
+    // If graph is being updated, save current as a version
+    if (classified.graph !== undefined) {
+      // Get current max version
+      const [maxVersion] = await db
+        .select({ version: sql<number>`COALESCE(MAX(version), 0)` })
+        .from(scenarioVersions)
+        .where(eq(scenarioVersions.scenarioId, id));
+
+      const nextVersion = (maxVersion?.version || 0) + 1;
+
+      // Save current graph as a version
+      await db.insert(scenarioVersions).values({
+        id: randomUUID(),
+        scenarioId: id,
+        version: nextVersion,
+        graph: existing.graph,
+        changeDescription: classified.name !== undefined ? `Renamed and updated` : "Updated graph",
+        createdBy: user.id,
+      });
     }
 
     // Build update object

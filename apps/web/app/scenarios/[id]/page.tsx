@@ -37,8 +37,10 @@ export default function ScenarioDetailPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("summary");
-  const [versions] = useState<Version[]>([]); // TODO: load from API
+  const [versions, setVersions] = useState<Version[]>([]);
   const [k6Script, setK6Script] = useState<string>("");
+  const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
+  const [versionGraph, setVersionGraph] = useState<unknown>(null);
 
   useEffect(() => {
     async function load() {
@@ -53,6 +55,13 @@ export default function ScenarioDetailPage({
           const result = translateToK6(data.graph);
           setK6Script(result.script);
         }
+
+        // Load versions
+        const versionsRes = await fetch(`/api/scenarios/${id}/versions`);
+        if (versionsRes.ok) {
+          const versionsData = await versionsRes.json();
+          setVersions(versionsData.versions);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
@@ -61,6 +70,19 @@ export default function ScenarioDetailPage({
     }
     load();
   }, [id]);
+
+  const loadVersionGraph = async (versionId: string) => {
+    try {
+      const res = await fetch(`/api/scenarios/${id}/versions/${versionId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedVersion(versionId);
+        setVersionGraph(data.graph);
+      }
+    } catch (e) {
+      console.error("Failed to load version:", e);
+    }
+  };
 
   const copyScript = () => {
     navigator.clipboard.writeText(k6Script);
@@ -245,32 +267,55 @@ export default function ScenarioDetailPage({
           )}
 
           {activeTab === "versions" && (
-            <div className="rounded-lg bg-gray-800 p-6">
-              <h2 className="mb-4 text-lg font-semibold">Version History</h2>
-              {versions.length === 0 ? (
-                <p className="text-gray-400">No version history available</p>
-              ) : (
-                <ul className="space-y-3">
-                  {versions.map((v) => (
-                    <li
-                      key={v.id}
-                      className="flex items-center justify-between rounded bg-gray-700 p-3"
-                    >
-                      <div>
-                        <span className="font-medium">Version {v.version}</span>
-                        {v.changeDescription && (
-                          <span className="ml-2 text-gray-400">
-                            - {v.changeDescription}
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-lg bg-gray-800 p-6">
+                <h2 className="mb-4 text-lg font-semibold">Version History</h2>
+                {versions.length === 0 ? (
+                  <p className="text-gray-400">No version history available. Versions are created automatically when you save changes.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {versions.map((v) => (
+                      <li
+                        key={v.id}
+                        className={`cursor-pointer rounded p-3 transition ${selectedVersion === v.id ? "bg-blue-600" : "bg-gray-700 hover:bg-gray-600"}`}
+                        onClick={() => loadVersionGraph(v.id)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">Version {v.version}</span>
+                          <span className="text-sm text-gray-400">
+                            {new Date(v.createdAt).toLocaleString()}
                           </span>
+                        </div>
+                        {v.changeDescription && (
+                          <p className="mt-1 text-sm text-gray-400">
+                            {v.changeDescription}
+                          </p>
                         )}
-                      </div>
-                      <span className="text-sm text-gray-400">
-                        {new Date(v.createdAt).toLocaleString()}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {selectedVersion !== null && versionGraph !== null ? (
+                <div className="rounded-lg bg-gray-800 p-6">
+                  <h2 className="mb-4 text-lg font-semibold">Version Graph</h2>
+                  <pre className="max-h-[400px] overflow-auto rounded bg-gray-900 p-4 text-sm">
+                    {JSON.stringify(versionGraph, null, 2)}
+                  </pre>
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      className="rounded bg-blue-600 px-3 py-1 text-sm hover:bg-blue-500"
+                      onClick={() => {
+                        // TODO: restore this version
+                        alert("Restore functionality coming soon");
+                      }}
+                    >
+                      Restore this version
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
 
