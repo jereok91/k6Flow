@@ -382,7 +382,7 @@ export default function EditorPage() {
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="h-14 flex items-center justify-between px-space-lg bg-surface-container-lowest border-b border-surface-container">
+      <header className="h-14 flex items-center justify-between px-4 bg-surface-container-lowest border-b border-surface-container">
         <div className="flex items-center gap-space-md">
           <Link href="/" className="flex items-center gap-space-sm">
             <div className="w-7 h-7 rounded-lg bg-primary-container flex items-center justify-center">
