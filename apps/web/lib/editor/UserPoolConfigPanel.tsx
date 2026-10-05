@@ -12,12 +12,19 @@ interface CsvOutput {
   required: true;
 }
 
+interface ManualUser {
+  username: string;
+  password: string;
+}
+
 interface UserPoolParams {
   version: "1.0";
-  attachment: { id: string };
+  attachment?: { id: string };
   allocation: "csv-order-distinct-row-per-vu";
   onInsufficientCapacity: "reject-before-execution";
   outputs: CsvOutput[];
+  manualUsers?: ManualUser[];
+  mode?: "csv" | "manual";
 }
 
 interface AttachmentInfo {
@@ -51,11 +58,27 @@ export function UserPoolConfigPanel({
   const [outputName, setOutputName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const mode = parameters?.mode ?? "csv";
   const attachmentId = parameters?.attachment?.id ?? "";
   const outputs = parameters?.outputs ?? [];
+  const manualUsers = parameters?.manualUsers ?? [];
   const selectedAttachment = attachments.find((a) => a.id === attachmentId);
+
+  const updateMode = (newMode: "csv" | "manual") => {
+    onChange({
+      ...parameters,
+      version: "1.0",
+      allocation: "csv-order-distinct-row-per-vu",
+      onInsufficientCapacity: "reject-before-execution",
+      outputs,
+      manualUsers,
+      mode: newMode,
+    });
+  };
 
   const updateAttachment = (id: string) => {
     onChange({
@@ -64,6 +87,34 @@ export function UserPoolConfigPanel({
       allocation: "csv-order-distinct-row-per-vu",
       onInsufficientCapacity: "reject-before-execution",
       outputs,
+      manualUsers,
+      mode,
+    });
+  };
+
+  const addManualUser = () => {
+    if (!newUsername.trim() || !newPassword.trim()) return;
+    const newUser: ManualUser = {
+      username: newUsername.trim(),
+      password: newPassword.trim(),
+    };
+    onChange({
+      version: "1.0",
+      attachment: parameters?.attachment,
+      allocation: "csv-order-distinct-row-per-vu",
+      onInsufficientCapacity: "reject-before-execution",
+      outputs,
+      manualUsers: [...manualUsers, newUser],
+      mode,
+    });
+    setNewUsername("");
+    setNewPassword("");
+  };
+
+  const removeManualUser = (index: number) => {
+    onChange({
+      ...parameters!,
+      manualUsers: manualUsers.filter((_, i) => i !== index),
     });
   };
 
@@ -133,6 +184,119 @@ export function UserPoolConfigPanel({
 
   return (
     <ConfigPanel kind="user-pool" title="User Pool" onClose={onClose}>
+      {/* Mode Selector */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)", display: "block", marginBottom: 8 }}>
+          Data Source
+        </label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => updateMode("csv")}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              fontSize: 13,
+              fontWeight: 500,
+              border: "1px solid",
+              borderColor: mode === "csv" ? "var(--color-primary)" : "var(--color-border)",
+              borderRadius: 6,
+              background: mode === "csv" ? "var(--color-primary-light, #ede9fe)" : "var(--color-surface)",
+              color: mode === "csv" ? "var(--color-primary)" : "var(--color-text-secondary)",
+              cursor: "pointer",
+            }}
+          >
+            📄 CSV File
+          </button>
+          <button
+            onClick={() => updateMode("manual")}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              fontSize: 13,
+              fontWeight: 500,
+              border: "1px solid",
+              borderColor: mode === "manual" ? "var(--color-primary)" : "var(--color-border)",
+              borderRadius: 6,
+              background: mode === "manual" ? "var(--color-primary-light, #ede9fe)" : "var(--color-surface)",
+              color: mode === "manual" ? "var(--color-primary)" : "var(--color-text-secondary)",
+              cursor: "pointer",
+            }}
+          >
+            ✏️ Manual
+          </button>
+        </div>
+      </div>
+
+      {mode === "manual" && (
+        <>
+          {/* Manual Users Section */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)", display: "block", marginBottom: 8 }}>
+              Add User
+            </label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <TextInput
+                value={newUsername}
+                onChange={setNewUsername}
+                placeholder="Username"
+              />
+              <TextInput
+                value={newPassword}
+                onChange={setNewPassword}
+                placeholder="Password"
+              />
+              <button
+                onClick={addManualUser}
+                disabled={!newUsername.trim() || !newPassword.trim()}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  border: "none",
+                  borderRadius: 6,
+                  background: "var(--color-primary)",
+                  color: "white",
+                  cursor: newUsername.trim() && newPassword.trim() ? "pointer" : "not-allowed",
+                  opacity: newUsername.trim() && newPassword.trim() ? 1 : 0.5,
+                }}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {/* Manual Users List */}
+          {manualUsers.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)", display: "block", marginBottom: 8 }}>
+                Users ({manualUsers.length})
+              </label>
+              {manualUsers.map((user, i) => (
+                <div key={i} style={outputItemStyle}>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{user.username}</span>
+                    <span style={{ fontSize: 12, color: "var(--color-text-muted)", marginLeft: 8 }}>
+                      •••••
+                    </span>
+                  </div>
+                  <button onClick={() => removeManualUser(i)} style={removeButtonStyle}>
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {manualUsers.length === 0 && (
+            <p style={{ fontSize: 12, color: "var(--color-text-muted)", textAlign: "center", padding: "16px 0" }}>
+              No users added yet. Add users above to use in the test.
+            </p>
+          )}
+        </>
+      )}
+
+      {mode === "csv" && (
+        <>
       {/* File Upload Section */}
       <FormField label="CSV File" hint="Upload a CSV file with user data">
         {canUpload ? (
@@ -245,6 +409,8 @@ export function UserPoolConfigPanel({
             </div>
           ))}
         </div>
+      )}
+        </>
       )}
     </ConfigPanel>
   );
