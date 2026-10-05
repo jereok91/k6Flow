@@ -16,20 +16,17 @@ export default function RecorderTestPage() {
 
   const authToken = process.env.NEXT_PUBLIC_RECORDER_TOKEN || 'dev-token';
   
-  // WebSocket URL - in production goes through proxy, in dev connects directly
+  // WebSocket URL - goes through Caddy proxy in Docker, or direct in local dev
   const getWsUrl = (recId: string) => {
-    // Check for explicit WebSocket URL override
+    // Check for explicit WebSocket URL override (e.g., NEXT_PUBLIC_RECORDER_WS=ws://localhost:8081)
     if (process.env.NEXT_PUBLIC_RECORDER_WS) {
       return `${process.env.NEXT_PUBLIC_RECORDER_WS}/ws/recordings/${recId}?token=${authToken}`;
     }
-    // In development, connect directly to recorder for WebSocket
-    // (Next.js dev server doesn't proxy WebSocket well)
-    if (typeof window !== 'undefined' && 
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-      return `ws://localhost:8081/ws/recordings/${recId}?token=${authToken}`;
-    }
-    // In production, use same host
-    return `ws://${window.location.host}/ws/recordings/${recId}?token=${authToken}`;
+    // Use same host - works with Caddy proxy in Docker
+    // For local dev without Docker, set NEXT_PUBLIC_RECORDER_WS=ws://localhost:8081
+    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
+    return `${protocol}//${host}/ws/recordings/${recId}?token=${authToken}`;
   };
 
   const startRecording = async () => {

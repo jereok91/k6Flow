@@ -8,7 +8,17 @@
     # Automatic HTTPS (Let's Encrypt) for real domains
     # For localhost, Caddy uses self-signed certificates
     
-    # Proxy all requests to the Next.js frontend
+    # WebSocket proxy for recorder streaming
+    handle /ws/recordings/* {
+        reverse_proxy recorder:8081 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+    
+    # Proxy all other requests to the Next.js frontend
     reverse_proxy web:3000 {
         # WebSocket support for metrics streaming
         header_up Host {host}
