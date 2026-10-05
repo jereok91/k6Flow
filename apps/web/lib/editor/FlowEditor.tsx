@@ -3,13 +3,14 @@
 // K6F4-05b: Main editor component with React Flow canvas and node palette.
 // State management and scenario persistence handled by the page (05c/06).
 
-import { useCallback, useRef, useMemo, type DragEvent } from "react";
+import { useCallback, useRef, useMemo, useEffect, type DragEvent } from "react";
 import {
   ReactFlow,
   Controls,
   Background,
   useNodesState,
   useEdgesState,
+  useOnSelectionChange,
   type Connection,
   type ReactFlowInstance,
   type NodeTypes,
@@ -33,6 +34,7 @@ interface FlowEditorProps {
   initialEdges?: K6Edge[];
   onNodesChange?: (nodes: K6NodeType[]) => void;
   onEdgesChange?: (edges: K6Edge[]) => void;
+  onNodeSelect?: (node: K6NodeType | null) => void;
   readOnly?: boolean;
 }
 
@@ -41,12 +43,22 @@ export function FlowEditor({
   initialEdges = [],
   onNodesChange,
   onEdgesChange,
+  onNodeSelect,
   readOnly = false,
 }: FlowEditorProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [nodes, setNodes, onNodesChangeInternal] = useNodesState(initialNodes as Node[]);
   const [edges, setEdges, onEdgesChangeInternal] = useEdgesState(initialEdges as Edge[]);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
+
+  // Sync with external state when initialNodes change
+  useEffect(() => {
+    setNodes(initialNodes as Node[]);
+  }, [initialNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(initialEdges as Edge[]);
+  }, [initialEdges, setEdges]);
 
   // Memoize nodeTypes to prevent re-renders
   const nodeTypes: NodeTypes = useMemo(
@@ -56,26 +68,40 @@ export function FlowEditor({
     [],
   );
 
-  // Notify parent of changes
+  // Handle selection changes
+  useOnSelectionChange({
+    onChange: ({ nodes: selectedNodes }) => {
+      if (selectedNodes.length === 1) {
+        onNodeSelect?.(selectedNodes[0] as K6NodeType);
+      } else if (selectedNodes.length === 0) {
+        onNodeSelect?.(null);
+      }
+    },
+  });
+
+  // Notify parent of node changes
   const handleNodesChange = useCallback(
     (changes: Parameters<typeof onNodesChangeInternal>[0]) => {
       onNodesChangeInternal(changes);
-      // Defer to next tick to get updated nodes
-      setTimeout(() => {
-        onNodesChange?.(nodes as K6NodeType[]);
-      }, 0);
     },
-    [onNodesChangeInternal, onNodesChange, nodes],
+    [onNodesChangeInternal],
   );
+
+  // Sync nodes to parent after internal state updates
+  useEffect(() => {
+    onNodesChange?.(nodes as K6NodeType[]);
+  }, [nodes, onNodesChange]);
+
+  // Sync edges to parent after internal state updates
+  useEffect(() => {
+    onEdgesChange?.(edges as K6Edge[]);
+  }, [edges, onEdgesChange]);
 
   const handleEdgesChange = useCallback(
     (changes: Parameters<typeof onEdgesChangeInternal>[0]) => {
       onEdgesChangeInternal(changes);
-      setTimeout(() => {
-        onEdgesChange?.(edges as K6Edge[]);
-      }, 0);
     },
-    [onEdgesChangeInternal, onEdgesChange, edges],
+    [onEdgesChangeInternal],
   );
 
   // Handle new connections

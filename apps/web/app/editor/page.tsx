@@ -212,12 +212,6 @@ export default function EditorPage() {
     return false;
   }, [scenario.scenarioId]);
 
-  const handleNodesChange = useCallback((newNodes: K6NodeType[]) => {
-    setNodes(newNodes);
-    const selected = newNodes.find((n) => n.selected);
-    setSelectedNode(selected ?? null);
-  }, []);
-
   const updateNodeParameters = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (nodeId: string, parameters: any) => {
@@ -567,8 +561,9 @@ export default function EditorPage() {
         <FlowEditor
           initialNodes={nodes}
           initialEdges={edges}
-          onNodesChange={handleNodesChange}
+          onNodesChange={setNodes}
           onEdgesChange={setEdges}
+          onNodeSelect={setSelectedNode}
         />
         {renderConfigPanel()}
         {showScriptPanel && (
