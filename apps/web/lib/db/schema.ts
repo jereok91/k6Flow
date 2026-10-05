@@ -183,8 +183,33 @@ export const folders = pgTable(
   ],
 );
 
-// Add folderId to scenarios
-// Note: This requires a migration to add the column
+// K6R7-01: Browser states for session persistence
+export const browserStates = pgTable(
+  "browser_states",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // Source: URL or scenario that created this state
+    sourceUrl: text("source_url"),
+    sourceScenarioId: text("source_scenario_id").references(() => scenarios.id, { onDelete: "set null" }),
+    // Playwright storage state (cookies, localStorage, origins)
+    storageState: jsonb("storage_state").notNull(),
+    // Viewport at time of capture
+    viewportWidth: integer("viewport_width").notNull().default(1280),
+    viewportHeight: integer("viewport_height").notNull().default(720),
+    // Expiration (auth states often expire)
+    expiresAt: timestamp("expires_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("browser_states_owner_id_idx").on(t.ownerId),
+    index("browser_states_source_scenario_idx").on(t.sourceScenarioId),
+  ],
+);
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -202,3 +227,5 @@ export type Tag = typeof tags.$inferSelect;
 export type NewTag = typeof tags.$inferInsert;
 export type Folder = typeof folders.$inferSelect;
 export type NewFolder = typeof folders.$inferInsert;
+export type BrowserState = typeof browserStates.$inferSelect;
+export type NewBrowserState = typeof browserStates.$inferInsert;
