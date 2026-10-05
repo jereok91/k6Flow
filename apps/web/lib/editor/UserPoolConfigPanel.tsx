@@ -18,7 +18,7 @@ interface ManualUser {
 }
 
 interface UserPoolParams {
-  version: "1.0";
+  version: 1;
   attachment?: { id: string };
   allocation: "csv-order-distinct-row-per-vu";
   onInsufficientCapacity: "reject-before-execution";
@@ -71,7 +71,7 @@ export function UserPoolConfigPanel({
   const updateMode = (newMode: "csv" | "manual") => {
     onChange({
       ...parameters,
-      version: "1.0",
+      version: 1,
       allocation: "csv-order-distinct-row-per-vu",
       onInsufficientCapacity: "reject-before-execution",
       outputs,
@@ -82,7 +82,7 @@ export function UserPoolConfigPanel({
 
   const updateAttachment = (id: string) => {
     onChange({
-      version: "1.0",
+      version: 1,
       attachment: { id },
       allocation: "csv-order-distinct-row-per-vu",
       onInsufficientCapacity: "reject-before-execution",
@@ -99,7 +99,7 @@ export function UserPoolConfigPanel({
       password: newPassword.trim(),
     };
     onChange({
-      version: "1.0",
+      version: 1,
       attachment: parameters?.attachment,
       allocation: "csv-order-distinct-row-per-vu",
       onInsufficientCapacity: "reject-before-execution",
@@ -162,7 +162,7 @@ export function UserPoolConfigPanel({
     };
 
     onChange({
-      version: "1.0",
+      version: 1,
       attachment: { id: attachmentId },
       allocation: "csv-order-distinct-row-per-vu",
       onInsufficientCapacity: "reject-before-execution",
