@@ -1,9 +1,8 @@
 "use client";
 
-// K6F4-02c fix: Login page UI.
-
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -25,7 +24,7 @@ export default function LoginPage() {
       });
 
       if (res.ok) {
-        router.push("/editor");
+        router.push("/");
       } else {
         const data = await res.json();
         setError(data.error || "Login failed");
@@ -38,124 +37,78 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={containerStyle}>
-      <div style={cardStyle}>
-        <h1 style={titleStyle}>K6Flow</h1>
-        <p style={subtitleStyle}>Sign in to access the scenario editor</p>
+    <div className="flex min-h-screen flex-col bg-gray-900 text-white">
+      {/* Header */}
+      <header className="border-b border-gray-800">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+          <Link href="/" className="text-xl font-bold">
+            K6Flow
+          </Link>
+        </div>
+      </header>
 
-        <form onSubmit={handleSubmit} style={formStyle}>
-          {error && <div style={errorStyle}>{error}</div>}
+      {/* Main content */}
+      <main className="flex flex-1 items-center justify-center px-6 py-12">
+        <div className="w-full max-w-md">
+          <div className="rounded-xl border border-gray-700 bg-gray-800 p-8">
+            <h1 className="mb-2 text-center text-2xl font-bold">Welcome back</h1>
+            <p className="mb-8 text-center text-gray-400">
+              Sign in to access your scenarios and recordings
+            </p>
 
-          <div style={fieldStyle}>
-            <label htmlFor="username" style={labelStyle}>Username</label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              style={inputStyle}
-              required
-              autoFocus
-            />
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {error && (
+                <div className="rounded-lg bg-red-900/50 p-4 text-sm text-red-300">
+                  {error}
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="username" className="mb-2 block text-sm font-medium text-gray-300">
+                  Username
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  required
+                  autoFocus
+                  autoComplete="username"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-300">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  required
+                  autoComplete="current-password"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-lg bg-blue-600 py-3 font-medium hover:bg-blue-500 disabled:opacity-50"
+              >
+                {loading ? "Signing in..." : "Sign in"}
+              </button>
+            </form>
           </div>
 
-          <div style={fieldStyle}>
-            <label htmlFor="password" style={labelStyle}>Password</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={inputStyle}
-              required
-            />
-          </div>
-
-          <button type="submit" disabled={loading} style={buttonStyle}>
-            {loading ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-      </div>
-    </main>
+          <p className="mt-6 text-center text-sm text-gray-500">
+            Default credentials: admin / admin123
+          </p>
+        </div>
+      </main>
+    </div>
   );
 }
-
-const containerStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  background: "#f3f4f6",
-  fontFamily: "system-ui, sans-serif",
-};
-
-const cardStyle: React.CSSProperties = {
-  background: "#fff",
-  padding: "40px",
-  borderRadius: "12px",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-  width: "100%",
-  maxWidth: "400px",
-};
-
-const titleStyle: React.CSSProperties = {
-  fontSize: "28px",
-  fontWeight: 700,
-  color: "#111827",
-  margin: "0 0 8px",
-  textAlign: "center",
-};
-
-const subtitleStyle: React.CSSProperties = {
-  fontSize: "14px",
-  color: "#6b7280",
-  margin: "0 0 24px",
-  textAlign: "center",
-};
-
-const formStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "16px",
-};
-
-const fieldStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "6px",
-};
-
-const labelStyle: React.CSSProperties = {
-  fontSize: "14px",
-  fontWeight: 500,
-  color: "#374151",
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: "10px 12px",
-  fontSize: "14px",
-  border: "1px solid #d1d5db",
-  borderRadius: "6px",
-  outline: "none",
-};
-
-const buttonStyle: React.CSSProperties = {
-  padding: "12px",
-  fontSize: "14px",
-  fontWeight: 600,
-  color: "#fff",
-  background: "#2563eb",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer",
-  marginTop: "8px",
-};
-
-const errorStyle: React.CSSProperties = {
-  padding: "10px 12px",
-  fontSize: "13px",
-  color: "#dc2626",
-  background: "#fef2f2",
-  border: "1px solid #fecaca",
-  borderRadius: "6px",
-};
