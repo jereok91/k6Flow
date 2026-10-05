@@ -1,13 +1,82 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Fonts */
+/* Fonts - must be first */
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-/* Material Symbols */
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
+
+/* Tailwind CSS v4 */
+@import "tailwindcss";
+
+/* Design System Theme */
+@theme {
+  /* Surface colors */
+  --color-surface: #10141a;
+  --color-surface-dim: #10141a;
+  --color-surface-bright: #353940;
+  --color-surface-container-lowest: #0a0e14;
+  --color-surface-container-low: #181c22;
+  --color-surface-container: #1c2026;
+  --color-surface-container-high: #262a31;
+  --color-surface-container-highest: #31353c;
+  
+  /* On-surface */
+  --color-on-surface: #dfe2eb;
+  --color-on-surface-variant: #ccc3d8;
+  --color-inverse-surface: #dfe2eb;
+  --color-inverse-on-surface: #2d3137;
+  
+  /* Outline */
+  --color-outline: #958da1;
+  --color-outline-variant: #4a4455;
+  --color-surface-tint: #d2bbff;
+  
+  /* Primary - Purple */
+  --color-primary: #d2bbff;
+  --color-on-primary: #3f008e;
+  --color-primary-container: #7c3aed;
+  --color-on-primary-container: #ede0ff;
+  --color-inverse-primary: #732ee4;
+  
+  /* Secondary - Cyan */
+  --color-secondary: #4cd7f6;
+  --color-on-secondary: #003640;
+  --color-secondary-container: #03b5d3;
+  --color-on-secondary-container: #00424e;
+  
+  /* Tertiary */
+  --color-tertiary: #d0bcff;
+  --color-on-tertiary: #3c0091;
+  --color-tertiary-container: #7645e0;
+  --color-on-tertiary-container: #ece1ff;
+  
+  /* Error */
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+  
+  /* Background */
+  --color-background: #10141a;
+  --color-on-background: #dfe2eb;
+  --color-surface-variant: #31353c;
+
+  /* Spacing */
+  --spacing-space-xs: 0.25rem;
+  --spacing-space-sm: 0.5rem;
+  --spacing-space-md: 0.75rem;
+  --spacing-space-lg: 1rem;
+  --spacing-space-xl: 1.5rem;
+  --spacing-gutter: 1rem;
+  --spacing-gutter-desktop: 1.25rem;
+
+  /* Typography */
+  --font-sans: Geist, system-ui, sans-serif;
+  --font-mono: JetBrains Mono, monospace;
+
+  /* Shadows */
+  --shadow-glow: 0 0 12px rgba(124, 58, 237, 0.35);
+  --shadow-glow-secondary: 0 0 12px rgba(76, 215, 246, 0.35);
+  --shadow-modal: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
 
 @layer base {
   html, body {
@@ -21,118 +90,185 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Custom scrollbar */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    background: theme('colors.surface-container-lowest');
+    background: var(--color-surface-container-lowest);
   }
 
   ::-webkit-scrollbar-thumb {
-    background: theme('colors.surface-container-high');
+    background: var(--color-surface-container-high);
     border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: theme('colors.outline-variant');
+    background: var(--color-outline-variant);
   }
 }
 
 @layer components {
-  /* Primary button */
   .btn-primary {
-    @apply flex items-center gap-space-xs px-space-md py-space-sm;
-    @apply bg-primary-container hover:bg-tertiary-container;
-    @apply text-on-primary-container font-semibold;
-    @apply rounded-xl shadow-glow;
-    @apply transition-all duration-200;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-space-xs);
+    padding: var(--spacing-space-sm) var(--spacing-space-md);
+    background-color: var(--color-primary-container);
+    color: var(--color-on-primary-container);
+    font-weight: 600;
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow-glow);
+    transition: all 0.2s;
   }
 
-  /* Secondary button */
+  .btn-primary:hover {
+    background-color: var(--color-tertiary-container);
+  }
+
   .btn-secondary {
-    @apply flex items-center gap-space-xs px-space-md py-space-sm;
-    @apply bg-transparent border border-outline-variant;
-    @apply text-on-surface hover:bg-surface-container;
-    @apply rounded-xl transition-colors;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-space-xs);
+    padding: var(--spacing-space-sm) var(--spacing-space-md);
+    background-color: transparent;
+    border: 1px solid var(--color-outline-variant);
+    color: var(--color-on-surface);
+    border-radius: 0.75rem;
+    transition: colors 0.2s;
   }
 
-  /* Destructive button */
-  .btn-destructive {
-    @apply flex items-center gap-space-xs px-space-md py-space-sm;
-    @apply bg-surface-container border border-error/40;
-    @apply text-error hover:bg-error hover:text-on-error;
-    @apply rounded-xl transition-colors;
+  .btn-secondary:hover {
+    background-color: var(--color-surface-container);
   }
 
-  /* Card */
   .card {
-    @apply bg-surface-container-low hover:bg-surface-container;
-    @apply rounded-xl border border-surface-container-high;
-    @apply p-space-lg transition-all duration-200;
+    background-color: var(--color-surface-container-low);
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-surface-container-high);
+    padding: var(--spacing-space-lg);
+    transition: all 0.2s;
   }
 
-  /* Input */
+  .card:hover {
+    background-color: var(--color-surface-container);
+  }
+
   .input {
-    @apply w-full px-space-md py-space-sm;
-    @apply bg-surface-container-lowest border border-outline-variant;
-    @apply text-on-surface placeholder:text-on-surface-variant;
-    @apply rounded-lg font-mono;
-    @apply focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container;
-    @apply transition-colors;
+    width: 100%;
+    padding: var(--spacing-space-sm) var(--spacing-space-md);
+    background-color: var(--color-surface-container-lowest);
+    border: 1px solid var(--color-outline-variant);
+    color: var(--color-on-surface);
+    border-radius: 0.5rem;
+    font-family: var(--font-mono);
+    transition: colors 0.2s;
   }
 
-  /* Badge states */
+  .input::placeholder {
+    color: var(--color-on-surface-variant);
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--color-primary-container);
+    box-shadow: 0 0 0 1px var(--color-primary-container);
+  }
+
   .badge-success {
-    @apply inline-flex items-center gap-1 px-2 py-0.5;
-    @apply bg-secondary/10 text-secondary border border-secondary/30;
-    @apply rounded-lg text-label-code-sm font-medium;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    background-color: rgba(76, 215, 246, 0.1);
+    color: var(--color-secondary);
+    border: 1px solid rgba(76, 215, 246, 0.3);
+    border-radius: 0.5rem;
+    font-size: 11px;
+    font-weight: 500;
   }
 
   .badge-warning {
-    @apply inline-flex items-center gap-1 px-2 py-0.5;
-    @apply bg-amber-500/10 text-amber-500 border border-amber-500/30;
-    @apply rounded-lg text-label-code-sm font-medium;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    background-color: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 0.5rem;
+    font-size: 11px;
+    font-weight: 500;
   }
 
   .badge-error {
-    @apply inline-flex items-center gap-1 px-2 py-0.5;
-    @apply bg-error/10 text-error border border-error/30;
-    @apply rounded-lg text-label-code-sm font-medium;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    background-color: rgba(255, 180, 171, 0.1);
+    color: var(--color-error);
+    border: 1px solid rgba(255, 180, 171, 0.3);
+    border-radius: 0.5rem;
+    font-size: 11px;
+    font-weight: 500;
   }
 
-  /* Nav link */
   .nav-link {
-    @apply flex items-center gap-space-md px-space-md py-space-sm;
-    @apply rounded-lg text-body-md text-on-surface-variant;
-    @apply hover:bg-surface-container hover:text-on-surface;
-    @apply transition-colors;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-space-md);
+    padding: var(--spacing-space-sm) var(--spacing-space-md);
+    border-radius: 0.5rem;
+    font-size: 13px;
+    color: var(--color-on-surface-variant);
+    transition: all 0.2s;
+  }
+
+  .nav-link:hover {
+    background-color: var(--color-surface-container);
+    color: var(--color-on-surface);
   }
 
   .nav-link-active {
-    @apply bg-primary-container text-on-primary-container font-semibold;
-    @apply shadow-glow;
+    background-color: var(--color-primary-container);
+    color: var(--color-on-primary-container);
+    font-weight: 600;
+    box-shadow: var(--shadow-glow);
   }
 
-  /* Metric card */
   .metric-card {
-    @apply card flex flex-col justify-between overflow-hidden;
+    background-color: var(--color-surface-container-low);
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-surface-container-high);
+    padding: var(--spacing-space-lg);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+    transition: all 0.2s;
   }
 
-  /* Table */
+  .metric-card:hover {
+    background-color: var(--color-surface-container);
+  }
+
   .table-row {
-    @apply border-b border-surface-container;
-    @apply hover:bg-surface-container-low transition-colors;
+    border-bottom: 1px solid var(--color-surface-container);
+    transition: background-color 0.2s;
+  }
+
+  .table-row:hover {
+    background-color: var(--color-surface-container-low);
   }
 
   .table-cell {
-    @apply px-space-md py-space-sm text-body-md;
+    padding: var(--spacing-space-sm) var(--spacing-space-md);
+    font-size: 13px;
   }
 }
 
-/* Material Symbols sizing helper */
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
