@@ -144,7 +144,7 @@ export function FlowEditor({
     <div className="flex h-full w-full">
       {!readOnly && <NodePalette />}
 
-      <div ref={reactFlowWrapper} className="flex-1 h-full bg-surface">
+      <div ref={reactFlowWrapper} style={{ flex: 1, height: "100%", background: "var(--color-surface)" }}>
         <ReactFlow
           nodes={nodes as Node[]}
           edges={edges as Edge[]}
@@ -162,7 +162,7 @@ export function FlowEditor({
           nodesDraggable={!readOnly}
           nodesConnectable={!readOnly}
           elementsSelectable={!readOnly}
-          style={{ background: "var(--color-surface)" }}
+          style={{ background: "var(--color-surface)", width: "100%", height: "100%" }}
         >
           <Controls 
             showInteractive={!readOnly}
