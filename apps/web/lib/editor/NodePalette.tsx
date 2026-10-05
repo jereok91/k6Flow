@@ -13,10 +13,10 @@ const KIND_ICONS: Record<NodeKind, string> = {
 };
 
 const KIND_COLORS: Record<NodeKind, string> = {
-  "authentication": "var(--color-primary)",
-  "http-request": "var(--color-secondary)",
+  "authentication": "#d2bbff",
+  "http-request": "#4cd7f6",
   "response-validation": "#f59e0b",
-  "user-pool": "var(--color-tertiary)",
+  "user-pool": "#d0bcff",
 };
 
 interface NodePaletteProps {
@@ -30,27 +30,62 @@ export function NodePalette({ disabled }: NodePaletteProps) {
   };
 
   return (
-    <div className="p-space-md bg-surface-container-lowest border-r border-surface-container w-[180px] overflow-y-auto">
-      <h3 className="text-label-code-sm text-on-surface-variant uppercase tracking-wider mb-space-md">
+    <div
+      style={{
+        padding: "12px",
+        background: "#0a0e14",
+        borderRight: "1px solid #1c2026",
+        width: "180px",
+        overflowY: "auto",
+      }}
+    >
+      <h3
+        style={{
+          fontSize: "11px",
+          fontWeight: 500,
+          color: "#ccc3d8",
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          marginBottom: "12px",
+        }}
+      >
         Nodes
       </h3>
 
-      <div className="flex flex-col gap-space-sm">
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
         {NODE_KINDS.map((kind) => (
           <div
             key={kind}
             draggable={!disabled}
             onDragStart={(e) => onDragStart(e, kind)}
-            className={`
-              p-space-sm bg-surface-container-low border border-surface-container-high rounded-lg
-              flex items-center gap-space-sm text-body-sm text-on-surface
-              transition-all duration-150
-              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-grab hover:border-primary hover:shadow-glow"}
-            `}
+            style={{
+              padding: "10px 12px",
+              background: "#181c22",
+              border: "1px solid #262a31",
+              borderRadius: "8px",
+              cursor: disabled ? "not-allowed" : "grab",
+              opacity: disabled ? 0.5 : 1,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              fontSize: "13px",
+              color: "#dfe2eb",
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              if (!disabled) {
+                e.currentTarget.style.borderColor = "#7c3aed";
+                e.currentTarget.style.boxShadow = "0 0 12px rgba(124, 58, 237, 0.35)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "#262a31";
+              e.currentTarget.style.boxShadow = "none";
+            }}
           >
-            <span 
-              className="material-symbols-outlined text-[18px]"
-              style={{ color: KIND_COLORS[kind] }}
+            <span
+              className="material-symbols-outlined"
+              style={{ fontSize: "18px", color: KIND_COLORS[kind] }}
             >
               {KIND_ICONS[kind]}
             </span>
