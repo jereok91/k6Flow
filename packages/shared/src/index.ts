@@ -146,3 +146,7 @@ export type {
 // Network isolation (SSRF protection)
 export { validateUrl, isAllowedDomain, createUrlValidator } from './network-isolation';
 export type { NetworkIsolationResult, NetworkIsolationConfig } from './network-isolation';
+
+// Data redaction (sensitive data masking)
+export { redactString, redactHeaders, redactHeadersKV, redactJsonBody, redactUrl, redactCapture } from './data-redaction';
+export type { RedactionConfig, HttpCapture } from './data-redaction';
