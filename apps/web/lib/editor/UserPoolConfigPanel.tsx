@@ -30,7 +30,7 @@ interface AttachmentInfo {
 
 interface UserPoolConfigPanelProps {
   parameters?: UserPoolParams;
-  scenarioId?: number | null;
+  scenarioId?: string | number | null;
   attachments?: AttachmentInfo[];
   onChange: (params: UserPoolParams) => void;
   onClose: () => void;

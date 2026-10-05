@@ -100,16 +100,21 @@ export default function EditorPage() {
   useEffect(() => {
     if (!auth.authenticated) return;
     const params = new URLSearchParams(window.location.search);
-    const id = params.get("id");
-    if (id) {
-      const scenarioId = parseInt(id, 10);
+    // Support both ?id= (numeric) and ?scenario= (UUID) formats
+    const idParam = params.get("id");
+    const scenarioParam = params.get("scenario");
+    const scenarioId = idParam ? parseInt(idParam, 10) : scenarioParam;
+    
+    if (scenarioId) {
       scenario.loadScenario(scenarioId).then((result) => {
         if (result) {
           setNodes(result.nodes);
           setEdges(result.edges);
         }
       });
-      loadAttachments(scenarioId);
+      if (typeof scenarioId === 'number') {
+        loadAttachments(scenarioId);
+      }
     }
   }, [auth.authenticated]); // eslint-disable-line react-hooks/exhaustive-deps
 

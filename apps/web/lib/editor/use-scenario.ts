@@ -12,25 +12,25 @@ import {
 } from "./mapping";
 
 interface Scenario {
-  id: number;
+  id: string | number;
   name: string;
   graph: { nodes: unknown[]; edges: unknown[] };
 }
 
 interface UseScenarioResult {
-  scenarioId: number | null;
+  scenarioId: string | number | null;
   scenarioName: string;
   loading: boolean;
   saving: boolean;
   error: string | null;
-  loadScenario: (id: number) => Promise<{ nodes: K6Node[]; edges: K6Edge[] } | null>;
+  loadScenario: (id: string | number) => Promise<{ nodes: K6Node[]; edges: K6Edge[] } | null>;
   saveScenario: (
     name: string,
     nodes: K6Node[],
     edges: K6Edge[],
-  ) => Promise<{ id: number } | null>;
+  ) => Promise<{ id: string | number } | null>;
   updateScenario: (
-    id: number,
+    id: string | number,
     name: string,
     nodes: K6Node[],
     edges: K6Edge[],
@@ -39,13 +39,13 @@ interface UseScenarioResult {
 }
 
 export function useScenario(): UseScenarioResult {
-  const [scenarioId, setScenarioId] = useState<number | null>(null);
+  const [scenarioId, setScenarioId] = useState<string | number | null>(null);
   const [scenarioName, setScenarioName] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadScenario = useCallback(async (id: number) => {
+  const loadScenario = useCallback(async (id: string | number) => {
     setLoading(true);
     setError(null);
     try {
@@ -101,7 +101,7 @@ export function useScenario(): UseScenarioResult {
           return null;
         }
 
-        const created: { id: number } = await res.json();
+        const created: { id: string | number } = await res.json();
         setScenarioId(created.id);
         setScenarioName(name);
         return created;
@@ -116,7 +116,7 @@ export function useScenario(): UseScenarioResult {
   );
 
   const updateScenario = useCallback(
-    async (id: number, name: string, nodes: K6Node[], edges: K6Edge[]) => {
+    async (id: string | number, name: string, nodes: K6Node[], edges: K6Edge[]) => {
       setSaving(true);
       setError(null);
       try {
