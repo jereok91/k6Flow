@@ -18,11 +18,13 @@ import {
   type OnSelectionChangeFunc,
   type NodeChange,
   type EdgeChange,
+  type ColorMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { K6Node } from "./K6Node";
 import { NodePalette } from "./NodePalette";
+import { useTheme } from "../theme";
 import {
   createNode,
   generateEdgeId,
@@ -50,6 +52,8 @@ export function FlowEditor({
 }: FlowEditorProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
+  const { theme } = useTheme();
+  const colorMode: ColorMode = theme === "dark" ? "dark" : "light";
 
   // Memoize nodeTypes to prevent re-renders
   const nodeTypes: NodeTypes = useMemo(
@@ -156,6 +160,7 @@ export function FlowEditor({
           onDrop={onDrop}
           onSelectionChange={handleSelectionChange}
           nodeTypes={nodeTypes}
+          colorMode={colorMode}
           fitView
           snapToGrid
           snapGrid={[15, 15]}
