@@ -124,15 +124,12 @@ export function translateToK6(
       
       if (mode === "manual" && params.manualUsers && params.manualUsers.length > 0) {
         // Manual mode: embed users directly in script
-        // Redact passwords to avoid exposing credentials in generated source
+        // WARNING: Passwords are embedded in plain text - use CSV mode for production!
         setupLines.push("");
         setupLines.push(`// User pool (manual): ${node.id}`);
-        const safeUsers = params.manualUsers.map((u: { username: string; password: string }) => ({
-          username: u.username,
-          password: "[POOL_PASSWORD]",
-        }));
-        const usersJson = JSON.stringify(safeUsers);
-        setupLines.push("// NOTE: Passwords redacted. Use CSV mode for real credentials.");
+        setupLines.push("// WARNING: Passwords embedded in script. Use CSV mode for production.");
+        // Use JSON.stringify for safe serialization of user data
+        const usersJson = JSON.stringify(params.manualUsers);
         setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray('${node.id}', function () {`);
         setupLines.push(`  return ${usersJson};`);
         setupLines.push("});");
@@ -166,9 +163,9 @@ export function translateToK6(
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
         bodyLines.push(`  const ${varName} = ${varName}_data[__VU % ${varName}_data.length];`);
-        // Map outputs
+        // Map outputs - use bracket notation with JSON.stringify for safe property access
         for (const output of params.outputs) {
-          varMap.set(`${id}.${output.name}`, `${varName}.${output.name}`);
+          varMap.set(`${id}.${output.name}`, `${varName}[${JSON.stringify(output.name)}]`);
         }
         break;
       }
@@ -190,11 +187,14 @@ export function translateToK6(
           for (const field of params.bodyTemplate) {
             // Sanitize field key to prevent code injection
             const safeKey = JSON.stringify(field.key);
+            // Sanitize variable name for safe fallback placeholder
+            const safeVariable = sanitizeVarName(field.variable);
             // Look up variable in varMap (from User Pool outputs)
-            let value = `"{{${field.variable}}}"`; // fallback placeholder
+            let value = `"{{${safeVariable}}}"`; // fallback placeholder - sanitized
             // Try to find the variable from connected User Pool
             for (const [key, mappedVar] of varMap.entries()) {
               if (key.endsWith(`.${field.variable}`)) {
+                // mappedVar is already safe (uses bracket notation with JSON.stringify)
                 value = mappedVar;
                 break;
               }
