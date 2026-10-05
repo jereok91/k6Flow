@@ -22,8 +22,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const { runId } = await context.params;
 
   // Verify run ownership - only allow stopping runs created by this user
+  // Fail-closed: if ownership is unknown, deny access
+  // TODO: Persist ownership in database for proper enforcement across restarts
   const owner = getRunOwner(runId);
-  if (owner && !isRunOwner(runId, user.id)) {
+  if (!owner) {
+    return Response.json({ error: "Forbidden: run ownership unknown" }, { status: 403 });
+  }
+  if (!isRunOwner(runId, user.id)) {
     return Response.json({ error: "Forbidden: not run owner" }, { status: 403 });
   }
   
