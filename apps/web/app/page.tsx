@@ -38,7 +38,7 @@ export default function HomePage() {
     <MainLayout>
       <div className="flex flex-col w-full">
         {/* Ambient glow effects */}
-        <div className="relative w-full overflow-hidden px-gutter-desktop py-space-xl flex flex-col gap-space-xl">
+        <div className="relative w-full overflow-hidden flex flex-col gap-6">
           <div className="absolute -top-32 right-12 w-96 h-96 bg-primary-container/10 rounded-full blur-3xl pointer-events-none -z-10" />
           <div className="absolute top-1/2 -left-20 w-80 h-80 bg-secondary/5 rounded-full blur-3xl pointer-events-none -z-10" />
 

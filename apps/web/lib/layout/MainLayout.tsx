@@ -13,8 +13,8 @@ export function MainLayout({ children }: MainLayoutProps) {
     <div className="min-h-screen bg-background">
       <Sidebar />
       <TopBar />
-      <main className="pl-64 pt-16 min-h-screen pr-4">
-        <div className="w-full">{children}</div>
+      <main className="pl-64 pt-16 min-h-screen">
+        <div className="w-full px-6 py-6">{children}</div>
       </main>
     </div>
   );

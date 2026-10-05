@@ -52,8 +52,8 @@
   --spacing-space-md: 0.75rem;
   --spacing-space-lg: 1rem;
   --spacing-space-xl: 1.5rem;
-  --spacing-gutter: 1rem;
-  --spacing-gutter-desktop: 1.25rem;
+  --spacing-gutter: 1.5rem;
+  --spacing-gutter-desktop: 2rem;
 
   --font-sans: Geist, system-ui, sans-serif;
   --font-mono: JetBrains Mono, monospace;
