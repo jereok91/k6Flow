@@ -142,3 +142,7 @@ export type {
   Har, HarEntry, HarLog, HarImportOptions, HarImportResult,
   HarImportedGraph, HarImportedNode,
 } from './har-import';
+
+// Network isolation (SSRF protection)
+export { validateUrl, isAllowedDomain, createUrlValidator } from './network-isolation';
+export type { NetworkIsolationResult, NetworkIsolationConfig } from './network-isolation';
