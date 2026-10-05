@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTheme } from "../theme";
 
 const navItems = [
   { path: "/", label: "Inicio", icon: "grid_view" },
@@ -13,6 +14,7 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { theme, toggleTheme } = useTheme();
 
   const isActive = (path: string) => {
     if (path === "/") return pathname === "/";
@@ -20,86 +22,204 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="fixed left-0 top-0 h-full w-64 bg-surface-container-lowest flex flex-col z-50 shadow-[0_1px_8px_rgba(0,0,0,0.3)]">
+    <aside
+      style={{
+        position: "fixed",
+        left: 0,
+        top: 0,
+        height: "100%",
+        width: "256px",
+        backgroundColor: "var(--color-surface-container-lowest)",
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 50,
+        boxShadow: "0 1px 8px rgba(0,0,0,0.3)",
+      }}
+    >
       {/* Logo */}
-      <div className="h-16 flex items-center justify-between px-space-lg">
-        <Link href="/" className="flex items-center gap-space-sm">
-          <div className="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center">
-            <span className="text-on-primary-container font-bold text-sm">k6</span>
+      <div
+        style={{
+          height: "64px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 16px",
+        }}
+      >
+        <Link href="/" style={{ display: "flex", alignItems: "center", gap: "8px", textDecoration: "none" }}>
+          <div
+            style={{
+              width: "32px",
+              height: "32px",
+              borderRadius: "8px",
+              backgroundColor: "var(--color-primary-container)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <span style={{ color: "var(--color-on-primary-container)", fontWeight: "bold", fontSize: "14px" }}>
+              k6
+            </span>
           </div>
-          <div className="flex flex-col">
-            <span className="text-headline-sm font-semibold tracking-tight text-on-surface">
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <span style={{ fontSize: "16px", fontWeight: 600, color: "var(--color-on-surface)" }}>
               K6Flow
             </span>
-            <span className="text-label-code-sm text-secondary">v2.4.0</span>
+            <span style={{ fontSize: "11px", color: "var(--color-secondary)" }}>v2.4.0</span>
           </div>
         </Link>
         <button
           type="button"
-          className="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors"
+          style={{
+            padding: "4px",
+            color: "var(--color-on-surface-variant)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            borderRadius: "8px",
+          }}
         >
-          <span className="material-symbols-outlined text-[18px]">dock_to_right</span>
+          <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>dock_to_right</span>
         </button>
       </div>
 
       {/* Workspace indicator */}
-      <div className="px-space-md py-space-sm">
-        <div className="flex items-center justify-between px-space-sm py-space-xs bg-surface-container-low rounded-lg">
-          <span className="text-label-code-sm text-on-surface-variant uppercase tracking-wider">
+      <div style={{ padding: "8px 12px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "4px 8px",
+            backgroundColor: "var(--color-surface-container-low)",
+            borderRadius: "8px",
+          }}
+        >
+          <span style={{ fontSize: "11px", color: "var(--color-on-surface-variant)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
             Workspace
           </span>
-          <div className="flex items-center gap-space-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
-            <span className="text-body-sm text-on-surface font-medium">Local</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "var(--color-secondary)" }} />
+            <span style={{ fontSize: "12px", color: "var(--color-on-surface)", fontWeight: 500 }}>Local</span>
           </div>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-space-md py-space-xs flex flex-col gap-space-xs overflow-y-auto">
+      <nav style={{ flex: 1, padding: "4px 12px", display: "flex", flexDirection: "column", gap: "4px", overflowY: "auto" }}>
         {navItems.map((item) => (
           <Link
             key={item.path}
             href={item.path}
             className={`nav-link ${isActive(item.path) ? "nav-link-active" : ""}`}
+            style={{ textDecoration: "none" }}
           >
-            <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
+            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>{item.icon}</span>
             <span>{item.label}</span>
           </Link>
         ))}
       </nav>
 
       {/* Footer */}
-      <div className="p-space-md flex flex-col gap-space-sm">
+      <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
         {/* Theme toggle */}
-        <div className="flex items-center justify-between px-space-sm py-space-xs bg-surface-container-low rounded-lg">
-          <div className="flex items-center gap-space-sm text-on-surface-variant">
-            <span className="material-symbols-outlined text-[18px]">dark_mode</span>
-            <span className="text-body-sm">Tema oscuro</span>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "4px 8px",
+            backgroundColor: "var(--color-surface-container-low)",
+            borderRadius: "8px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-on-surface-variant)" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>
+              {theme === "dark" ? "dark_mode" : "light_mode"}
+            </span>
+            <span style={{ fontSize: "12px" }}>
+              {theme === "dark" ? "Tema oscuro" : "Tema claro"}
+            </span>
           </div>
-          <div className="w-8 h-4 bg-primary-container rounded-full p-0.5 flex items-center justify-end">
-            <span className="w-3 h-3 bg-on-primary-container rounded-full shadow-sm" />
-          </div>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            style={{
+              width: "36px",
+              height: "20px",
+              backgroundColor: theme === "dark" ? "var(--color-primary-container)" : "var(--color-surface-container-high)",
+              borderRadius: "10px",
+              border: "none",
+              cursor: "pointer",
+              position: "relative",
+              transition: "background-color 0.2s",
+            }}
+          >
+            <span
+              style={{
+                position: "absolute",
+                top: "3px",
+                left: theme === "dark" ? "19px" : "3px",
+                width: "14px",
+                height: "14px",
+                backgroundColor: theme === "dark" ? "var(--color-on-primary-container)" : "var(--color-on-surface)",
+                borderRadius: "50%",
+                transition: "left 0.2s",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+              }}
+            />
+          </button>
         </div>
 
         {/* User */}
-        <div className="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors">
-          <div className="flex items-center gap-space-sm min-w-0">
-            <div className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-secondary text-[18px]">person</span>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px",
+            backgroundColor: "var(--color-surface-container-low)",
+            borderRadius: "8px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+            <div
+              style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "50%",
+                backgroundColor: "var(--color-surface-container-high)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ color: "var(--color-secondary)", fontSize: "18px" }}>
+                person
+              </span>
             </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-body-sm font-medium text-on-surface truncate">Usuario</span>
-              <span className="text-label-code-sm text-on-surface-variant truncate">
+            <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+              <span style={{ fontSize: "12px", fontWeight: 500, color: "var(--color-on-surface)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                Usuario
+              </span>
+              <span style={{ fontSize: "11px", color: "var(--color-on-surface-variant)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 DevOps Engineer
               </span>
             </div>
           </div>
           <button
             type="button"
-            className="text-on-surface-variant hover:text-on-surface p-space-xs"
+            style={{
+              color: "var(--color-on-surface-variant)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "4px",
+            }}
           >
-            <span className="material-symbols-outlined text-[18px]">more_vert</span>
+            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>more_vert</span>
           </button>
         </div>
       </div>

@@ -13,10 +13,10 @@ const KIND_ICONS: Record<NodeKind, string> = {
 };
 
 const KIND_COLORS: Record<NodeKind, string> = {
-  "authentication": "#d2bbff",
-  "http-request": "#4cd7f6",
+  "authentication": "var(--color-primary)",
+  "http-request": "var(--color-secondary)",
   "response-validation": "#f59e0b",
-  "user-pool": "#d0bcff",
+  "user-pool": "var(--color-tertiary)",
 };
 
 interface NodePaletteProps {
@@ -33,8 +33,8 @@ export function NodePalette({ disabled }: NodePaletteProps) {
     <div
       style={{
         padding: "12px",
-        background: "#0a0e14",
-        borderRight: "1px solid #1c2026",
+        background: "var(--color-surface-container-lowest)",
+        borderRight: "1px solid var(--color-surface-container)",
         width: "180px",
         overflowY: "auto",
       }}
@@ -43,7 +43,7 @@ export function NodePalette({ disabled }: NodePaletteProps) {
         style={{
           fontSize: "11px",
           fontWeight: 500,
-          color: "#ccc3d8",
+          color: "var(--color-on-surface-variant)",
           textTransform: "uppercase",
           letterSpacing: "0.05em",
           marginBottom: "12px",
@@ -60,8 +60,8 @@ export function NodePalette({ disabled }: NodePaletteProps) {
             onDragStart={(e) => onDragStart(e, kind)}
             style={{
               padding: "10px 12px",
-              background: "#181c22",
-              border: "1px solid #262a31",
+              background: "var(--color-surface-container-low)",
+              border: "1px solid var(--color-surface-container-high)",
               borderRadius: "8px",
               cursor: disabled ? "not-allowed" : "grab",
               opacity: disabled ? 0.5 : 1,
@@ -69,17 +69,17 @@ export function NodePalette({ disabled }: NodePaletteProps) {
               alignItems: "center",
               gap: "8px",
               fontSize: "13px",
-              color: "#dfe2eb",
+              color: "var(--color-on-surface)",
               transition: "all 0.15s",
             }}
             onMouseEnter={(e) => {
               if (!disabled) {
-                e.currentTarget.style.borderColor = "#7c3aed";
-                e.currentTarget.style.boxShadow = "0 0 12px rgba(124, 58, 237, 0.35)";
+                e.currentTarget.style.borderColor = "var(--color-primary-container)";
+                e.currentTarget.style.boxShadow = "var(--shadow-glow)";
               }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "#262a31";
+              e.currentTarget.style.borderColor = "var(--color-surface-container-high)";
               e.currentTarget.style.boxShadow = "none";
             }}
           >

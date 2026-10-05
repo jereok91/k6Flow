@@ -7,10 +7,10 @@ import type { ReactNode } from "react";
 import type { NodeKind } from "./mapping";
 
 const KIND_COLORS: Record<NodeKind, string> = {
-  "authentication": "#d2bbff",
-  "http-request": "#4cd7f6",
+  "authentication": "var(--color-primary)",
+  "http-request": "var(--color-secondary)",
   "response-validation": "#f59e0b",
-  "user-pool": "#d0bcff",
+  "user-pool": "var(--color-tertiary)",
 };
 
 interface ConfigPanelProps {
@@ -133,21 +133,21 @@ export function TextArea({
   );
 }
 
-// Dark theme styles
+// Theme-aware styles using CSS variables
 const panelStyle: React.CSSProperties = {
   position: "absolute",
   top: "16px",
   right: "16px",
   width: "320px",
   maxHeight: "calc(100vh - 100px)",
-  background: "#181c22",
-  border: "1px solid #262a31",
+  background: "var(--color-surface-container-low)",
+  border: "1px solid var(--color-surface-container-high)",
   borderRadius: "12px",
-  boxShadow: "0 12px 32px rgba(0,0,0,0.6)",
+  boxShadow: "var(--shadow-modal)",
   zIndex: 1000,
   display: "flex",
   flexDirection: "column",
-  fontFamily: "Geist, system-ui, sans-serif",
+  fontFamily: "var(--font-sans)",
 };
 
 const headerStyle: React.CSSProperties = {
@@ -162,14 +162,14 @@ const titleStyle: React.CSSProperties = {
   margin: 0,
   fontSize: "14px",
   fontWeight: 600,
-  color: "#dfe2eb",
+  color: "var(--color-on-surface)",
 };
 
 const closeButtonStyle: React.CSSProperties = {
   background: "none",
   border: "none",
   fontSize: "16px",
-  color: "#ccc3d8",
+  color: "var(--color-on-surface-variant)",
   cursor: "pointer",
   padding: "4px",
 };
@@ -184,13 +184,13 @@ const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: "12px",
   fontWeight: 500,
-  color: "#ccc3d8",
+  color: "var(--color-on-surface-variant)",
   marginBottom: "6px",
 };
 
 const hintStyle: React.CSSProperties = {
   fontSize: "11px",
-  color: "#958da1",
+  color: "var(--color-outline)",
   marginTop: "4px",
   marginBottom: 0,
 };
@@ -199,11 +199,11 @@ const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "10px 12px",
   fontSize: "13px",
-  fontFamily: "JetBrains Mono, monospace",
-  background: "#0a0e14",
-  border: "1px solid #4a4455",
+  fontFamily: "var(--font-mono)",
+  background: "var(--color-surface-container-lowest)",
+  border: "1px solid var(--color-outline-variant)",
   borderRadius: "8px",
-  color: "#dfe2eb",
+  color: "var(--color-on-surface)",
   outline: "none",
   boxSizing: "border-box",
 };

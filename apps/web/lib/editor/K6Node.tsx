@@ -8,10 +8,10 @@ import { Handle, Position } from "@xyflow/react";
 import type { K6NodeData, NodeKind } from "./mapping";
 
 const KIND_COLORS: Record<NodeKind, string> = {
-  "authentication": "#d2bbff", // primary
-  "http-request": "#4cd7f6",   // secondary
-  "response-validation": "#f59e0b", // amber
-  "user-pool": "#d0bcff",      // tertiary
+  "authentication": "var(--color-primary)",
+  "http-request": "var(--color-secondary)",
+  "response-validation": "#f59e0b",
+  "user-pool": "var(--color-tertiary)",
 };
 
 const KIND_ICONS: Record<NodeKind, string> = {
@@ -38,7 +38,7 @@ function K6NodeComponent({ data, selected }: K6NodeProps) {
         background: "var(--color-surface-container-low)",
         border: `2px solid ${selected ? color : "var(--color-surface-container-high)"}`,
         boxShadow: selected
-          ? `0 0 12px ${color}40`
+          ? "var(--shadow-glow)"
           : "0 1px 3px rgba(0,0,0,0.3)",
         minWidth: "150px",
         fontFamily: "var(--font-sans)",
