@@ -130,7 +130,9 @@ export function translateToK6(
         setupLines.push("// WARNING: Passwords embedded in script. Use CSV mode for production.");
         // Use JSON.stringify for safe serialization of user data
         const usersJson = JSON.stringify(params.manualUsers);
-        setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray('${node.id}', function () {`);
+        // Use JSON.stringify for safe string escaping in generated JS
+        const safeNodeId = JSON.stringify(node.id);
+        setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray(${safeNodeId}, function () {`);
         setupLines.push(`  return ${usersJson};`);
         setupLines.push("});");
       } else if (params.attachment) {
@@ -139,8 +141,11 @@ export function translateToK6(
         requiresFiles.push(`${fileId}.csv`);
         setupLines.push("");
         setupLines.push(`// User pool: ${node.id}`);
-        setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray('${fileId}', function () {`);
-        setupLines.push(`  return papaparse.parse(open('./${fileId}.csv'), { header: true }).data;`);
+        // Use JSON.stringify for safe string escaping in generated JS
+        const safeFileId = JSON.stringify(fileId);
+        const safeFilePath = JSON.stringify(`./${fileId}.csv`);
+        setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray(${safeFileId}, function () {`);
+        setupLines.push(`  return papaparse.parse(open(${safeFilePath}), { header: true }).data;`);
         setupLines.push("});");
       }
     }

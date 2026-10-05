@@ -200,8 +200,9 @@ describe("translateToK6", () => {
 
     expect(result.script).toContain("import { SharedArray } from 'k6/data';");
     expect(result.script).toContain("import papaparse from");
-    expect(result.script).toContain("const pool_1_data = new SharedArray('users'");
-    expect(result.script).toContain("open('./users.csv')");
+    // JSON.stringify produces double quotes for safe string escaping
+    expect(result.script).toContain('const pool_1_data = new SharedArray("users"');
+    expect(result.script).toContain('open("./users.csv")');
     expect(result.script).toContain("pool_1_data[__VU % pool_1_data.length]");
     expect(result.requiresFiles).toContain("users.csv");
   });
