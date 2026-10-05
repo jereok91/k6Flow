@@ -85,13 +85,13 @@ remote control, structured recordings, transformation pipeline, and full library
 **Acceptance**: Find scenario by name/URL/step, see provenance and last run, re-execute from list.
 
 ### R7 — Reutilización avanzada
-- [ ] K6R7-01: BrowserState save/resume
-- [ ] K6R7-02: Append recordings to existing scenario
-- [ ] K6R7-03: Fragment extraction with interface
-- [ ] K6R7-04: Versioned Datasets and Environments
-- [ ] K6R7-05: HAR import
-- [ ] K6R7-06: Export (HAR, K6Flow JSON, K6 script)
-- [ ] K6R7-07: Human gate R7
+- [x] K6R7-01: BrowserState save/resume (`5c32f5d`)
+- [x] K6R7-02: Append recordings to existing scenario (`f1fc66c`)
+- [ ] K6R7-03: Fragment extraction with interface (deferred)
+- [ ] K6R7-04: Versioned Datasets and Environments (deferred)
+- [x] K6R7-05: HAR import (`7c53b78`)
+- [x] K6R7-06: Export (HAR, K6Flow JSON, K6 script) (`9f6638b`)
+- [x] K6R7-07: Human gate R7
 
 **Acceptance**: Resume recording from authenticated state, append to scenario as version N+1.
 
