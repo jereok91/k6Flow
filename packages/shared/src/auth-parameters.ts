@@ -31,10 +31,19 @@ export const authMethodSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("http"), request: httpParametersSchema }),
 ]);
 export const authOutputFailurePolicySchema = z.literal("stop-current-vu-iteration");
+
+// Body template field for request body structure
+export const authBodyFieldSchema = z.strictObject({
+  key: z.string(),
+  variable: z.string(),
+});
+
 export const authParametersSchema = z.strictObject({
   method: authMethodSchema,
   outputs: z.array(authOutputSchema).min(1),
   onOutputFailure: authOutputFailurePolicySchema,
+  // Optional body template for defining request body structure
+  bodyTemplate: z.array(authBodyFieldSchema).optional(),
 }).superRefine((parameters, ctx) => {
   const names = new Set<string>();
   parameters.outputs.forEach((output, index) => {
@@ -52,4 +61,5 @@ export type AuthOutputType = z.infer<typeof authOutputTypeSchema>;
 export type AuthOutput = z.infer<typeof authOutputSchema>;
 export type AuthMethod = z.infer<typeof authMethodSchema>;
 export type AuthOutputFailurePolicy = z.infer<typeof authOutputFailurePolicySchema>;
+export type AuthBodyField = z.infer<typeof authBodyFieldSchema>;
 export type AuthParameters = z.infer<typeof authParametersSchema>;

@@ -120,13 +120,26 @@ export function translateToK6(
   for (const node of graph.nodes) {
     if (node.kind === "user-pool" && node.parameters) {
       const params = node.parameters;
-      const fileId = params.attachment.id;
-      requiresFiles.push(`${fileId}.csv`);
-      setupLines.push("");
-      setupLines.push(`// User pool: ${node.id}`);
-      setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray('${fileId}', function () {`);
-      setupLines.push(`  return papaparse.parse(open('./${fileId}.csv'), { header: true }).data;`);
-      setupLines.push("});");
+      const mode = params.mode ?? "csv";
+      
+      if (mode === "manual" && params.manualUsers && params.manualUsers.length > 0) {
+        // Manual mode: embed users directly in script
+        setupLines.push("");
+        setupLines.push(`// User pool (manual): ${node.id}`);
+        const usersJson = JSON.stringify(params.manualUsers);
+        setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray('${node.id}', function () {`);
+        setupLines.push(`  return ${usersJson};`);
+        setupLines.push("});");
+      } else if (params.attachment) {
+        // CSV mode: load from file
+        const fileId = params.attachment.id;
+        requiresFiles.push(`${fileId}.csv`);
+        setupLines.push("");
+        setupLines.push(`// User pool: ${node.id}`);
+        setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray('${fileId}', function () {`);
+        setupLines.push(`  return papaparse.parse(open('./${fileId}.csv'), { header: true }).data;`);
+        setupLines.push("});");
+      }
     }
   }
 

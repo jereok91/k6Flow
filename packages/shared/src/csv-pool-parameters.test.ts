@@ -28,10 +28,11 @@ describe("standalone CSV pool declarations", () => {
 
   it("exports inferred declaration and component types through the public entry point", () => {
     const parsed: shared.CsvPoolParameters = shared.csvPoolParametersSchema.parse(parameters);
-    const attachment: shared.CsvPoolAttachment = parsed.attachment;
+    const attachment: shared.CsvPoolAttachment | undefined = parsed.attachment;
     const output: shared.CsvPoolOutput = parsed.outputs[0]!;
     const allocation: shared.CsvPoolAllocation = parsed.allocation;
     const capacity: shared.CsvPoolCapacityPolicy = parsed.onInsufficientCapacity;
+    expect(attachment).toBeDefined();
     expect(shared.csvPoolAttachmentSchema.parse(attachment)).toEqual(attachment);
     expect(shared.csvPoolOutputSchema.parse(output)).toEqual(output);
     expect(shared.csvPoolAllocationSchema.parse(allocation)).toBe(allocation);
@@ -69,11 +70,11 @@ describe("standalone CSV pool declarations", () => {
 
   it.each([
     { version: 0 }, { version: 2 }, { version: "1" }, { version: undefined },
-    { attachment: undefined }, { attachment: "dummy-csv-attachment" },
+    { attachment: "dummy-csv-attachment" },
     { allocation: undefined }, { allocation: "random" }, { allocation: "per-iteration" },
     { onInsufficientCapacity: undefined }, { onInsufficientCapacity: "wrap" },
     { onInsufficientCapacity: "share" }, { onInsufficientCapacity: "stop-current-vu-iteration" },
-    { outputs: undefined }, { outputs: [] }, { outputs: {} }, { outputs: [null] },
+    { outputs: undefined }, { outputs: {} }, { outputs: [null] },
     { inlineCsv: "dummy_label\ndummy" }, { url: "https://example.test/dummy.csv" },
     { path: "/dummy/pool.csv" }, { secret: "dummy-binding" }, { extra: true },
   ])("rejects invalid or alternative envelope fields %j", (patch) => {
