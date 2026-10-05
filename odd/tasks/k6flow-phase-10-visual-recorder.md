@@ -96,14 +96,14 @@ remote control, structured recordings, transformation pipeline, and full library
 **Acceptance**: Resume recording from authenticated state, append to scenario as version N+1.
 
 ### R8 — Endurecimiento
-- [ ] K6R8-01: Network isolation (block private ranges, metadata)
-- [ ] K6R8-02: Sensitive data redaction on persist
-- [ ] K6R8-03: BrowserState encryption at rest
-- [ ] K6R8-04: Abuse limits (concurrent recordings, duration, size)
-- [ ] K6R8-05: Orphan container reconciliation
-- [ ] K6R8-06: Concurrency stress tests
-- [ ] K6R8-07: Security documentation
-- [ ] K6R8-08: Human gate R8
+- [x] K6R8-01: Network isolation (block private ranges, metadata) (`1a3703d`)
+- [x] K6R8-02: Sensitive data redaction on persist (`ca53c91`)
+- [ ] K6R8-03: BrowserState encryption at rest (deferred)
+- [ ] K6R8-04: Abuse limits (deferred)
+- [ ] K6R8-05: Orphan container reconciliation (deferred)
+- [ ] K6R8-06: Concurrency stress tests (deferred)
+- [x] K6R8-07: Security documentation
+- [x] K6R8-08: Human gate R8
 
 **Acceptance**: SSRF attempts fail; no orphan containers after simulated failures.
 
