@@ -64,6 +64,16 @@ export default function EditorPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // Keep selectedNode in sync with nodes
+  useEffect(() => {
+    if (selectedNode) {
+      const updated = nodes.find((n) => n.id === selectedNode.id);
+      if (updated && updated !== selectedNode) {
+        setSelectedNode(updated);
+      }
+    }
+  }, [nodes, selectedNode]);
+
   // Check orchestrator on mount
   useEffect(() => {
     run.checkOrchestrator();
