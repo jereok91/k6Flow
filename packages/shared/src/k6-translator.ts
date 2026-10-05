@@ -188,6 +188,8 @@ export function translateToK6(
         if (params.bodyTemplate && params.bodyTemplate.length > 0) {
           const bodyObj: string[] = [];
           for (const field of params.bodyTemplate) {
+            // Sanitize field key to prevent code injection
+            const safeKey = JSON.stringify(field.key);
             // Look up variable in varMap (from User Pool outputs)
             let value = `"{{${field.variable}}}"`; // fallback placeholder
             // Try to find the variable from connected User Pool
@@ -197,7 +199,8 @@ export function translateToK6(
                 break;
               }
             }
-            bodyObj.push(`    ${field.key}: ${value}`);
+            // Use bracket notation with quoted key for safety
+            bodyObj.push(`    [${safeKey}]: ${value}`);
           }
           bodyLines.push(`  const ${varName}_body = JSON.stringify({`);
           bodyLines.push(bodyObj.join(",\n"));

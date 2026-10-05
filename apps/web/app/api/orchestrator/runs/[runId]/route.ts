@@ -4,6 +4,7 @@
 
 import { NextRequest } from "next/server";
 import { requireUser } from "../../../../../lib/auth/require-user";
+import { isRunOwner, getRunOwner } from "../../../../../lib/editor/run-ownership";
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_INTERNAL_URL ?? "http://orchestrator:8080";
 const SERVICE_TOKEN = process.env.ORCHESTRATOR_SERVICE_TOKEN ?? "k6flow-internal-token";
@@ -19,6 +20,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 
   const { runId } = await context.params;
+
+  // Verify run ownership - only allow access to runs created by this user
+  // If owner is unknown (e.g., server restart), allow access for now
+  // TODO: Persist ownership in database for proper enforcement
+  const owner = getRunOwner(runId);
+  if (owner && !isRunOwner(runId, user.id)) {
+    return Response.json({ error: "Forbidden: not run owner" }, { status: 403 });
+  }
   
   try {
     const res = await fetch(`${ORCHESTRATOR_URL}/api/runs/${runId}`, {
