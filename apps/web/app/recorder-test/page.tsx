@@ -14,21 +14,31 @@ export default function RecorderTestPage() {
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
 
-  // In development, connect directly to recorder to avoid Next.js rewrite issues
-  const isLocalDev = typeof window !== 'undefined' && 
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const recorderBaseUrl = isLocalDev ? 'http://localhost:8081' : '';
-  const recorderWsUrl = isLocalDev ? 'ws://localhost:8081' : `ws://${typeof window !== 'undefined' ? window.location.host : ''}`;
   const authToken = process.env.NEXT_PUBLIC_RECORDER_TOKEN || 'dev-token';
+  
+  // WebSocket URL - in production goes through proxy, in dev connects directly
+  const getWsUrl = (recId: string) => {
+    // Check for explicit WebSocket URL override
+    if (process.env.NEXT_PUBLIC_RECORDER_WS) {
+      return `${process.env.NEXT_PUBLIC_RECORDER_WS}/ws/recordings/${recId}?token=${authToken}`;
+    }
+    // In development, connect directly to recorder for WebSocket
+    // (Next.js dev server doesn't proxy WebSocket well)
+    if (typeof window !== 'undefined' && 
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      return `ws://localhost:8081/ws/recordings/${recId}?token=${authToken}`;
+    }
+    // In production, use same host
+    return `ws://${window.location.host}/ws/recordings/${recId}?token=${authToken}`;
+  };
 
   const startRecording = async () => {
     setIsStarting(true);
     setError(null);
 
     try {
-      const apiUrl = recorderBaseUrl ? `${recorderBaseUrl}/start` : '/api/recorder/start';
-      
-      const res = await fetch(apiUrl, {
+      // Always use Next.js API route for HTTP calls
+      const res = await fetch('/api/recorder/start', {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -49,7 +59,7 @@ export default function RecorderTestPage() {
 
       const data = await res.json();
       setRecordingId(data.recordingId);
-      setWsUrl(`${recorderWsUrl}/ws/recordings/${data.recordingId}?token=${authToken}`);
+      setWsUrl(getWsUrl(data.recordingId));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
