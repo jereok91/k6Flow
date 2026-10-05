@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { AppHeader } from "../../lib/layout";
+import { MainLayout } from "../../lib/layout";
 
 interface Scenario {
   id: string;
@@ -50,8 +50,8 @@ export default function ScenariosPage() {
       const data: ScenariosResponse = await res.json();
       setScenarios(data.scenarios);
       setTotal(data.total);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+    } catch {
+      setError("Error cargando escenarios");
     } finally {
       setLoading(false);
     }
@@ -67,182 +67,252 @@ export default function ScenariosPage() {
     fetchScenarios();
   };
 
-  const toggleFavorite = async (id: string, current: number) => {
+  const toggleFavorite = async (id: string, currentValue: number) => {
     try {
       await fetch(`/api/scenarios/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isFavorite: current ? 0 : 1 }),
+        body: JSON.stringify({ isFavorite: currentValue ? 0 : 1 }),
       });
-      // Refresh list
-      fetchScenarios();
-    } catch (e) {
-      console.error("Failed to toggle favorite:", e);
-    }
-  };
-
-  const deleteScenario = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this scenario?")) return;
-
-    try {
-      await fetch(`/api/scenarios/${id}`, { method: "DELETE" });
-      fetchScenarios();
-    } catch (e) {
-      console.error("Failed to delete:", e);
+      setScenarios((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, isFavorite: currentValue ? 0 : 1 } : s))
+      );
+    } catch {
+      // Ignore
     }
   };
 
   const totalPages = Math.ceil(total / pageSize);
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      <AppHeader />
-      <div className="mx-auto max-w-6xl px-6 py-8">
-        {/* Page Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Scenarios</h1>
-          <div className="flex gap-3">
-            <Link
-              href="/recorder"
-              className="rounded-lg bg-blue-600 px-4 py-2 hover:bg-blue-500"
-            >
-              + Record New
+    <MainLayout>
+      <div className="px-gutter-desktop py-space-xl flex flex-col gap-space-xl">
+        {/* Header */}
+        <section className="flex flex-col md:flex-row md:items-end justify-between gap-space-lg">
+          <div className="flex flex-col gap-space-xs">
+            <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
+              <span className="material-symbols-outlined text-primary text-[16px]">account_tree</span>
+              <span>Biblioteca de escenarios</span>
+            </div>
+            <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">
+              Escenarios
+            </h1>
+            <p className="text-body-md text-on-surface-variant">
+              {total} escenario{total !== 1 ? "s" : ""} guardado{total !== 1 ? "s" : ""}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-space-md">
+            <Link href="/recorder" className="btn-secondary">
+              <span className="material-symbols-outlined text-[18px]">videocam</span>
+              <span>Grabar</span>
             </Link>
-            <Link
-              href="/editor"
-              className="rounded-lg bg-gray-700 px-4 py-2 hover:bg-gray-600"
-            >
-              + Create Blank
+            <Link href="/editor" className="btn-primary">
+              <span className="material-symbols-outlined text-[18px]">add</span>
+              <span>Nuevo escenario</span>
             </Link>
           </div>
-        </div>
+        </section>
 
         {/* Filters */}
-        <div className="mb-6 flex flex-wrap items-center gap-4">
-          <form onSubmit={handleSearch} className="flex-1">
-            <input
-              type="text"
-              placeholder="Search scenarios..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full max-w-md rounded bg-gray-800 px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+        <section className="flex flex-wrap items-center gap-space-md">
+          <form onSubmit={handleSearch} className="flex-1 min-w-[200px] max-w-md">
+            <div className="relative flex items-center">
+              <span className="material-symbols-outlined absolute left-space-md text-[18px] text-on-surface-variant">
+                search
+              </span>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="input pl-10"
+                placeholder="Buscar escenarios..."
+              />
+            </div>
           </form>
 
-          <div className="flex gap-2">
+          <div className="inline-flex p-1 bg-surface-container-low rounded-xl">
             <button
-              className={`rounded px-3 py-1 ${filter === "all" ? "bg-blue-600" : "bg-gray-700"}`}
-              onClick={() => { setFilter("all"); setPage(1); }}
+              type="button"
+              onClick={() => setFilter("all")}
+              className={`px-space-md py-1 rounded-lg text-body-sm transition-all ${
+                filter === "all"
+                  ? "bg-surface-container-high text-on-surface font-medium shadow-sm"
+                  : "text-on-surface-variant hover:text-on-surface"
+              }`}
             >
-              All
+              Todos
             </button>
             <button
-              className={`rounded px-3 py-1 ${filter === "favorites" ? "bg-blue-600" : "bg-gray-700"}`}
-              onClick={() => { setFilter("favorites"); setPage(1); }}
+              type="button"
+              onClick={() => setFilter("favorites")}
+              className={`px-space-md py-1 rounded-lg text-body-sm transition-all ${
+                filter === "favorites"
+                  ? "bg-surface-container-high text-on-surface font-medium shadow-sm"
+                  : "text-on-surface-variant hover:text-on-surface"
+              }`}
             >
-              ★ Favorites
+              <span className="material-symbols-outlined text-[16px] mr-1">star</span>
+              Favoritos
             </button>
           </div>
-        </div>
+        </section>
 
-        {/* Error */}
-        {error && (
-          <div className="mb-4 rounded bg-red-900/50 p-3 text-red-300">{error}</div>
-        )}
-
-        {/* Loading */}
-        {loading ? (
-          <div className="text-center text-gray-400">Loading...</div>
-        ) : scenarios.length === 0 ? (
-          <div className="rounded-lg border-2 border-dashed border-gray-700 p-12 text-center">
-            <p className="mb-4 text-gray-400">No scenarios found</p>
-            <Link
-              href="/recorder"
-              className="inline-block rounded bg-blue-600 px-6 py-3 hover:bg-blue-500"
+        {/* Content */}
+        {error ? (
+          <div className="card text-center">
+            <span className="material-symbols-outlined text-error text-[32px] mb-space-md">error</span>
+            <p className="text-body-md text-error">{error}</p>
+            <button
+              type="button"
+              onClick={fetchScenarios}
+              className="btn-secondary mt-space-md mx-auto"
             >
-              Record your first scenario
-            </Link>
+              Reintentar
+            </button>
+          </div>
+        ) : loading ? (
+          <div className="card text-center py-space-xl">
+            <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto" />
+            <p className="text-body-md text-on-surface-variant mt-space-md">Cargando escenarios...</p>
+          </div>
+        ) : scenarios.length === 0 ? (
+          <div className="card text-center py-space-xl">
+            <span className="material-symbols-outlined text-on-surface-variant text-[48px] mb-space-md">
+              account_tree
+            </span>
+            <h3 className="text-headline-sm text-on-surface font-medium mb-space-xs">
+              No hay escenarios
+            </h3>
+            <p className="text-body-md text-on-surface-variant mb-space-lg">
+              {search
+                ? "No se encontraron escenarios con ese nombre"
+                : "Crea tu primer escenario o graba una sesión"}
+            </p>
+            <div className="flex justify-center gap-space-md">
+              <Link href="/recorder" className="btn-secondary">
+                <span className="material-symbols-outlined text-[18px]">videocam</span>
+                <span>Grabar sesión</span>
+              </Link>
+              <Link href="/editor" className="btn-primary">
+                <span className="material-symbols-outlined text-[18px]">add</span>
+                <span>Crear escenario</span>
+              </Link>
+            </div>
           </div>
         ) : (
           <>
-            {/* Scenarios grid */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {scenarios.map((scenario) => (
-                <div
-                  key={scenario.id}
-                  className="group rounded-lg bg-gray-800 p-4 transition hover:bg-gray-750"
-                >
-                  <div className="mb-2 flex items-start justify-between">
-                    <Link
-                      href={`/editor?scenario=${scenario.id}`}
-                      className="text-lg font-medium hover:text-blue-400"
-                    >
-                      {scenario.name}
-                    </Link>
-                    <button
-                      className={`text-xl ${scenario.isFavorite ? "text-yellow-400" : "text-gray-600 hover:text-yellow-400"}`}
-                      onClick={() => toggleFavorite(scenario.id, scenario.isFavorite)}
-                    >
-                      ★
-                    </button>
-                  </div>
-
-                  <div className="mb-3 text-sm text-gray-400">
-                    {scenario.nodeCount !== undefined && (
-                      <span>{scenario.nodeCount} steps • </span>
-                    )}
-                    Updated {new Date(scenario.updatedAt).toLocaleDateString()}
-                  </div>
-
-                  <div className="flex gap-2 opacity-0 transition group-hover:opacity-100">
-                    <Link
-                      href={`/editor?scenario=${scenario.id}`}
-                      className="rounded bg-gray-700 px-2 py-1 text-xs hover:bg-gray-600"
-                    >
-                      Edit
-                    </Link>
-                    <Link
-                      href={`/scenarios/${scenario.id}`}
-                      className="rounded bg-gray-700 px-2 py-1 text-xs hover:bg-gray-600"
-                    >
-                      Details
-                    </Link>
-                    <button
-                      className="rounded bg-red-900/50 px-2 py-1 text-xs text-red-300 hover:bg-red-900"
-                      onClick={() => deleteScenario(scenario.id)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
+            {/* Table */}
+            <div className="card p-0 overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-surface-container-low">
+                  <tr className="text-left text-label-code-sm text-on-surface-variant uppercase">
+                    <th className="table-cell">Nombre</th>
+                    <th className="table-cell w-24">Nodos</th>
+                    <th className="table-cell w-32">Actualizado</th>
+                    <th className="table-cell w-20 text-center">Favorito</th>
+                    <th className="table-cell w-24">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scenarios.map((scenario) => (
+                    <tr key={scenario.id} className="table-row">
+                      <td className="table-cell">
+                        <Link
+                          href={`/scenarios/${scenario.id}`}
+                          className="flex items-center gap-space-md hover:text-primary transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-primary text-[18px]">
+                            account_tree
+                          </span>
+                          <span className="text-on-surface font-medium">{scenario.name}</span>
+                        </Link>
+                      </td>
+                      <td className="table-cell font-mono text-on-surface-variant">
+                        {scenario.nodeCount ?? "-"}
+                      </td>
+                      <td className="table-cell font-mono text-on-surface-variant text-label-code-sm">
+                        {new Date(scenario.updatedAt).toLocaleDateString()}
+                      </td>
+                      <td className="table-cell text-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleFavorite(scenario.id, scenario.isFavorite)}
+                          className="p-space-xs hover:bg-surface-container rounded-lg transition-colors"
+                        >
+                          <span
+                            className={`material-symbols-outlined text-[18px] ${
+                              scenario.isFavorite ? "text-amber-400" : "text-on-surface-variant"
+                            }`}
+                            style={{
+                              fontVariationSettings: scenario.isFavorite
+                                ? "'FILL' 1"
+                                : "'FILL' 0",
+                            }}
+                          >
+                            star
+                          </span>
+                        </button>
+                      </td>
+                      <td className="table-cell">
+                        <div className="flex items-center gap-space-xs">
+                          <Link
+                            href={`/editor?id=${scenario.id}`}
+                            className="p-space-xs hover:bg-surface-container rounded-lg transition-colors text-on-surface-variant hover:text-on-surface"
+                            title="Editar"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">edit</span>
+                          </Link>
+                          <Link
+                            href={`/scenarios/${scenario.id}`}
+                            className="p-space-xs hover:bg-surface-container rounded-lg transition-colors text-on-surface-variant hover:text-on-surface"
+                            title="Ver detalles"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">
+                              visibility
+                            </span>
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="mt-6 flex items-center justify-center gap-2">
-                <button
-                  className="rounded bg-gray-700 px-3 py-1 disabled:opacity-50"
-                  disabled={page <= 1}
-                  onClick={() => setPage(page - 1)}
-                >
-                  ← Prev
-                </button>
-                <span className="px-4 text-gray-400">
-                  Page {page} of {totalPages}
+              <div className="flex items-center justify-between">
+                <span className="text-body-sm text-on-surface-variant">
+                  Mostrando {(page - 1) * pageSize + 1}-
+                  {Math.min(page * pageSize, total)} de {total}
                 </span>
-                <button
-                  className="rounded bg-gray-700 px-3 py-1 disabled:opacity-50"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage(page + 1)}
-                >
-                  Next →
-                </button>
+                <div className="flex items-center gap-space-xs">
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                  </button>
+                  <span className="text-body-sm text-on-surface px-space-md">
+                    {page} / {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                  </button>
+                </div>
               </div>
             )}
           </>
         )}
       </div>
-    </div>
+    </MainLayout>
   );
 }

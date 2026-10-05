@@ -1,332 +1,385 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { MainLayout } from "../lib/layout";
 
 interface Scenario {
   id: string;
   name: string;
-  nodeCount?: number;
   updatedAt: string;
 }
 
 interface Recording {
   id: string;
   name: string;
-  state: string;
-  stepCount: number | null;
   createdAt: string;
+  stepCount: number;
 }
 
-export default function Home() {
-  const router = useRouter();
-  const [runId, setRunId] = useState("");
-  const [user, setUser] = useState<{ username: string; role: string } | null>(null);
-  const [checkingAuth, setCheckingAuth] = useState(true);
-  const [recentScenarios, setRecentScenarios] = useState<Scenario[]>([]);
-  const [recentRecordings, setRecentRecordings] = useState<Recording[]>([]);
+export default function HomePage() {
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        setUser(data);
-        if (data) {
-          // Load recent data
-          fetch("/api/scenarios?pageSize=5")
-            .then((r) => r.ok ? r.json() : { scenarios: [] })
-            .then((d) => setRecentScenarios(d.scenarios || []));
-          fetch("/api/recordings?pageSize=5")
-            .then((r) => r.ok ? r.json() : { recordings: [] })
-            .then((d) => setRecentRecordings(d.recordings || []));
-        }
+    Promise.all([
+      fetch("/api/scenarios?limit=5").then((r) => r.json()),
+      fetch("/api/recordings?limit=5").then((r) => r.json()),
+    ])
+      .then(([scenariosData, recordingsData]) => {
+        setScenarios(scenariosData.scenarios || []);
+        setRecordings(recordingsData.recordings || []);
       })
-      .catch(() => setUser(null))
-      .finally(() => setCheckingAuth(false));
+      .finally(() => setLoading(false));
   }, []);
 
-  function openMetrics(event: React.FormEvent) {
-    event.preventDefault();
-    const id = runId.trim();
-    if (id) router.push(`/runs/${encodeURIComponent(id)}`);
-  }
-
-  async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    setUser(null);
-    setRecentScenarios([]);
-    setRecentRecordings([]);
-  }
-
-  if (checkingAuth) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-900 text-white">
-        Loading...
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <header className="border-b border-gray-800 bg-gray-900/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/" className="text-xl font-bold text-white">
-            K6Flow
-          </Link>
-          <nav className="flex items-center gap-6">
-            {user ? (
-              <>
-                <Link href="/scenarios" className="text-gray-300 hover:text-white">
-                  Scenarios
-                </Link>
-                <Link href="/recordings" className="text-gray-300 hover:text-white">
-                  Recordings
-                </Link>
-                <Link href="/editor" className="text-gray-300 hover:text-white">
-                  Editor
-                </Link>
-                <Link href="/recorder" className="text-gray-300 hover:text-white">
-                  Recorder
-                </Link>
-                <span className="text-gray-500">|</span>
-                <span className="text-gray-400">{user.username}</span>
-                <button
-                  onClick={handleLogout}
-                  className="text-gray-400 hover:text-white"
-                >
-                  Logout
-                </button>
-              </>
-            ) : (
-              <Link
-                href="/login"
-                className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-500"
-              >
-                Sign in
-              </Link>
-            )}
-          </nav>
-        </div>
-      </header>
+    <MainLayout>
+      <div className="flex flex-col w-full">
+        {/* Ambient glow effects */}
+        <div className="relative w-full overflow-hidden px-gutter-desktop py-space-xl flex flex-col gap-space-xl">
+          <div className="absolute -top-32 right-12 w-96 h-96 bg-primary-container/10 rounded-full blur-3xl pointer-events-none -z-10" />
+          <div className="absolute top-1/2 -left-20 w-80 h-80 bg-secondary/5 rounded-full blur-3xl pointer-events-none -z-10" />
 
-      <main className="mx-auto max-w-7xl px-6 py-8">
-        {user ? (
-          <>
-            {/* Quick Actions */}
-            <section className="mb-12">
-              <h2 className="mb-6 text-2xl font-bold">Quick Actions</h2>
-              <div className="grid gap-6 md:grid-cols-3">
-                {/* Record */}
-                <Link
-                  href="/recorder"
-                  className="group rounded-xl border border-gray-700 bg-gray-800 p-6 transition hover:border-blue-500 hover:bg-gray-750"
-                >
-                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-red-600 text-2xl">
-                    🎬
-                  </div>
-                  <h3 className="mb-2 text-lg font-semibold group-hover:text-blue-400">
-                    Record Session
-                  </h3>
-                  <p className="text-sm text-gray-400">
-                    Record browser interactions to create load test scenarios automatically
-                  </p>
-                </Link>
-
-                {/* Create Scenario */}
-                <Link
-                  href="/editor"
-                  className="group rounded-xl border border-gray-700 bg-gray-800 p-6 transition hover:border-blue-500 hover:bg-gray-750"
-                >
-                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-blue-600 text-2xl">
-                    ✏️
-                  </div>
-                  <h3 className="mb-2 text-lg font-semibold group-hover:text-blue-400">
-                    Create Scenario
-                  </h3>
-                  <p className="text-sm text-gray-400">
-                    Build load test scenarios visually with the drag-and-drop editor
-                  </p>
-                </Link>
-
-                {/* View Library */}
-                <Link
-                  href="/scenarios"
-                  className="group rounded-xl border border-gray-700 bg-gray-800 p-6 transition hover:border-blue-500 hover:bg-gray-750"
-                >
-                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-green-600 text-2xl">
-                    📚
-                  </div>
-                  <h3 className="mb-2 text-lg font-semibold group-hover:text-blue-400">
-                    View Library
-                  </h3>
-                  <p className="text-sm text-gray-400">
-                    Browse, search, and manage your test scenarios
-                  </p>
-                </Link>
+          {/* Header Section */}
+          <section className="flex flex-col md:flex-row md:items-end justify-between gap-space-lg">
+            <div className="flex flex-col gap-space-xs">
+              <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
+                <span className="w-2 h-2 rounded-full bg-secondary" />
+                <span>Workspace Activo // Local</span>
+                <span className="text-outline-variant">/</span>
+                <span className="text-primary font-medium">Development</span>
               </div>
-            </section>
-
-            {/* Recent Activity */}
-            <div className="grid gap-8 lg:grid-cols-2">
-              {/* Recent Scenarios */}
-              <section>
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">Recent Scenarios</h2>
-                  <Link href="/scenarios" className="text-sm text-blue-400 hover:underline">
-                    View all →
-                  </Link>
-                </div>
-                <div className="rounded-xl border border-gray-700 bg-gray-800">
-                  {recentScenarios.length === 0 ? (
-                    <div className="p-6 text-center text-gray-500">
-                      No scenarios yet.{" "}
-                      <Link href="/recorder" className="text-blue-400 hover:underline">
-                        Record your first
-                      </Link>
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-gray-700">
-                      {recentScenarios.map((s) => (
-                        <li key={s.id}>
-                          <Link
-                            href={`/scenarios/${s.id}`}
-                            className="flex items-center justify-between p-4 hover:bg-gray-750"
-                          >
-                            <div>
-                              <div className="font-medium">{s.name}</div>
-                              <div className="text-sm text-gray-500">
-                                {s.nodeCount || 0} steps
-                              </div>
-                            </div>
-                            <div className="text-sm text-gray-500">
-                              {new Date(s.updatedAt).toLocaleDateString()}
-                            </div>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </section>
-
-              {/* Recent Recordings */}
-              <section>
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">Recent Recordings</h2>
-                  <Link href="/recordings" className="text-sm text-blue-400 hover:underline">
-                    View all →
-                  </Link>
-                </div>
-                <div className="rounded-xl border border-gray-700 bg-gray-800">
-                  {recentRecordings.length === 0 ? (
-                    <div className="p-6 text-center text-gray-500">
-                      No recordings yet.{" "}
-                      <Link href="/recorder" className="text-blue-400 hover:underline">
-                        Start recording
-                      </Link>
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-gray-700">
-                      {recentRecordings.map((r) => (
-                        <li key={r.id}>
-                          <Link
-                            href={r.state === "completed" ? `/recorder/review?id=${r.id}` : `/recordings`}
-                            className="flex items-center justify-between p-4 hover:bg-gray-750"
-                          >
-                            <div>
-                              <div className="font-medium">{r.name}</div>
-                              <div className="text-sm text-gray-500">
-                                {r.stepCount || 0} steps • {r.state}
-                              </div>
-                            </div>
-                            <div className="text-sm text-gray-500">
-                              {new Date(r.createdAt).toLocaleDateString()}
-                            </div>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </section>
-            </div>
-
-            {/* Live Metrics */}
-            <section className="mt-12 rounded-xl border border-gray-700 bg-gray-800 p-6">
-              <h2 className="mb-4 text-lg font-semibold">Live Metrics</h2>
-              <p className="mb-4 text-sm text-gray-400">
-                Monitor a running test by entering its Run ID:
+              <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">
+                Panel de Control de Pruebas
+              </h1>
+              <p className="text-body-md text-on-surface-variant max-w-2xl">
+                Graba sesiones de navegador, diseña escenarios de carga y ejecuta pruebas k6 en tiempo real.
               </p>
-              <form onSubmit={openMetrics} className="flex gap-3">
-                <input
-                  value={runId}
-                  onChange={(e) => setRunId(e.target.value)}
-                  placeholder="Run ID"
-                  className="flex-1 rounded-lg border border-gray-600 bg-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  className="rounded-lg bg-blue-600 px-6 py-2 font-medium hover:bg-blue-500"
-                >
-                  Open Dashboard
-                </button>
-              </form>
-            </section>
-          </>
-        ) : (
-          /* Guest view */
-          <section className="py-20 text-center">
-            <h1 className="mb-6 text-5xl font-bold">Visual Load Testing</h1>
-            <p className="mx-auto mb-8 max-w-2xl text-xl text-gray-400">
-              Record browser sessions, design load test scenarios visually, and
-              execute K6 performance tests with real-time metrics.
-            </p>
-            <div className="flex justify-center gap-4">
-              <Link
-                href="/login"
-                className="rounded-lg bg-blue-600 px-8 py-3 text-lg font-medium hover:bg-blue-500"
-              >
-                Get Started
-              </Link>
-              <a
-                href="https://github.com/your-repo/k6flow"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-lg border border-gray-600 px-8 py-3 text-lg font-medium hover:bg-gray-800"
-              >
-                Learn More
-              </a>
             </div>
 
-            {/* Features */}
-            <div className="mt-20 grid gap-8 text-left md:grid-cols-3">
-              <div className="rounded-xl border border-gray-700 bg-gray-800 p-6">
-                <div className="mb-4 text-4xl">🎬</div>
-                <h3 className="mb-2 text-lg font-semibold">Browser Recording</h3>
-                <p className="text-gray-400">
-                  Record real browser interactions and convert them to load test scenarios automatically.
-                </p>
-              </div>
-              <div className="rounded-xl border border-gray-700 bg-gray-800 p-6">
-                <div className="mb-4 text-4xl">✏️</div>
-                <h3 className="mb-2 text-lg font-semibold">Visual Editor</h3>
-                <p className="text-gray-400">
-                  Design and modify scenarios with a drag-and-drop flow editor. No coding required.
-                </p>
-              </div>
-              <div className="rounded-xl border border-gray-700 bg-gray-800 p-6">
-                <div className="mb-4 text-4xl">📊</div>
-                <h3 className="mb-2 text-lg font-semibold">Live Metrics</h3>
-                <p className="text-gray-400">
-                  Monitor K6 test execution in real-time with live charts and performance metrics.
-                </p>
+            {/* Time filters */}
+            <div className="flex items-center gap-space-sm flex-wrap">
+              <div className="inline-flex p-1 bg-surface-container-low rounded-xl">
+                <button
+                  type="button"
+                  className="px-space-md py-1 rounded-lg text-body-sm bg-surface-container-high text-on-surface font-medium shadow-sm"
+                >
+                  Últimos 7 días
+                </button>
+                <button
+                  type="button"
+                  className="px-space-md py-1 rounded-lg text-body-sm text-on-surface-variant hover:text-on-surface transition-colors"
+                >
+                  24 horas
+                </button>
+                <button
+                  type="button"
+                  className="px-space-md py-1 rounded-lg text-body-sm text-on-surface-variant hover:text-on-surface transition-colors"
+                >
+                  30 días
+                </button>
               </div>
             </div>
           </section>
-        )}
-      </main>
-    </div>
+
+          {/* Metrics Row */}
+          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-md">
+            {/* Metric 1: Scenarios */}
+            <div className="metric-card">
+              <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-space-xs">
+                  <span className="text-body-sm text-on-surface-variant">Escenarios</span>
+                  <span className="text-label-code-sm text-outline">Total activos</span>
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary">
+                  <span className="material-symbols-outlined text-[18px]">account_tree</span>
+                </div>
+              </div>
+              <div className="mt-space-md flex items-baseline gap-space-xs">
+                <span className="text-metric-huge text-on-surface font-mono">
+                  {loading ? "-" : scenarios.length}
+                </span>
+              </div>
+            </div>
+
+            {/* Metric 2: Recordings */}
+            <div className="metric-card">
+              <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-space-xs">
+                  <span className="text-body-sm text-on-surface-variant">Grabaciones</span>
+                  <span className="text-label-code-sm text-outline">Sesiones capturadas</span>
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-secondary">
+                  <span className="material-symbols-outlined text-[18px]">videocam</span>
+                </div>
+              </div>
+              <div className="mt-space-md flex items-baseline gap-space-xs">
+                <span className="text-metric-huge text-on-surface font-mono">
+                  {loading ? "-" : recordings.length}
+                </span>
+              </div>
+            </div>
+
+            {/* Metric 3: Live */}
+            <div className="metric-card">
+              <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-space-xs">
+                  <span className="text-body-sm text-on-surface-variant">En ejecución</span>
+                  <span className="text-label-code-sm text-outline">Pruebas activas</span>
+                </div>
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-secondary" />
+                </span>
+              </div>
+              <div className="mt-space-md flex items-baseline gap-space-xs">
+                <span className="text-metric-huge text-secondary font-mono">0</span>
+                <span className="text-label-code-sm text-on-surface-variant">activas</span>
+              </div>
+            </div>
+
+            {/* Metric 4: Status */}
+            <div className="metric-card">
+              <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-space-xs">
+                  <span className="text-body-sm text-on-surface-variant">Estado del sistema</span>
+                  <span className="text-label-code-sm text-outline">Servicios</span>
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface">
+                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                </div>
+              </div>
+              <div className="mt-space-md flex items-center gap-space-xs">
+                <span className="text-headline-md font-semibold text-secondary">Online</span>
+                <span className="badge-success">OK</span>
+              </div>
+            </div>
+          </section>
+
+          {/* Quick Actions */}
+          <section className="flex flex-col gap-space-md">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-space-sm">
+                <span className="text-label-code-sm text-secondary uppercase tracking-wider">
+                  // Acción inmediata
+                </span>
+                <span className="text-headline-sm text-on-surface font-medium">Accesos Rápidos</span>
+              </div>
+              <span className="text-label-code-sm text-on-surface-variant">
+                Atajos de ingeniería k6
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-space-md">
+              {/* Action 1: Create scenario */}
+              <Link href="/editor" className="card group">
+                <div className="flex items-start justify-between mb-space-md">
+                  <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center text-primary group-hover:bg-primary-container group-hover:text-on-primary-container transition-colors">
+                    <span className="material-symbols-outlined text-[22px]">account_tree</span>
+                  </div>
+                  <span className="badge-success">Visual Builder</span>
+                </div>
+                <h3 className="text-headline-sm text-on-surface font-medium mb-space-xs">
+                  Crear escenario desde cero
+                </h3>
+                <p className="text-body-sm text-on-surface-variant mb-space-md">
+                  Diseña pruebas de carga conectando nodos visuales en el canvas interactivo con protocolos HTTP/2 y WebSockets.
+                </p>
+                <div className="flex items-center gap-space-xs text-primary text-body-sm font-medium group-hover:gap-space-sm transition-all">
+                  <span>Abrir Canvas Studio</span>
+                  <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                </div>
+              </Link>
+
+              {/* Action 2: Record session */}
+              <Link href="/recorder" className="card group">
+                <div className="flex items-start justify-between mb-space-md">
+                  <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center text-secondary group-hover:bg-secondary-container group-hover:text-on-secondary-container transition-colors">
+                    <span className="material-symbols-outlined text-[22px]">fiber_manual_record</span>
+                  </div>
+                  <span className="badge-success">HAR Proxy</span>
+                </div>
+                <h3 className="text-headline-sm text-on-surface font-medium mb-space-xs">
+                  Grabar sesión con navegador
+                </h3>
+                <p className="text-body-sm text-on-surface-variant mb-space-md">
+                  Navega en tu app web a través de un Chromium remoto y genera automáticamente los nodos HTTP y headers de autenticación.
+                </p>
+                <div className="flex items-center gap-space-xs text-secondary text-body-sm font-medium group-hover:gap-space-sm transition-all">
+                  <span>Iniciar grabador web</span>
+                  <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                </div>
+              </Link>
+
+              {/* Action 3: View library */}
+              <Link href="/scenarios" className="card group">
+                <div className="flex items-start justify-between mb-space-md">
+                  <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface group-hover:bg-surface-container-highest transition-colors">
+                    <span className="material-symbols-outlined text-[22px]">compare_arrows</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-lg bg-surface-container-high text-on-surface-variant text-label-code-sm">
+                    Biblioteca
+                  </span>
+                </div>
+                <h3 className="text-headline-sm text-on-surface font-medium mb-space-xs">
+                  Explorar escenarios
+                </h3>
+                <p className="text-body-sm text-on-surface-variant mb-space-md">
+                  Revisa, edita y ejecuta tus escenarios guardados. Exporta scripts k6 listos para CI/CD.
+                </p>
+                <div className="flex items-center gap-space-xs text-on-surface text-body-sm font-medium group-hover:gap-space-sm transition-all">
+                  <span>Ver biblioteca</span>
+                  <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                </div>
+              </Link>
+            </div>
+          </section>
+
+          {/* Recent Items */}
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-space-lg">
+            {/* Recent Scenarios */}
+            <div className="flex flex-col gap-space-md">
+              <div className="flex items-center justify-between">
+                <h2 className="text-headline-sm text-on-surface font-medium">Escenarios Recientes</h2>
+                <Link
+                  href="/scenarios"
+                  className="text-body-sm text-secondary hover:text-primary transition-colors"
+                >
+                  Ver todos →
+                </Link>
+              </div>
+              <div className="card p-0 overflow-hidden">
+                {loading ? (
+                  <div className="p-space-lg text-center text-on-surface-variant">Cargando...</div>
+                ) : scenarios.length === 0 ? (
+                  <div className="p-space-lg text-center text-on-surface-variant">
+                    No hay escenarios aún.{" "}
+                    <Link href="/editor" className="text-primary hover:underline">
+                      Crear uno
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-surface-container">
+                    {scenarios.map((scenario) => (
+                      <Link
+                        key={scenario.id}
+                        href={`/scenarios/${scenario.id}`}
+                        className="flex items-center justify-between p-space-md hover:bg-surface-container transition-colors"
+                      >
+                        <div className="flex items-center gap-space-md">
+                          <span className="material-symbols-outlined text-primary text-[18px]">
+                            account_tree
+                          </span>
+                          <span className="text-body-md text-on-surface">{scenario.name}</span>
+                        </div>
+                        <span className="text-label-code-sm text-on-surface-variant font-mono">
+                          {new Date(scenario.updatedAt).toLocaleDateString()}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Recent Recordings */}
+            <div className="flex flex-col gap-space-md">
+              <div className="flex items-center justify-between">
+                <h2 className="text-headline-sm text-on-surface font-medium">Grabaciones Recientes</h2>
+                <Link
+                  href="/recordings"
+                  className="text-body-sm text-secondary hover:text-primary transition-colors"
+                >
+                  Ver todas →
+                </Link>
+              </div>
+              <div className="card p-0 overflow-hidden">
+                {loading ? (
+                  <div className="p-space-lg text-center text-on-surface-variant">Cargando...</div>
+                ) : recordings.length === 0 ? (
+                  <div className="p-space-lg text-center text-on-surface-variant">
+                    No hay grabaciones aún.{" "}
+                    <Link href="/recorder" className="text-secondary hover:underline">
+                      Grabar una sesión
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-surface-container">
+                    {recordings.map((recording) => (
+                      <Link
+                        key={recording.id}
+                        href={`/recorder/review?id=${recording.id}`}
+                        className="flex items-center justify-between p-space-md hover:bg-surface-container transition-colors"
+                      >
+                        <div className="flex items-center gap-space-md">
+                          <span className="material-symbols-outlined text-secondary text-[18px]">
+                            videocam
+                          </span>
+                          <div className="flex flex-col">
+                            <span className="text-body-md text-on-surface">{recording.name}</span>
+                            <span className="text-label-code-sm text-on-surface-variant">
+                              {recording.stepCount} pasos
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-label-code-sm text-on-surface-variant font-mono">
+                          {new Date(recording.createdAt).toLocaleDateString()}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* Workflow Guide */}
+          <section className="card bg-surface-container-lowest border-surface-container">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-space-lg">
+              <div className="flex flex-col gap-space-xs">
+                <div className="flex items-center gap-space-sm">
+                  <span className="material-symbols-outlined text-primary text-[20px]">
+                    electric_bolt
+                  </span>
+                  <span className="text-label-code-sm text-on-surface-variant uppercase tracking-wider">
+                    Flujo de trabajo K6Flow
+                  </span>
+                </div>
+                <h3 className="text-headline-sm text-on-surface font-medium">
+                  Guía de inicio rápido
+                </h3>
+                <p className="text-body-sm text-on-surface-variant">
+                  Asegura la escalabilidad de tus despliegues siguiendo los cuatro pasos del ciclo de prueba continuo.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-space-md">
+                {[
+                  { step: 1, icon: "settings_ethernet", title: "Conectar destino", desc: "Añade endpoints DNS, clusters k8s o ingress gateways." },
+                  { step: 2, icon: "account_tree", title: "Modelar escenario", desc: "Configura ramp-up de VUs, stages de carga y payloads." },
+                  { step: 3, icon: "speed", title: "Definir umbrales", desc: "Establece límites de SLAs (p95 < 200ms, fallas < 1%)." },
+                  { step: 4, icon: "bar_chart", title: "Analizar métricas", desc: "Inspecciona cuellos de botella y descarga reportes CI/CD." },
+                ].map((item) => (
+                  <div key={item.step} className="flex flex-col gap-space-sm">
+                    <div className="flex items-center gap-space-sm">
+                      <span className="w-6 h-6 rounded-lg bg-surface-container-high flex items-center justify-center text-label-code-sm text-on-surface font-mono">
+                        {item.step}
+                      </span>
+                      <span className="material-symbols-outlined text-secondary text-[18px]">
+                        {item.icon}
+                      </span>
+                    </div>
+                    <h4 className="text-body-md text-on-surface font-medium">{item.title}</h4>
+                    <p className="text-label-code-sm text-on-surface-variant">{item.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </MainLayout>
   );
 }

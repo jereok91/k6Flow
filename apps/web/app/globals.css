@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* Material Symbols */
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
+
+@layer base {
+  html, body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    overscroll-behavior: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: theme('colors.surface-container-lowest');
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: theme('colors.surface-container-high');
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: theme('colors.outline-variant');
+  }
+}
+
+@layer components {
+  /* Primary button */
+  .btn-primary {
+    @apply flex items-center gap-space-xs px-space-md py-space-sm;
+    @apply bg-primary-container hover:bg-tertiary-container;
+    @apply text-on-primary-container font-semibold;
+    @apply rounded-xl shadow-glow;
+    @apply transition-all duration-200;
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply flex items-center gap-space-xs px-space-md py-space-sm;
+    @apply bg-transparent border border-outline-variant;
+    @apply text-on-surface hover:bg-surface-container;
+    @apply rounded-xl transition-colors;
+  }
+
+  /* Destructive button */
+  .btn-destructive {
+    @apply flex items-center gap-space-xs px-space-md py-space-sm;
+    @apply bg-surface-container border border-error/40;
+    @apply text-error hover:bg-error hover:text-on-error;
+    @apply rounded-xl transition-colors;
+  }
+
+  /* Card */
+  .card {
+    @apply bg-surface-container-low hover:bg-surface-container;
+    @apply rounded-xl border border-surface-container-high;
+    @apply p-space-lg transition-all duration-200;
+  }
+
+  /* Input */
+  .input {
+    @apply w-full px-space-md py-space-sm;
+    @apply bg-surface-container-lowest border border-outline-variant;
+    @apply text-on-surface placeholder:text-on-surface-variant;
+    @apply rounded-lg font-mono;
+    @apply focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container;
+    @apply transition-colors;
+  }
+
+  /* Badge states */
+  .badge-success {
+    @apply inline-flex items-center gap-1 px-2 py-0.5;
+    @apply bg-secondary/10 text-secondary border border-secondary/30;
+    @apply rounded-lg text-label-code-sm font-medium;
+  }
+
+  .badge-warning {
+    @apply inline-flex items-center gap-1 px-2 py-0.5;
+    @apply bg-amber-500/10 text-amber-500 border border-amber-500/30;
+    @apply rounded-lg text-label-code-sm font-medium;
+  }
+
+  .badge-error {
+    @apply inline-flex items-center gap-1 px-2 py-0.5;
+    @apply bg-error/10 text-error border border-error/30;
+    @apply rounded-lg text-label-code-sm font-medium;
+  }
+
+  /* Nav link */
+  .nav-link {
+    @apply flex items-center gap-space-md px-space-md py-space-sm;
+    @apply rounded-lg text-body-md text-on-surface-variant;
+    @apply hover:bg-surface-container hover:text-on-surface;
+    @apply transition-colors;
+  }
+
+  .nav-link-active {
+    @apply bg-primary-container text-on-primary-container font-semibold;
+    @apply shadow-glow;
+  }
+
+  /* Metric card */
+  .metric-card {
+    @apply card flex flex-col justify-between overflow-hidden;
+  }
+
+  /* Table */
+  .table-row {
+    @apply border-b border-surface-container;
+    @apply hover:bg-surface-container-low transition-colors;
+  }
+
+  .table-cell {
+    @apply px-space-md py-space-sm text-body-md;
+  }
+}
+
+/* Material Symbols sizing helper */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}

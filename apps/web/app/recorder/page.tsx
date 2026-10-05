@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BrowserCanvas } from "../../lib/browser-canvas";
+import { MainLayout } from "../../lib/layout";
 
 type RecordingState = "setup" | "recording" | "completed" | "error";
 
@@ -30,7 +31,7 @@ export default function RecorderPage() {
 
   const startRecording = async () => {
     if (!startUrl.trim()) {
-      setError("Please enter a start URL");
+      setError("Ingresa una URL para comenzar");
       return;
     }
 
@@ -55,14 +56,14 @@ export default function RecorderPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Failed to start recording: ${res.status}`);
+        throw new Error(data.error || `Error iniciando grabación: ${res.status}`);
       }
 
       setRecordingId(newRecordingId);
       setWsUrl(getWsUrl(newRecordingId));
       setState("recording");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to start recording");
+      setError(e instanceof Error ? e.message : "Error iniciando grabación");
     } finally {
       setIsStarting(false);
     }
@@ -80,7 +81,7 @@ export default function RecorderPage() {
       });
       setState("completed");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to stop recording");
+      setError(e instanceof Error ? e.message : "Error deteniendo grabación");
     }
   };
 
@@ -89,70 +90,60 @@ export default function RecorderPage() {
   }, []);
 
   const goToReview = () => {
-    // Navigate to review page with recording ID
-    router.push(`/recorder/review?id=${recordingId}&name=${encodeURIComponent(recordingName || "Untitled Recording")}&url=${encodeURIComponent(startUrl)}`);
+    router.push(`/recorder/review?id=${recordingId}&name=${encodeURIComponent(recordingName || "Grabación sin título")}&url=${encodeURIComponent(startUrl)}`);
   };
 
-  return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <header className="border-b border-gray-800 bg-gray-900/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-xl font-bold text-white">
-              K6Flow
-            </Link>
-            <span className="text-gray-500">/</span>
-            <span className="text-gray-300">Recorder</span>
-          </div>
-          <nav className="flex items-center gap-4">
-            <Link href="/scenarios" className="text-gray-400 hover:text-white">
-              Scenarios
-            </Link>
-            <Link href="/recordings" className="text-gray-400 hover:text-white">
-              Recordings
-            </Link>
-          </nav>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-7xl px-6 py-8">
-        {state === "setup" && (
+  // Setup state - without MainLayout for cleaner look
+  if (state === "setup") {
+    return (
+      <MainLayout>
+        <div className="px-gutter-desktop py-space-xl">
           <div className="mx-auto max-w-2xl">
-            <h1 className="mb-2 text-3xl font-bold">Record Browser Session</h1>
-            <p className="mb-8 text-gray-400">
-              Navigate a website and capture HTTP requests to create a load test scenario.
-            </p>
+            {/* Header */}
+            <div className="flex flex-col gap-space-xs mb-space-xl">
+              <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
+                <span className="material-symbols-outlined text-secondary text-[16px]">fiber_manual_record</span>
+                <span>Grabador de sesiones</span>
+              </div>
+              <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">
+                Nueva Grabación
+              </h1>
+              <p className="text-body-md text-on-surface-variant">
+                Navega un sitio web y captura las peticiones HTTP para crear escenarios de carga.
+              </p>
+            </div>
 
-            <div className="rounded-xl border border-gray-700 bg-gray-800 p-6">
-              <div className="mb-6">
-                <label className="mb-2 block text-sm font-medium text-gray-300">
-                  Recording Name
+            {/* Form */}
+            <div className="card">
+              <div className="mb-space-lg">
+                <label className="block text-body-sm text-on-surface-variant mb-space-sm">
+                  Nombre de la grabación
                 </label>
                 <input
                   type="text"
                   value={recordingName}
                   onChange={(e) => setRecordingName(e.target.value)}
-                  placeholder="e.g., Login Flow, Checkout Process"
-                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  placeholder="ej: Flujo de Login, Proceso de Checkout"
+                  className="input"
                 />
               </div>
 
-              <div className="mb-6">
-                <label className="mb-2 block text-sm font-medium text-gray-300">
-                  Start URL
+              <div className="mb-space-lg">
+                <label className="block text-body-sm text-on-surface-variant mb-space-sm">
+                  URL de inicio
                 </label>
                 <input
                   type="url"
                   value={startUrl}
                   onChange={(e) => setStartUrl(e.target.value)}
                   placeholder="https://example.com"
-                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  className="input"
                 />
               </div>
 
               {error && (
-                <div className="mb-6 rounded-lg bg-red-900/50 p-4 text-red-300">
+                <div className="mb-space-lg p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm">
+                  <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle">error</span>
                   {error}
                 </div>
               )}
@@ -160,72 +151,122 @@ export default function RecorderPage() {
               <button
                 onClick={startRecording}
                 disabled={isStarting}
-                className="w-full rounded-lg bg-red-600 py-3 font-medium hover:bg-red-500 disabled:opacity-50"
+                className="btn-primary w-full justify-center py-space-md"
               >
-                {isStarting ? "Starting..." : "🎬 Start Recording"}
+                {isStarting ? (
+                  <>
+                    <div className="animate-spin w-4 h-4 border-2 border-on-primary-container border-t-transparent rounded-full" />
+                    <span>Iniciando...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-[18px]">fiber_manual_record</span>
+                    <span>Iniciar Grabación</span>
+                  </>
+                )}
               </button>
             </div>
 
-            <div className="mt-8 rounded-xl border border-gray-700 bg-gray-800/50 p-6">
-              <h3 className="mb-3 font-semibold">How it works:</h3>
-              <ol className="list-inside list-decimal space-y-2 text-sm text-gray-400">
-                <li>Enter the URL where you want to start recording</li>
-                <li>A browser window will open - interact with the site normally</li>
-                <li>All HTTP requests will be captured automatically</li>
-                <li>Stop recording and review the captured requests</li>
-                <li>Save as a scenario and generate K6 scripts</li>
-              </ol>
-            </div>
-          </div>
-        )}
-
-        {state === "recording" && (
-          <div>
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 animate-pulse rounded-full bg-red-500"></span>
-                  <span className="font-medium text-red-400">Recording</span>
-                </div>
-                <span className="text-gray-500">|</span>
-                <span className="text-gray-400">{recordingName || "Untitled"}</span>
+            {/* Instructions */}
+            <div className="card mt-space-lg bg-surface-container-lowest border-surface-container">
+              <h3 className="text-headline-sm text-on-surface font-medium mb-space-md">
+                ¿Cómo funciona?
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-space-md">
+                {[
+                  { step: 1, icon: "link", text: "Ingresa la URL donde quieres comenzar" },
+                  { step: 2, icon: "web", text: "Se abrirá un navegador - interactúa normalmente" },
+                  { step: 3, icon: "radar", text: "Todas las peticiones HTTP se capturan automáticamente" },
+                  { step: 4, icon: "save", text: "Detén la grabación y revisa las peticiones capturadas" },
+                ].map((item) => (
+                  <div key={item.step} className="flex items-start gap-space-md">
+                    <span className="w-6 h-6 rounded-lg bg-surface-container-high flex items-center justify-center text-label-code-sm text-secondary font-mono shrink-0">
+                      {item.step}
+                    </span>
+                    <div className="flex items-center gap-space-sm text-body-sm text-on-surface-variant">
+                      <span className="material-symbols-outlined text-[16px] text-on-surface-variant">{item.icon}</span>
+                      <span>{item.text}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <button
-                onClick={stopRecording}
-                className="rounded-lg bg-gray-700 px-6 py-2 font-medium hover:bg-gray-600"
-              >
-                ⏹ Stop Recording
-              </button>
-            </div>
-
-            <div className="overflow-hidden rounded-xl border border-gray-700">
-              <BrowserCanvas
-                wsUrl={wsUrl}
-                viewportWidth={1280}
-                viewportHeight={720}
-              />
-            </div>
-
-            <div className="mt-4 text-center text-sm text-gray-500">
-              Navigate the browser above. All HTTP requests are being captured.
             </div>
           </div>
-        )}
+        </div>
+      </MainLayout>
+    );
+  }
 
-        {state === "completed" && (
+  // Recording state - full width for browser
+  if (state === "recording") {
+    return (
+      <div className="min-h-screen bg-background text-on-surface">
+        {/* Compact header */}
+        <header className="h-14 bg-surface-container-lowest border-b border-surface-container flex items-center justify-between px-space-lg">
+          <div className="flex items-center gap-space-md">
+            <Link href="/" className="flex items-center gap-space-sm">
+              <div className="w-7 h-7 rounded-lg bg-primary-container flex items-center justify-center">
+                <span className="text-on-primary-container font-bold text-xs">k6</span>
+              </div>
+              <span className="text-headline-sm font-semibold text-on-surface">K6Flow</span>
+            </Link>
+            <span className="text-outline-variant">/</span>
+            <div className="flex items-center gap-space-sm">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-error opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-error" />
+              </span>
+              <span className="text-body-md text-error font-medium">Grabando</span>
+            </div>
+            <span className="text-body-sm text-on-surface-variant">{recordingName || "Sin título"}</span>
+          </div>
+
+          <button
+            onClick={stopRecording}
+            className="flex items-center gap-space-xs px-space-md py-space-sm bg-surface-container hover:bg-surface-container-high rounded-xl text-on-surface transition-colors"
+          >
+            <span className="material-symbols-outlined text-[18px]">stop</span>
+            <span className="text-body-md font-medium">Detener Grabación</span>
+          </button>
+        </header>
+
+        {/* Browser canvas */}
+        <div className="p-space-md">
+          <div className="rounded-xl border border-surface-container overflow-hidden shadow-modal">
+            <BrowserCanvas
+              wsUrl={wsUrl}
+              viewportWidth={1280}
+              viewportHeight={720}
+            />
+          </div>
+          <p className="text-center text-body-sm text-on-surface-variant mt-space-md">
+            Navega el sitio web arriba. Todas las peticiones HTTP se están capturando.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Completed state
+  if (state === "completed") {
+    return (
+      <MainLayout>
+        <div className="px-gutter-desktop py-space-xl">
           <div className="mx-auto max-w-2xl text-center">
-            <div className="mb-6 text-6xl">✅</div>
-            <h1 className="mb-2 text-3xl font-bold">Recording Complete</h1>
-            <p className="mb-8 text-gray-400">
-              Your browser session has been captured. Review the requests and save as a scenario.
+            <div className="w-20 h-20 rounded-full bg-secondary/10 flex items-center justify-center mx-auto mb-space-lg">
+              <span className="material-symbols-outlined text-secondary text-[40px]">check_circle</span>
+            </div>
+            <h1 className="text-headline-lg text-on-surface font-semibold mb-space-sm">
+              Grabación Completada
+            </h1>
+            <p className="text-body-md text-on-surface-variant mb-space-xl">
+              Tu sesión de navegador ha sido capturada. Revisa las peticiones y guarda como escenario.
             </p>
 
-            <div className="flex justify-center gap-4">
-              <button
-                onClick={goToReview}
-                className="rounded-lg bg-blue-600 px-8 py-3 font-medium hover:bg-blue-500"
-              >
-                Review & Save
+            <div className="flex justify-center gap-space-md">
+              <button onClick={goToReview} className="btn-primary">
+                <span className="material-symbols-outlined text-[18px]">visibility</span>
+                <span>Revisar y Guardar</span>
               </button>
               <button
                 onClick={() => {
@@ -234,32 +275,43 @@ export default function RecorderPage() {
                   setWsUrl("");
                   setError(null);
                 }}
-                className="rounded-lg border border-gray-600 px-8 py-3 font-medium hover:bg-gray-800"
+                className="btn-secondary"
               >
-                New Recording
+                <span className="material-symbols-outlined text-[18px]">add</span>
+                <span>Nueva Grabación</span>
               </button>
             </div>
           </div>
-        )}
+        </div>
+      </MainLayout>
+    );
+  }
 
-        {state === "error" && (
-          <div className="mx-auto max-w-2xl text-center">
-            <div className="mb-6 text-6xl">❌</div>
-            <h1 className="mb-2 text-3xl font-bold">Recording Failed</h1>
-            <p className="mb-8 text-red-400">{error}</p>
-
-            <button
-              onClick={() => {
-                setState("setup");
-                setError(null);
-              }}
-              className="rounded-lg bg-blue-600 px-8 py-3 font-medium hover:bg-blue-500"
-            >
-              Try Again
-            </button>
+  // Error state
+  return (
+    <MainLayout>
+      <div className="px-gutter-desktop py-space-xl">
+        <div className="mx-auto max-w-2xl text-center">
+          <div className="w-20 h-20 rounded-full bg-error/10 flex items-center justify-center mx-auto mb-space-lg">
+            <span className="material-symbols-outlined text-error text-[40px]">error</span>
           </div>
-        )}
-      </main>
-    </div>
+          <h1 className="text-headline-lg text-on-surface font-semibold mb-space-sm">
+            Error en la Grabación
+          </h1>
+          <p className="text-body-md text-error mb-space-xl">{error}</p>
+
+          <button
+            onClick={() => {
+              setState("setup");
+              setError(null);
+            }}
+            className="btn-primary"
+          >
+            <span className="material-symbols-outlined text-[18px]">refresh</span>
+            <span>Intentar de Nuevo</span>
+          </button>
+        </div>
+      </div>
+    </MainLayout>
   );
 }

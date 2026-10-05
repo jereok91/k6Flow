@@ -2,19 +2,15 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { AppHeader } from "../../lib/layout";
+import { MainLayout } from "../../lib/layout";
 
 interface Recording {
   id: string;
   name: string;
-  startUrl: string;
-  state: "recording" | "completed" | "failed" | "processing";
-  durationMs: number | null;
-  requestCount: number | null;
-  stepCount: number | null;
-  scenarioId: string | null;
+  targetUrl: string;
   createdAt: string;
-  completedAt: string | null;
+  stepCount: number;
+  scenarioId: string | null;
 }
 
 interface RecordingsResponse {
@@ -24,35 +20,11 @@ interface RecordingsResponse {
   pageSize: number;
 }
 
-const stateColors: Record<string, string> = {
-  recording: "bg-red-500 animate-pulse",
-  completed: "bg-green-600",
-  failed: "bg-red-800",
-  processing: "bg-yellow-600",
-};
-
-const stateLabels: Record<string, string> = {
-  recording: "Recording",
-  completed: "Completed",
-  failed: "Failed",
-  processing: "Processing",
-};
-
-function formatDuration(ms: number | null): string {
-  if (!ms) return "-";
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
-}
-
 export default function RecordingsPage() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [stateFilter, setStateFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const pageSize = 20;
@@ -66,7 +38,6 @@ export default function RecordingsPage() {
         page: page.toString(),
         pageSize: pageSize.toString(),
         ...(search && { search }),
-        ...(stateFilter !== "all" && { state: stateFilter }),
       });
 
       const res = await fetch(`/api/recordings?${params}`);
@@ -77,12 +48,12 @@ export default function RecordingsPage() {
       const data: RecordingsResponse = await res.json();
       setRecordings(data.recordings);
       setTotal(data.total);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+    } catch {
+      setError("Error cargando grabaciones");
     } finally {
       setLoading(false);
     }
-  }, [page, search, stateFilter]);
+  }, [page, search]);
 
   useEffect(() => {
     fetchRecordings();
@@ -94,186 +65,166 @@ export default function RecordingsPage() {
     fetchRecordings();
   };
 
-  const deleteRecording = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this recording?")) return;
-
-    try {
-      await fetch(`/api/recordings/${id}`, { method: "DELETE" });
-      fetchRecordings();
-    } catch (e) {
-      console.error("Failed to delete:", e);
-    }
-  };
-
   const totalPages = Math.ceil(total / pageSize);
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      <AppHeader />
-      <div className="mx-auto max-w-6xl px-6 py-8">
-        {/* Page Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Recordings</h1>
-          <Link
-            href="/recorder"
-            className="rounded-lg bg-blue-600 px-4 py-2 hover:bg-blue-500"
-          >
-            + New Recording
-          </Link>
-        </div>
-
-        {/* Filters */}
-        <div className="mb-6 flex flex-wrap items-center gap-4">
-          <form onSubmit={handleSearch} className="flex-1">
-            <input
-              type="text"
-              placeholder="Search recordings..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full max-w-md rounded bg-gray-800 px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </form>
-
-          <div className="flex gap-2">
-            {["all", "completed", "recording", "failed"].map((state) => (
-              <button
-                key={state}
-                className={`rounded px-3 py-1 capitalize ${stateFilter === state ? "bg-blue-600" : "bg-gray-700"}`}
-                onClick={() => { setStateFilter(state); setPage(1); }}
-              >
-                {state === "all" ? "All" : stateLabels[state] || state}
-              </button>
-            ))}
+    <MainLayout>
+      <div className="px-gutter-desktop py-space-xl flex flex-col gap-space-xl">
+        {/* Header */}
+        <section className="flex flex-col md:flex-row md:items-end justify-between gap-space-lg">
+          <div className="flex flex-col gap-space-xs">
+            <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
+              <span className="material-symbols-outlined text-secondary text-[16px]">videocam</span>
+              <span>Sesiones capturadas</span>
+            </div>
+            <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">
+              Grabaciones
+            </h1>
+            <p className="text-body-md text-on-surface-variant">
+              {total} grabación{total !== 1 ? "es" : ""} disponible{total !== 1 ? "s" : ""}
+            </p>
           </div>
-        </div>
 
-        {/* Error */}
-        {error && (
-          <div className="mb-4 rounded bg-red-900/50 p-3 text-red-300">{error}</div>
-        )}
+          <Link href="/recorder" className="btn-primary">
+            <span className="material-symbols-outlined text-[18px]">fiber_manual_record</span>
+            <span>Nueva grabación</span>
+          </Link>
+        </section>
 
-        {/* Loading */}
-        {loading ? (
-          <div className="text-center text-gray-400">Loading...</div>
-        ) : recordings.length === 0 ? (
-          <div className="rounded-lg border-2 border-dashed border-gray-700 p-12 text-center">
-            <p className="mb-4 text-gray-400">No recordings found</p>
-            <Link
-              href="/recorder"
-              className="inline-block rounded bg-blue-600 px-6 py-3 hover:bg-blue-500"
+        {/* Search */}
+        <section className="flex flex-wrap items-center gap-space-md">
+          <form onSubmit={handleSearch} className="flex-1 min-w-[200px] max-w-md">
+            <div className="relative flex items-center">
+              <span className="material-symbols-outlined absolute left-space-md text-[18px] text-on-surface-variant">
+                search
+              </span>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="input pl-10"
+                placeholder="Buscar grabaciones..."
+              />
+            </div>
+          </form>
+        </section>
+
+        {/* Content */}
+        {error ? (
+          <div className="card text-center">
+            <span className="material-symbols-outlined text-error text-[32px] mb-space-md">error</span>
+            <p className="text-body-md text-error">{error}</p>
+            <button
+              type="button"
+              onClick={fetchRecordings}
+              className="btn-secondary mt-space-md mx-auto"
             >
-              Start your first recording
+              Reintentar
+            </button>
+          </div>
+        ) : loading ? (
+          <div className="card text-center py-space-xl">
+            <div className="animate-spin w-8 h-8 border-2 border-secondary border-t-transparent rounded-full mx-auto" />
+            <p className="text-body-md text-on-surface-variant mt-space-md">Cargando grabaciones...</p>
+          </div>
+        ) : recordings.length === 0 ? (
+          <div className="card text-center py-space-xl">
+            <span className="material-symbols-outlined text-on-surface-variant text-[48px] mb-space-md">
+              videocam_off
+            </span>
+            <h3 className="text-headline-sm text-on-surface font-medium mb-space-xs">
+              No hay grabaciones
+            </h3>
+            <p className="text-body-md text-on-surface-variant mb-space-lg">
+              {search
+                ? "No se encontraron grabaciones con ese nombre"
+                : "Graba tu primera sesión de navegador para crear escenarios automáticamente"}
+            </p>
+            <Link href="/recorder" className="btn-primary mx-auto">
+              <span className="material-symbols-outlined text-[18px]">fiber_manual_record</span>
+              <span>Iniciar grabación</span>
             </Link>
           </div>
         ) : (
           <>
-            {/* Recordings table */}
-            <div className="overflow-x-auto rounded-lg bg-gray-800">
-              <table className="w-full">
-                <thead className="border-b border-gray-700 text-left text-sm text-gray-400">
-                  <tr>
-                    <th className="px-4 py-3">Name</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Duration</th>
-                    <th className="px-4 py-3">Requests</th>
-                    <th className="px-4 py-3">Steps</th>
-                    <th className="px-4 py-3">Scenario</th>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recordings.map((rec) => (
-                    <tr
-                      key={rec.id}
-                      className="border-b border-gray-700/50 hover:bg-gray-750"
-                    >
-                      <td className="px-4 py-3">
-                        <div>
-                          <div className="font-medium">{rec.name}</div>
-                          <div className="truncate text-sm text-gray-500" style={{ maxWidth: "200px" }}>
-                            {rec.startUrl}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-block rounded px-2 py-1 text-xs ${stateColors[rec.state]}`}>
-                          {stateLabels[rec.state]}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-400">
-                        {formatDuration(rec.durationMs)}
-                      </td>
-                      <td className="px-4 py-3 text-gray-400">
-                        {rec.requestCount ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 text-gray-400">
-                        {rec.stepCount ?? "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {rec.scenarioId ? (
-                          <Link
-                            href={`/editor?scenario=${rec.scenarioId}`}
-                            className="text-blue-400 hover:underline"
-                          >
-                            View
-                          </Link>
-                        ) : (
-                          <span className="text-gray-500">-</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-400">
-                        {new Date(rec.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          {rec.state === "completed" && !rec.scenarioId && (
-                            <Link
-                              href={`/recorder/review?id=${rec.id}`}
-                              className="rounded bg-blue-600 px-2 py-1 text-xs hover:bg-blue-500"
-                            >
-                              Review
-                            </Link>
-                          )}
-                          <button
-                            className="rounded bg-red-900/50 px-2 py-1 text-xs text-red-300 hover:bg-red-900"
-                            onClick={() => deleteRecording(rec.id)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-space-md">
+              {recordings.map((recording) => (
+                <Link
+                  key={recording.id}
+                  href={`/recorder/review?id=${recording.id}`}
+                  className="card group"
+                >
+                  <div className="flex items-start justify-between mb-space-md">
+                    <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center text-secondary group-hover:bg-secondary-container group-hover:text-on-secondary-container transition-colors">
+                      <span className="material-symbols-outlined text-[22px]">videocam</span>
+                    </div>
+                    {recording.scenarioId ? (
+                      <span className="badge-success">
+                        <span className="material-symbols-outlined text-[12px]">check</span>
+                        Convertido
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-lg bg-surface-container-high text-on-surface-variant text-label-code-sm">
+                        Pendiente
+                      </span>
+                    )}
+                  </div>
+
+                  <h3 className="text-headline-sm text-on-surface font-medium mb-space-xs truncate">
+                    {recording.name}
+                  </h3>
+
+                  <p className="text-label-code-sm text-on-surface-variant font-mono mb-space-md truncate">
+                    {recording.targetUrl}
+                  </p>
+
+                  <div className="flex items-center justify-between text-label-code-sm text-on-surface-variant">
+                    <div className="flex items-center gap-space-xs">
+                      <span className="material-symbols-outlined text-[14px]">layers</span>
+                      <span>{recording.stepCount} pasos</span>
+                    </div>
+                    <span className="font-mono">
+                      {new Date(recording.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                </Link>
+              ))}
             </div>
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="mt-6 flex items-center justify-center gap-2">
-                <button
-                  className="rounded bg-gray-700 px-3 py-1 disabled:opacity-50"
-                  disabled={page <= 1}
-                  onClick={() => setPage(page - 1)}
-                >
-                  ← Prev
-                </button>
-                <span className="px-4 text-gray-400">
-                  Page {page} of {totalPages}
+              <div className="flex items-center justify-between">
+                <span className="text-body-sm text-on-surface-variant">
+                  Mostrando {(page - 1) * pageSize + 1}-
+                  {Math.min(page * pageSize, total)} de {total}
                 </span>
-                <button
-                  className="rounded bg-gray-700 px-3 py-1 disabled:opacity-50"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage(page + 1)}
-                >
-                  Next →
-                </button>
+                <div className="flex items-center gap-space-xs">
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                  </button>
+                  <span className="text-body-sm text-on-surface px-space-md">
+                    {page} / {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                  </button>
+                </div>
               </div>
             )}
           </>
         )}
       </div>
-    </div>
+    </MainLayout>
   );
 }
