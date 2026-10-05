@@ -2,14 +2,14 @@
 // DB-backed paths proven in K6F4-06 real-stack e2e.
 
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, and, like, desc, sql } from "drizzle-orm";
 import { getDb } from "../../../lib/db/client";
 import { scenarios } from "../../../lib/db/schema";
 import { requireUser } from "../../../lib/auth/require-user";
 import { jsonError } from "../../../lib/auth/http";
 import { classifyCreateScenario } from "./logic";
 
-// GET /api/scenarios — list scenarios (owner sees own, admin sees all)
+// GET /api/scenarios — list scenarios with search, pagination, filters
 export async function GET(request: Request): Promise<Response> {
   const cookieHeader = request.headers.get("cookie");
   const user = await requireUser(cookieHeader);
@@ -18,31 +18,66 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
+    const url = new URL(request.url);
+    const search = url.searchParams.get("search") || "";
+    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+    const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
+    const favoritesOnly = url.searchParams.get("favorites") === "true";
+    const offset = (page - 1) * pageSize;
+
     const db = getDb();
-    let rows;
-    if (user.role === "admin") {
-      rows = await db.select().from(scenarios).orderBy(scenarios.createdAt);
-    } else {
-      rows = await db
-        .select()
-        .from(scenarios)
-        .where(eq(scenarios.ownerId, user.id))
-        .orderBy(scenarios.createdAt);
+
+    // Build conditions
+    const conditions = [];
+    if (user.role !== "admin") {
+      conditions.push(eq(scenarios.ownerId, user.id));
+    }
+    if (search) {
+      conditions.push(like(scenarios.name, `%${search}%`));
+    }
+    if (favoritesOnly) {
+      conditions.push(eq(scenarios.isFavorite, 1));
     }
 
-    // Return scenarios without full graph in list (just metadata)
-    const list = rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      ownerId: row.ownerId,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-    }));
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    return Response.json({ scenarios: list }, {
-      headers: { "Cache-Control": "no-store" },
+    // Get total count
+    const countResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(scenarios)
+      .where(whereClause);
+    const total = Number(countResult[0]?.count || 0);
+
+    // Get paginated results
+    const rows = await db
+      .select()
+      .from(scenarios)
+      .where(whereClause)
+      .orderBy(desc(scenarios.updatedAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    // Return scenarios with metadata (count nodes from graph)
+    const list = rows.map((row) => {
+      const graph = row.graph as { nodes?: Record<string, unknown> } | null;
+      const nodeCount = graph?.nodes ? Object.keys(graph.nodes).length : 0;
+      return {
+        id: row.id,
+        name: row.name,
+        ownerId: row.ownerId,
+        isFavorite: row.isFavorite,
+        nodeCount,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+      };
     });
-  } catch {
+
+    return Response.json(
+      { scenarios: list, total, page, pageSize },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (e) {
+    console.error("Failed to list scenarios:", e);
     return jsonError(500, "Internal server error");
   }
 }

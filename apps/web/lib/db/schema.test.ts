@@ -52,6 +52,8 @@ describe("db schema", () => {
       ownerId: "owner_id",
       name: "name",
       graph: "graph",
+      folderId: "folder_id",
+      isFavorite: "is_favorite",
       createdAt: "created_at",
       updatedAt: "updated_at",
     });

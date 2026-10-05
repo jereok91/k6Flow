@@ -157,3 +157,65 @@ export async function DELETE(
     return jsonError(500, "Internal server error");
   }
 }
+
+// PATCH /api/scenarios/[id] 
+// partial update (isFavorite, folderId)
+export async function PATCH(
+  request: Request,
+  context: RouteContext,
+): Promise<Response> {
+  const cookieHeader = request.headers.get("cookie");
+  const user = await requireUser(cookieHeader);
+  if (user === null) {
+    return jsonError(401, "Unauthorized");
+  }
+  const { id } = await context.params;
+
+  let body: { isFavorite?: number; folderId?: string | null };
+  try {
+    body = await request.json();
+  } catch {
+    return jsonError(400, "Invalid JSON");
+  }
+
+  try {
+    const db = getDb();
+
+    // Check existence and access
+    const [existing] = await db
+      .select({ ownerId: scenarios.ownerId })
+      .from(scenarios)
+      .where(eq(scenarios.id, id))
+      .limit(1);
+
+    if (!existing) {
+      return jsonError(404, "Scenario not found");
+    }
+
+    if (!canAccessScenario(existing.ownerId, user)) {
+      return jsonError(403, "Forbidden");
+    }
+
+    // Build update object
+    const updates: { isFavorite?: number; folderId?: string | null; updatedAt: Date } = {
+      updatedAt: new Date(),
+    };
+    if (body.isFavorite !== undefined) {
+      updates.isFavorite = body.isFavorite ? 1 : 0;
+    }
+    if (body.folderId !== undefined) {
+      updates.folderId = body.folderId;
+    }
+
+    await db
+      .update(scenarios)
+      .set(updates)
+      .where(eq(scenarios.id, id));
+
+    return Response.json({ id, updated: true }, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch {
+    return jsonError(500, "Internal server error");
+  }
+}
