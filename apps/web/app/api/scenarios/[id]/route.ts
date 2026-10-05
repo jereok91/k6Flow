@@ -45,6 +45,8 @@ export async function GET(
       name: row.name,
       ownerId: row.ownerId,
       graph: row.graph,
+      isFavorite: row.isFavorite,
+      folderId: row.folderId,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     }, {
