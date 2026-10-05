@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   capturesToGraph,
   generateConnections,
@@ -53,7 +54,6 @@ export default function EditorPage() {
     authSignals: number;
     dynamicValues: number;
   } | null>(null);
-  // K6F9-02: Run confirmation state
   const [showRunConfirmation, setShowRunConfirmation] = useState(false);
   const [runTargets, setRunTargets] = useState<string[]>([]);
 
@@ -74,13 +74,13 @@ export default function EditorPage() {
         if (res.ok) {
           setAuth({ loading: false, authenticated: true });
         } else if (res.status === 401) {
-          setAuth({ loading: false, authenticated: false, error: "Please log in to use the editor" });
+          setAuth({ loading: false, authenticated: false, error: "Inicia sesión para usar el editor" });
         } else {
-          setAuth({ loading: false, authenticated: false, error: "Authentication check failed" });
+          setAuth({ loading: false, authenticated: false, error: "Error de autenticación" });
         }
       })
       .catch(() => {
-        setAuth({ loading: false, authenticated: false, error: "Network error" });
+        setAuth({ loading: false, authenticated: false, error: "Error de red" });
       });
   }, []);
 
@@ -97,7 +97,6 @@ export default function EditorPage() {
           setEdges(result.edges);
         }
       });
-      // Load attachments
       loadAttachments(scenarioId);
     }
   }, [auth.authenticated]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -115,7 +114,6 @@ export default function EditorPage() {
       const captures: RecorderCaptureEntry[] = JSON.parse(stored);
       setImportedCaptures(captures);
 
-      // Analyze captures
       const authResult = detectAuth(captures);
       const dynamicResult = detectDynamicValues(captures);
       setImportAnalysis({
@@ -123,11 +121,9 @@ export default function EditorPage() {
         dynamicValues: dynamicResult.values.length,
       });
 
-      // Convert to graph nodes
       const graphNodes = capturesToGraph(captures, { idPrefix: "imported" });
       const graphConnections = generateConnections(graphNodes);
 
-      // Position nodes vertically
       const nodesWithPositions: K6NodeType[] = graphNodes.map((node, index) => ({
         id: node.id,
         type: "k6Node",
@@ -139,7 +135,6 @@ export default function EditorPage() {
         } as K6NodeData,
       }));
 
-      // Convert connections to edges
       const edgesFromCaptures: K6Edge[] = graphConnections.map((conn, index) => ({
         id: `import-edge-${index}`,
         source: conn.source,
@@ -148,18 +143,13 @@ export default function EditorPage() {
 
       setNodes(nodesWithPositions);
       setEdges(edgesFromCaptures);
-
-      // Clear sessionStorage after processing
       sessionStorage.removeItem("k6flow-import-captures");
-
-      // Clean up URL
       router.replace("/editor");
     } catch (err) {
       console.error("Failed to import captures:", err);
     }
   }, [auth.authenticated, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load attachments for scenario
   const loadAttachments = useCallback(async (scenarioId: number) => {
     try {
       const res = await fetch(`/api/scenarios/${scenarioId}/attachments`);
@@ -168,11 +158,10 @@ export default function EditorPage() {
         setAttachments(data.attachments ?? []);
       }
     } catch {
-      // Silently fail - attachments are optional
+      // Silently fail
     }
   }, []);
 
-  // Upload file attachment
   const uploadFile = useCallback(async (file: File): Promise<AttachmentInfo | null> => {
     if (!scenario.scenarioId) return null;
 
@@ -180,7 +169,7 @@ export default function EditorPage() {
     const base64 = await new Promise<string>((resolve, reject) => {
       reader.onload = () => {
         const result = reader.result as string;
-        resolve(result.split(",")[1]); // Remove data:...;base64, prefix
+        resolve(result.split(",")[1]);
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
@@ -206,7 +195,6 @@ export default function EditorPage() {
     return data.attachment;
   }, [scenario.scenarioId]);
 
-  // Delete attachment
   const deleteAttachment = useCallback(async (attachmentId: string): Promise<boolean> => {
     if (!scenario.scenarioId) return false;
 
@@ -222,14 +210,12 @@ export default function EditorPage() {
     return false;
   }, [scenario.scenarioId]);
 
-  // Handle node selection
   const handleNodesChange = useCallback((newNodes: K6NodeType[]) => {
     setNodes(newNodes);
     const selected = newNodes.find((n) => n.selected);
     setSelectedNode(selected ?? null);
   }, []);
 
-  // Update node parameters
   const updateNodeParameters = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (nodeId: string, parameters: any) => {
@@ -244,168 +230,110 @@ export default function EditorPage() {
     [],
   );
 
-  // Close config panel
   const closeConfigPanel = useCallback(() => {
     setSelectedNode(null);
-    setNodes((current) => current.map((node) => ({ ...node, selected: false })));
+    setNodes((current) => current.map((n) => ({ ...n, selected: false })));
   }, []);
 
-  // Get available HTTP request nodes for response validation
-  const getHttpRequestNodes = useCallback(() => {
-    return nodes
-      .filter((n) => n.data.kind === "http-request")
-      .map((n) => ({ id: n.id, label: n.data.label }));
-  }, [nodes]);
-
-  // Save scenario
-  const handleSave = useCallback(async () => {
-    if (scenario.scenarioId) {
-      // Update existing
-      const success = await scenario.updateScenario(
-        scenario.scenarioId,
-        scenario.scenarioName,
-        nodes,
-        edges,
-      );
-      if (success) {
-        // Update URL without reload
-        const url = new URL(window.location.href);
-        url.searchParams.set("id", scenario.scenarioId.toString());
-        window.history.replaceState({}, "", url.toString());
-      }
-    } else {
-      // Show save dialog for new scenario
-      setScenarioNameInput("");
+  const handleSave = async () => {
+    if (!scenario.scenarioId) {
       setShowSaveDialog(true);
+      return;
     }
-  }, [scenario, nodes, edges]);
+    await scenario.updateScenario(scenario.scenarioId, scenario.scenarioName, nodes, edges);
+  };
 
-  // Create new scenario
-  const handleCreateScenario = useCallback(async () => {
+  const handleCreateScenario = async () => {
     if (!scenarioNameInput.trim()) return;
     const result = await scenario.saveScenario(scenarioNameInput.trim(), nodes, edges);
     if (result) {
       setShowSaveDialog(false);
-      // Update URL without reload
-      const url = new URL(window.location.href);
-      url.searchParams.set("id", result.id.toString());
-      window.history.replaceState({}, "", url.toString());
+      setScenarioNameInput("");
     }
-  }, [scenario, scenarioNameInput, nodes, edges]);
+  };
 
-  // New scenario
-  const handleNew = useCallback(() => {
+  const handleNew = () => {
     scenario.clearScenario();
     setNodes([]);
     setEdges([]);
     setSelectedNode(null);
-    // Clear URL param
-    const url = new URL(window.location.href);
-    url.searchParams.delete("id");
-    window.history.replaceState({}, "", url.toString());
-  }, [scenario]);
+    setAttachments([]);
+    setImportedCaptures(null);
+    setImportAnalysis(null);
+    router.replace("/editor");
+  };
 
-  // K6F9-02: Extract target URLs from nodes for confirmation
-  const extractTargetUrls = useCallback((): string[] => {
-    const urls: string[] = [];
-    for (const node of nodes) {
-      if (node.data.kind === "http-request" && node.data.parameters) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const params = node.data.parameters as any;
-        if (params.url?.kind === "literal" && params.url?.value) {
+  const getHttpRequestNodes = () => {
+    return nodes
+      .filter((n) => n.data.kind === "http-request")
+      .map((n) => ({ id: n.id, label: n.data.label || n.id }));
+  };
+
+  const handleRunClick = () => {
+    const targets = nodes
+      .filter((n) => n.data.kind === "http-request")
+      .map((n) => {
+        const params = n.data.parameters as { url?: { kind: string; value: string } };
+        if (params?.url?.kind === "literal") {
           try {
-            const parsed = new URL(params.url.value);
-            const host = parsed.host;
-            if (!urls.includes(host)) {
-              urls.push(host);
-            }
+            return new URL(params.url.value).origin;
           } catch {
-            // Skip invalid URLs
+            return params.url.value;
           }
         }
-      }
-    }
-    return urls;
-  }, [nodes]);
+        return "dynamic URL";
+      });
 
-  // K6F9-02: Show confirmation dialog before run
-  const handleRunClick = useCallback(() => {
-    if (nodes.length === 0) return;
-    const targets = extractTargetUrls();
-    setRunTargets(targets);
+    const uniqueTargets = [...new Set(targets)];
+    setRunTargets(uniqueTargets);
     setShowRunConfirmation(true);
-  }, [nodes, extractTargetUrls]);
+  };
 
-  // Run scenario (after confirmation)
-  const handleRunConfirmed = useCallback(async () => {
+  const handleRunConfirmed = async () => {
     setShowRunConfirmation(false);
     if (nodes.length === 0) {
       return;
     }
-
-    // Fetch attachment data for run
-    const runAttachments = await Promise.all(
-      attachments.map(async (att) => {
-        if (!scenario.scenarioId) return null;
-        try {
-          const res = await fetch(
-            `/api/scenarios/${scenario.scenarioId}/attachments/${att.id}`,
-          );
-          if (res.ok) {
-            const data = await res.json();
-            return {
-              id: data.attachment.id,
-              name: data.attachment.name,
-              data: data.attachment.data,
-            };
-          }
-        } catch {
-          // Skip failed attachments
-        }
-        return null;
-      }),
-    );
-
-    const validAttachments = runAttachments.filter(
-      (a): a is NonNullable<typeof a> => a !== null,
-    );
-
-    const result = await run.startRun(nodes, edges, {
-      vus: 1,
-      durationMs: 30000,
-      attachments: validAttachments,
-    });
-    if (result.success && result.runId) {
-      // Navigate to run metrics page
-      router.push(`/runs/${result.runId}`);
-    }
-  }, [nodes, edges, run, router, attachments, scenario.scenarioId]);
+    await run.startRun(nodes, edges);
+  };
 
   // Loading state
   if (auth.loading) {
     return (
-      <div style={containerStyle}>
-        <div style={messageStyle}>Loading...</div>
-      </div>
-    );
-  }
-
-  // Unauthenticated state
-  if (!auth.authenticated) {
-    return (
-      <div style={containerStyle}>
-        <div style={cardStyle}>
-          <h1 style={titleStyle}>Scenario Editor</h1>
-          <p style={errorStyle}>{auth.error}</p>
-          <a href="/" style={linkStyle}>
-            ← Back to home
-          </a>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-space-md">
+          <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
+          <span className="text-body-md text-on-surface-variant">Verificando autenticación...</span>
         </div>
       </div>
     );
   }
 
-  // Render config panel for selected node
+  // Not authenticated
+  if (!auth.authenticated) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="card max-w-md text-center">
+          <span className="material-symbols-outlined text-error text-[48px] mb-space-md">lock</span>
+          <h1 className="text-headline-lg text-on-surface font-semibold mb-space-sm">
+            Acceso Restringido
+          </h1>
+          <p className="text-body-md text-on-surface-variant mb-space-lg">{auth.error}</p>
+          <div className="flex justify-center gap-space-md">
+            <Link href="/login" className="btn-primary">
+              <span className="material-symbols-outlined text-[18px]">login</span>
+              <span>Iniciar Sesión</span>
+            </Link>
+            <Link href="/" className="btn-secondary">
+              <span className="material-symbols-outlined text-[18px]">home</span>
+              <span>Inicio</span>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const renderConfigPanel = () => {
     if (!selectedNode) return null;
 
@@ -455,145 +383,169 @@ export default function EditorPage() {
     }
   };
 
-  // Editor
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+    <div className="h-screen flex flex-col bg-background">
       {/* Header */}
-      <header style={headerStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <h1 style={{ fontSize: "18px", fontWeight: 600, color: "#111827", margin: 0 }}>
-            {scenario.scenarioName || "New Scenario"}
+      <header className="h-14 flex items-center justify-between px-space-lg bg-surface-container-lowest border-b border-surface-container">
+        <div className="flex items-center gap-space-md">
+          <Link href="/" className="flex items-center gap-space-sm">
+            <div className="w-7 h-7 rounded-lg bg-primary-container flex items-center justify-center">
+              <span className="text-on-primary-container font-bold text-xs">k6</span>
+            </div>
+          </Link>
+          <span className="text-outline-variant">/</span>
+          <span className="material-symbols-outlined text-primary text-[18px]">edit_square</span>
+          <h1 className="text-headline-sm text-on-surface font-semibold">
+            {scenario.scenarioName || "Nuevo Escenario"}
           </h1>
           {scenario.scenarioId && (
-            <span style={{ fontSize: "12px", color: "#9ca3af" }}>#{scenario.scenarioId}</span>
+            <span className="text-label-code-sm text-on-surface-variant font-mono">
+              #{scenario.scenarioId}
+            </span>
           )}
         </div>
 
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div className="flex items-center gap-space-md">
           {(scenario.error || run.error) && (
-            <span style={{ fontSize: "13px", color: "#dc2626" }}>
+            <span className="text-body-sm text-error">
               {scenario.error || run.error}
             </span>
           )}
-          <span style={{ fontSize: "13px", color: "#6b7280" }}>
-            {nodes.length} nodes, {edges.length} connections
+          <span className="text-label-code-sm text-on-surface-variant font-mono">
+            {nodes.length} nodos · {edges.length} conexiones
           </span>
-          <button onClick={handleNew} style={secondaryButtonStyle}>
-            New
+          <button onClick={handleNew} className="btn-secondary">
+            <span className="material-symbols-outlined text-[16px]">add</span>
+            <span>Nuevo</span>
           </button>
           <button
             onClick={handleSave}
             disabled={scenario.saving || scenario.loading}
-            style={primaryButtonStyle}
+            className="btn-primary"
           >
-            {scenario.saving ? "Saving..." : "Save"}
+            <span className="material-symbols-outlined text-[16px]">save</span>
+            <span>{scenario.saving ? "Guardando..." : "Guardar"}</span>
           </button>
           <button
             onClick={handleRunClick}
             disabled={run.running || nodes.length === 0 || run.orchestratorAvailable === false}
-            style={runButtonStyle}
-            title={run.orchestratorAvailable === false ? "Orchestrator not available" : "Run scenario"}
+            className="flex items-center gap-space-xs px-space-md py-space-sm bg-secondary-container text-on-secondary-container font-semibold rounded-xl shadow-glow-secondary transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={run.orchestratorAvailable === false ? "Orchestrator no disponible" : "Ejecutar escenario"}
           >
-            {run.running ? "Running..." : "▶ Run"}
+            <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+            <span>{run.running ? "Ejecutando..." : "Ejecutar"}</span>
           </button>
         </div>
       </header>
 
-      {/* K6F8-05: Import analysis banner */}
+      {/* Import analysis banner */}
       {importAnalysis && (
-        <div style={importBannerStyle}>
-          <span style={{ fontWeight: 500 }}>
-            
- Imported {nodes.length} requests from recorder
+        <div className="flex items-center gap-space-lg px-space-lg py-space-sm bg-secondary/10 border-b border-secondary/30">
+          <span className="material-symbols-outlined text-secondary text-[20px]">check_circle</span>
+          <span className="text-body-md text-on-surface font-medium">
+            Importados {nodes.length} requests del grabador
           </span>
-          <span style={{ fontSize: "13px", color: "#166534" }}>
+          <span className="text-body-sm text-secondary">
             {importAnalysis.authSignals > 0 && (
-              <span>
-                {importAnalysis.authSignals} auth signal{importAnalysis.authSignals > 1 ? 's' : ''} detected
-              </span>
+              <span>{importAnalysis.authSignals} señal{importAnalysis.authSignals > 1 ? "es" : ""} de auth</span>
             )}
-            {importAnalysis.authSignals > 0 && importAnalysis.dynamicValues > 0 && ' • '}
+            {importAnalysis.authSignals > 0 && importAnalysis.dynamicValues > 0 && " · "}
             {importAnalysis.dynamicValues > 0 && (
-              <span>
-                {importAnalysis.dynamicValues} dynamic value{importAnalysis.dynamicValues > 1 ? 's' : ''} found
-              </span>
+              <span>{importAnalysis.dynamicValues} valor{importAnalysis.dynamicValues > 1 ? "es" : ""} dinámico{importAnalysis.dynamicValues > 1 ? "s" : ""}</span>
             )}
           </span>
           <button
             onClick={() => setImportAnalysis(null)}
-            style={importDismissStyle}
+            className="ml-auto px-space-md py-space-xs text-body-sm text-secondary border border-secondary/30 rounded-lg hover:bg-secondary/10 transition-colors"
           >
-            Dismiss
+            Cerrar
           </button>
         </div>
       )}
 
       {/* Loading overlay */}
       {scenario.loading && (
-        <div style={loadingOverlayStyle}>
-          <div style={messageStyle}>Loading scenario...</div>
+        <div className="absolute inset-0 bg-background/90 flex items-center justify-center z-50">
+          <div className="flex flex-col items-center gap-space-md">
+            <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
+            <span className="text-body-md text-on-surface-variant">Cargando escenario...</span>
+          </div>
         </div>
       )}
 
       {/* Save dialog */}
       {showSaveDialog && (
-        <div style={dialogOverlayStyle}>
-          <div style={dialogStyle}>
-            <h2 style={{ margin: "0 0 16px", fontSize: "18px", fontWeight: 600 }}>
-              Save Scenario
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="card w-[400px]">
+            <h2 className="text-headline-md text-on-surface font-semibold mb-space-lg">
+              Guardar Escenario
             </h2>
             <input
               type="text"
               value={scenarioNameInput}
               onChange={(e) => setScenarioNameInput(e.target.value)}
-              placeholder="Scenario name"
-              style={dialogInputStyle}
+              placeholder="Nombre del escenario"
+              className="input mb-space-lg"
               autoFocus
             />
-            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-              <button onClick={() => setShowSaveDialog(false)} style={secondaryButtonStyle}>
-                Cancel
+            <div className="flex gap-space-sm justify-end">
+              <button onClick={() => setShowSaveDialog(false)} className="btn-secondary">
+                Cancelar
               </button>
               <button
                 onClick={handleCreateScenario}
                 disabled={!scenarioNameInput.trim() || scenario.saving}
-                style={primaryButtonStyle}
+                className="btn-primary disabled:opacity-50"
               >
-                {scenario.saving ? "Saving..." : "Save"}
+                {scenario.saving ? "Guardando..." : "Guardar"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* K6F9-02: Run confirmation dialog */}
+      {/* Run confirmation dialog */}
       {showRunConfirmation && (
-        <div style={dialogOverlayStyle}>
-          <div style={runConfirmDialogStyle}>
-            <h2 style={{ margin: "0 0 16px", fontSize: "18px", fontWeight: 600 }}>
-              ⚠️ Confirm Load Test Execution
-            </h2>
-            <p style={{ margin: "0 0 12px", color: "#374151", fontSize: "14px" }}>
-              You are about to run a load test against the following target{runTargets.length > 1 ? 's' : ''}:
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="card w-[450px]">
+            <div className="flex items-center gap-space-sm mb-space-lg">
+              <span className="material-symbols-outlined text-amber-500 text-[24px]">warning</span>
+              <h2 className="text-headline-md text-on-surface font-semibold">
+                Confirmar Prueba de Carga
+              </h2>
+            </div>
+            <p className="text-body-md text-on-surface-variant mb-space-md">
+              Vas a ejecutar una prueba de carga contra {runTargets.length > 1 ? "los siguientes destinos" : "el siguiente destino"}:
             </p>
-            <div style={targetListStyle}>
+            <div className="bg-surface-container-lowest border border-surface-container rounded-lg p-space-md mb-space-md max-h-[150px] overflow-auto">
               {runTargets.length > 0 ? (
                 runTargets.map((target, idx) => (
-                  <div key={idx} style={targetItemStyle}>{target}</div>
+                  <div key={idx} className="text-label-code-md text-on-surface font-mono py-1">
+                    {target}
+                  </div>
                 ))
               ) : (
-                <div style={{ color: "#9ca3af", fontStyle: "italic" }}>No HTTP targets detected</div>
+                <div className="text-on-surface-variant italic">No se detectaron targets HTTP</div>
               )}
             </div>
-            <p style={warningTextStyle}>
-              ⚡ This will generate real HTTP traffic. Only run tests against systems you own or have permission to test.
-            </p>
-            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-              <button onClick={() => setShowRunConfirmation(false)} style={secondaryButtonStyle}>
-                Cancel
+            <div className="p-space-md rounded-lg bg-amber-500/10 border border-amber-500/30 mb-space-lg">
+              <div className="flex items-start gap-space-sm">
+                <span className="material-symbols-outlined text-amber-500 text-[18px]">electric_bolt</span>
+                <p className="text-body-sm text-amber-200">
+                  Esto generará tráfico HTTP real. Solo ejecuta pruebas contra sistemas que te pertenecen o tienes permiso para testear.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-space-sm justify-end">
+              <button onClick={() => setShowRunConfirmation(false)} className="btn-secondary">
+                Cancelar
               </button>
-              <button onClick={handleRunConfirmed} style={runConfirmButtonStyle}>
-                Run Test
+              <button
+                onClick={handleRunConfirmed}
+                className="flex items-center gap-space-xs px-space-md py-space-sm bg-error text-on-error font-semibold rounded-xl transition-all hover:opacity-90"
+              >
+                <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                <span>Ejecutar Prueba</span>
               </button>
             </div>
           </div>
@@ -601,7 +553,7 @@ export default function EditorPage() {
       )}
 
       {/* Editor canvas */}
-      <div style={{ flex: 1, position: "relative" }}>
+      <div className="flex-1 relative">
         <FlowEditor
           initialNodes={nodes}
           initialEdges={edges}
@@ -613,196 +565,3 @@ export default function EditorPage() {
     </div>
   );
 }
-
-// Styles
-const containerStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  background: "#f3f4f6",
-  fontFamily: "system-ui, sans-serif",
-};
-
-const messageStyle: React.CSSProperties = {
-  fontSize: "16px",
-  color: "#6b7280",
-};
-
-const cardStyle: React.CSSProperties = {
-  background: "#fff",
-  padding: "32px",
-  borderRadius: "12px",
-  boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-  textAlign: "center",
-  maxWidth: "400px",
-};
-
-const titleStyle: React.CSSProperties = {
-  fontSize: "24px",
-  fontWeight: 600,
-  color: "#111827",
-  marginBottom: "12px",
-};
-
-const errorStyle: React.CSSProperties = {
-  fontSize: "14px",
-  color: "#dc2626",
-  marginBottom: "16px",
-};
-
-const linkStyle: React.CSSProperties = {
-  fontSize: "14px",
-  color: "#2563eb",
-  textDecoration: "none",
-};
-
-const headerStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  padding: "12px 20px",
-  borderBottom: "1px solid #e5e7eb",
-  background: "#fff",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  padding: "8px 16px",
-  fontSize: "14px",
-  fontWeight: 500,
-  color: "#fff",
-  background: "#2563eb",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer",
-};
-
-const secondaryButtonStyle: React.CSSProperties = {
-  padding: "8px 16px",
-  fontSize: "14px",
-  fontWeight: 500,
-  color: "#374151",
-  background: "#f3f4f6",
-  border: "1px solid #d1d5db",
-  borderRadius: "6px",
-  cursor: "pointer",
-};
-
-const runButtonStyle: React.CSSProperties = {
-  padding: "8px 16px",
-  fontSize: "14px",
-  fontWeight: 500,
-  color: "#fff",
-  background: "#16a34a",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer",
-};
-
-const loadingOverlayStyle: React.CSSProperties = {
-  position: "absolute",
-  inset: 0,
-  background: "rgba(255,255,255,0.9)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1000,
-};
-
-const dialogOverlayStyle: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0,0,0,0.5)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 2000,
-};
-
-const dialogStyle: React.CSSProperties = {
-  background: "#fff",
-  padding: "24px",
-  borderRadius: "12px",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-  width: "400px",
-  fontFamily: "system-ui, sans-serif",
-};
-
-const dialogInputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  fontSize: "14px",
-  border: "1px solid #d1d5db",
-  borderRadius: "6px",
-  marginBottom: "16px",
-  boxSizing: "border-box",
-};
-
-// K6F8-05: Import banner styles
-const importBannerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "16px",
-  padding: "12px 20px",
-  background: "#f0fdf4",
-  borderBottom: "1px solid #bbf7d0",
-};
-
-const importDismissStyle: React.CSSProperties = {
-  marginLeft: "auto",
-  padding: "4px 12px",
-  fontSize: "13px",
-  color: "#166534",
-  background: "transparent",
-  border: "1px solid #86efac",
-  borderRadius: "4px",
-  cursor: "pointer",
-};
-
-// K6F9-02: Run confirmation dialog styles
-const runConfirmDialogStyle: React.CSSProperties = {
-  background: "#fff",
-  padding: "24px",
-  borderRadius: "12px",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-  width: "450px",
-  fontFamily: "system-ui, sans-serif",
-};
-
-const targetListStyle: React.CSSProperties = {
-  background: "#f9fafb",
-  border: "1px solid #e5e7eb",
-  borderRadius: "6px",
-  padding: "12px",
-  marginBottom: "16px",
-  maxHeight: "150px",
-  overflow: "auto",
-};
-
-const targetItemStyle: React.CSSProperties = {
-  fontFamily: "monospace",
-  fontSize: "13px",
-  color: "#111827",
-  padding: "4px 0",
-};
-
-const warningTextStyle: React.CSSProperties = {
-  margin: "0 0 16px",
-  padding: "12px",
-  background: "#fef3c7",
-  border: "1px solid #fcd34d",
-  borderRadius: "6px",
-  color: "#92400e",
-  fontSize: "13px",
-};
-
-const runConfirmButtonStyle: React.CSSProperties = {
-  padding: "8px 16px",
-  fontSize: "14px",
-  fontWeight: 500,
-  color: "#fff",
-  background: "#dc2626",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer",
-};
