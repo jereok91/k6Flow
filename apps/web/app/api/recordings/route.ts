@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, and, like, desc, sql } from "drizzle-orm";
 import { getDb } from "../../../lib/db/client";
-import { scenarios, recordings } from "../../../lib/db/schema";
+import { scenarios, recordings, scenarioVersions } from "../../../lib/db/schema";
 import { requireUser } from "../../../lib/auth/require-user";
 import { jsonError } from "../../../lib/auth/http";
 import { createScenarioGraph, type ReviewedEntry } from "../../../lib/recorder/save-recording";
@@ -85,6 +85,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
+// POST /api/recordings - save recording as new scenario or append to existing
 export async function POST(request: Request): Promise<Response> {
   const cookieHeader = request.headers.get("cookie");
   const user = await requireUser(cookieHeader);
@@ -114,8 +115,62 @@ export async function POST(request: Request): Promise<Response> {
       recordingId: body.recordingId,
     });
 
-    // Save to database
     const db = getDb();
+
+    // K6R7-02: Append to existing scenario if appendToScenarioId provided
+    if (body.appendToScenarioId) {
+      // Verify scenario exists and user has access
+      const [existing] = await db
+        .select()
+        .from(scenarios)
+        .where(eq(scenarios.id, body.appendToScenarioId))
+        .limit(1);
+
+      if (!existing) {
+        return jsonError(404, "Scenario not found");
+      }
+
+      if (existing.ownerId !== user.id && user.role !== "admin") {
+        return jsonError(403, "Forbidden");
+      }
+
+      // Save current graph as a version
+      const [maxVersion] = await db
+        .select({ version: sql<number>`COALESCE(MAX(version), 0)` })
+        .from(scenarioVersions)
+        .where(eq(scenarioVersions.scenarioId, body.appendToScenarioId));
+
+      const nextVersion = (maxVersion?.version || 0) + 1;
+
+      await db.insert(scenarioVersions).values({
+        id: randomUUID(),
+        scenarioId: body.appendToScenarioId,
+        version: nextVersion,
+        graph: existing.graph,
+        changeDescription: `Before appending recording: ${body.name}`,
+        sourceRecordingId: body.recordingId || null,
+        createdBy: user.id,
+      });
+
+      // Update scenario with new graph
+      await db
+        .update(scenarios)
+        .set({
+          graph,
+          updatedAt: new Date(),
+        })
+        .where(eq(scenarios.id, body.appendToScenarioId));
+
+      return Response.json({
+        id: body.appendToScenarioId,
+        name: existing.name,
+        version: nextVersion + 1,
+        appended: true,
+        requestCount: body.entries.length,
+      });
+    }
+
+    // Create new scenario
     const scenarioId = randomUUID();
     await db.insert(scenarios).values({
       id: scenarioId,
