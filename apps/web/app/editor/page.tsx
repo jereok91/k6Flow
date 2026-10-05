@@ -21,6 +21,9 @@ import {
   ResponseValidationConfigPanel,
   UserPoolConfigPanel,
   ScriptPanel,
+  RunExecutionPanel,
+  RunHistoryPanel,
+  type RunHistoryEntry,
   type K6NodeType,
   type K6Edge,
   type K6NodeData,
@@ -58,6 +61,10 @@ export default function EditorPage() {
   const [showRunConfirmation, setShowRunConfirmation] = useState(false);
   const [runTargets, setRunTargets] = useState<string[]>([]);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
+  const [showExecutionPanel, setShowExecutionPanel] = useState(false);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
 
   const scenario = useScenario();
   const run = useRun();
@@ -305,7 +312,40 @@ export default function EditorPage() {
     if (nodes.length === 0) {
       return;
     }
-    await run.startRun(nodes, edges);
+    const result = await run.startRun(nodes, edges);
+    if (result.success && result.runId) {
+      setCurrentRunId(result.runId);
+      setShowExecutionPanel(true);
+      setShowScriptPanel(false);
+      
+      // Add to history
+      const newEntry: RunHistoryEntry = {
+        runId: result.runId,
+        scenarioName: scenario.scenarioName || "Sin nombre",
+        startedAt: new Date(),
+        status: "running",
+        vus: 1,
+        duration: "30s",
+        iterations: 0,
+      };
+      setRunHistory(prev => [newEntry, ...prev]);
+    }
+  };
+
+  const handleRunComplete = (result: { runId: string; status: string; iterations: number; metrics: { avgDuration: number; errorRate: number } }) => {
+    // Update history entry
+    setRunHistory(prev => prev.map(entry => 
+      entry.runId === result.runId 
+        ? { 
+            ...entry, 
+            status: result.status as "completed" | "failed" | "stopped",
+            completedAt: new Date(),
+            iterations: result.iterations,
+            avgDuration: result.metrics.avgDuration,
+            errorRate: result.metrics.errorRate,
+          }
+        : entry
+    ));
   };
 
   // Loading state
@@ -425,6 +465,19 @@ export default function EditorPage() {
           <span className="text-label-code-sm text-on-surface-variant font-mono">
             {nodes.length} nodos · {edges.length} conexiones
           </span>
+          <button
+            onClick={() => setShowHistoryPanel(!showHistoryPanel)}
+            className={`btn-secondary ${showHistoryPanel ? 'bg-secondary/20' : ''}`}
+            title="Ver historial de ejecuciones"
+          >
+            <span className="material-symbols-outlined text-[16px]">history</span>
+            <span>Historial</span>
+            {runHistory.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-primary text-on-primary rounded-full">
+                {runHistory.length}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setShowScriptPanel(!showScriptPanel)}
             className={`btn-secondary ${showScriptPanel ? 'bg-secondary/20' : ''}`}
@@ -586,6 +639,31 @@ export default function EditorPage() {
             nodes={nodes}
             edges={edges}
             onClose={() => setShowScriptPanel(false)}
+          />
+        )}
+        
+        {/* Run Execution Panel */}
+        {showExecutionPanel && currentRunId && (
+          <RunExecutionPanel
+            runId={currentRunId}
+            onClose={() => {
+              setShowExecutionPanel(false);
+              setCurrentRunId(null);
+            }}
+            onComplete={handleRunComplete}
+          />
+        )}
+        
+        {/* Run History Panel */}
+        {showHistoryPanel && (
+          <RunHistoryPanel
+            history={runHistory}
+            onClose={() => setShowHistoryPanel(false)}
+            onViewRun={(runId) => {
+              setCurrentRunId(runId);
+              setShowExecutionPanel(true);
+              setShowHistoryPanel(false);
+            }}
           />
         )}
       </div>
