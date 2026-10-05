@@ -135,3 +135,10 @@ export type {
   StreamingServerMessage, StreamingClientMessage,
   StreamingMouseMessage, StreamingKeyMessage,
 } from './recorder-streaming';
+
+// HAR import
+export { importHar, validateHar } from './har-import';
+export type {
+  Har, HarEntry, HarLog, HarImportOptions, HarImportResult,
+  HarImportedGraph, HarImportedNode,
+} from './har-import';
