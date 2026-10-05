@@ -7,10 +7,10 @@ import type { ReactNode } from "react";
 import type { NodeKind } from "./mapping";
 
 const KIND_COLORS: Record<NodeKind, string> = {
-  "authentication": "#6366f1",
-  "http-request": "#22c55e",
+  "authentication": "#d2bbff",
+  "http-request": "#4cd7f6",
   "response-validation": "#f59e0b",
-  "user-pool": "#8b5cf6",
+  "user-pool": "#d0bcff",
 };
 
 interface ConfigPanelProps {
@@ -133,20 +133,21 @@ export function TextArea({
   );
 }
 
-// Styles
+// Dark theme styles
 const panelStyle: React.CSSProperties = {
   position: "absolute",
-  top: "60px",
+  top: "16px",
   right: "16px",
   width: "320px",
-  maxHeight: "calc(100vh - 80px)",
-  background: "#fff",
-  borderRadius: "8px",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+  maxHeight: "calc(100vh - 100px)",
+  background: "#181c22",
+  border: "1px solid #262a31",
+  borderRadius: "12px",
+  boxShadow: "0 12px 32px rgba(0,0,0,0.6)",
   zIndex: 1000,
   display: "flex",
   flexDirection: "column",
-  fontFamily: "system-ui, sans-serif",
+  fontFamily: "Geist, system-ui, sans-serif",
 };
 
 const headerStyle: React.CSSProperties = {
@@ -161,14 +162,14 @@ const titleStyle: React.CSSProperties = {
   margin: 0,
   fontSize: "14px",
   fontWeight: 600,
-  color: "#111827",
+  color: "#dfe2eb",
 };
 
 const closeButtonStyle: React.CSSProperties = {
   background: "none",
   border: "none",
   fontSize: "16px",
-  color: "#6b7280",
+  color: "#ccc3d8",
   cursor: "pointer",
   padding: "4px",
 };
@@ -183,23 +184,26 @@ const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: "12px",
   fontWeight: 500,
-  color: "#374151",
-  marginBottom: "4px",
+  color: "#ccc3d8",
+  marginBottom: "6px",
 };
 
 const hintStyle: React.CSSProperties = {
   fontSize: "11px",
-  color: "#6b7280",
+  color: "#958da1",
   marginTop: "4px",
   marginBottom: 0,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "8px 10px",
+  padding: "10px 12px",
   fontSize: "13px",
-  border: "1px solid #d1d5db",
-  borderRadius: "4px",
+  fontFamily: "JetBrains Mono, monospace",
+  background: "#0a0e14",
+  border: "1px solid #4a4455",
+  borderRadius: "8px",
+  color: "#dfe2eb",
   outline: "none",
   boxSizing: "border-box",
 };
