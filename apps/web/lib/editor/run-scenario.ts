@@ -7,7 +7,10 @@
 import { translateToK6, type K6TranslatorOptions } from "@k6flow/shared";
 import type { GraphDraftComposition } from "@k6flow/shared";
 
-const ORCHESTRATOR_URL = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? "http://localhost:8080";
+// Use Next.js API proxy to reach the orchestrator
+// This works both in Docker (where browser can't reach orchestrator directly)
+// and in development
+const ORCHESTRATOR_API = "/api/orchestrator";
 
 /**
  * Attachment data to include with the run.
@@ -107,7 +110,7 @@ export async function runScenario(
   };
 
   try {
-    const res = await fetch(`${ORCHESTRATOR_URL}/runs`, {
+    const res = await fetch(`${ORCHESTRATOR_API}/runs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -139,10 +142,13 @@ export async function runScenario(
 
 /**
  * Get the WebSocket URL for live metrics of a run.
+ * TODO: WebSocket proxy needed for Docker deployment
  */
 export function getMetricsWebSocketUrl(runId: string): string {
-  const wsUrl = ORCHESTRATOR_URL.replace(/^http/, "ws");
-  return `${wsUrl}/runs/${runId}/metrics`;
+  // In development, connect directly to orchestrator
+  // In Docker, this needs a WebSocket proxy (not yet implemented)
+  const orchestratorWs = process.env.NEXT_PUBLIC_ORCHESTRATOR_WS_URL ?? "ws://localhost:8080";
+  return `${orchestratorWs}/runs/${runId}/metrics`;
 }
 
 /**
@@ -150,7 +156,7 @@ export function getMetricsWebSocketUrl(runId: string): string {
  */
 export async function checkOrchestratorHealth(): Promise<boolean> {
   try {
-    const res = await fetch(`${ORCHESTRATOR_URL}/healthz`, {
+    const res = await fetch(`${ORCHESTRATOR_API}/healthz`, {
       signal: AbortSignal.timeout(5000),
     });
     return res.ok;
