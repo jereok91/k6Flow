@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const res = await fetch(`${ORCHESTRATOR_URL}/runs`, {
+    const res = await fetch(`${ORCHESTRATOR_URL}/api/runs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
