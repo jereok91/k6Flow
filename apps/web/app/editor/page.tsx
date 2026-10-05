@@ -20,6 +20,7 @@ import {
   AuthenticationConfigPanel,
   ResponseValidationConfigPanel,
   UserPoolConfigPanel,
+  ScriptPanel,
   type K6NodeType,
   type K6Edge,
   type K6NodeData,
@@ -56,6 +57,7 @@ export default function EditorPage() {
   } | null>(null);
   const [showRunConfirmation, setShowRunConfirmation] = useState(false);
   const [runTargets, setRunTargets] = useState<string[]>([]);
+  const [showScriptPanel, setShowScriptPanel] = useState(false);
 
   const scenario = useScenario();
   const run = useRun();
@@ -414,6 +416,14 @@ export default function EditorPage() {
           <span className="text-label-code-sm text-on-surface-variant font-mono">
             {nodes.length} nodos · {edges.length} conexiones
           </span>
+          <button
+            onClick={() => setShowScriptPanel(!showScriptPanel)}
+            className={`btn-secondary ${showScriptPanel ? 'bg-secondary/20' : ''}`}
+            title="Ver script K6 generado"
+          >
+            <span className="material-symbols-outlined text-[16px]">code</span>
+            <span>Script</span>
+          </button>
           <button onClick={handleNew} className="btn-secondary">
             <span className="material-symbols-outlined text-[16px]">add</span>
             <span>Nuevo</span>
@@ -561,6 +571,13 @@ export default function EditorPage() {
           onEdgesChange={setEdges}
         />
         {renderConfigPanel()}
+        {showScriptPanel && (
+          <ScriptPanel
+            nodes={nodes}
+            edges={edges}
+            onClose={() => setShowScriptPanel(false)}
+          />
+        )}
       </div>
     </div>
   );

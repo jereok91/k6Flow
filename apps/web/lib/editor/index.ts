@@ -8,6 +8,7 @@ export { HttpRequestConfigPanel } from "./HttpRequestConfigPanel";
 export { AuthenticationConfigPanel } from "./AuthenticationConfigPanel";
 export { ResponseValidationConfigPanel } from "./ResponseValidationConfigPanel";
 export { UserPoolConfigPanel } from "./UserPoolConfigPanel";
+export { ScriptPanel } from "./ScriptPanel";
 export {
   toReactFlowGraph,
   fromReactFlowGraph,
