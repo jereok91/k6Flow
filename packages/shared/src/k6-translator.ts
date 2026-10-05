@@ -176,7 +176,30 @@ export function translateToK6(
 
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
-        bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}('${url}', null, {`);
+        
+        // Generate body from bodyTemplate if available
+        let authBody = "null";
+        if (params.bodyTemplate && params.bodyTemplate.length > 0) {
+          const bodyObj: string[] = [];
+          for (const field of params.bodyTemplate) {
+            // Look up variable in varMap (from User Pool outputs)
+            let value = `"{{${field.variable}}}"`; // fallback placeholder
+            // Try to find the variable from connected User Pool
+            for (const [key, mappedVar] of varMap.entries()) {
+              if (key.endsWith(`.${field.variable}`)) {
+                value = mappedVar;
+                break;
+              }
+            }
+            bodyObj.push(`    ${field.key}: ${value}`);
+          }
+          bodyLines.push(`  const ${varName}_body = JSON.stringify({`);
+          bodyLines.push(bodyObj.join(",\n"));
+          bodyLines.push("  });");
+          authBody = `${varName}_body`;
+        }
+        
+        bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}('${url}', ${authBody}, {`);
         bodyLines.push("    headers: { 'Content-Type': 'application/json' },");
         bodyLines.push("  });");
 
