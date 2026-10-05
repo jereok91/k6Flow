@@ -8,17 +8,17 @@ import { Handle, Position } from "@xyflow/react";
 import type { K6NodeData, NodeKind } from "./mapping";
 
 const KIND_COLORS: Record<NodeKind, string> = {
-  "authentication": "#6366f1", // indigo
-  "http-request": "#22c55e",   // green
+  "authentication": "#d2bbff", // primary
+  "http-request": "#4cd7f6",   // secondary
   "response-validation": "#f59e0b", // amber
-  "user-pool": "#8b5cf6",      // violet
+  "user-pool": "#d0bcff",      // tertiary
 };
 
 const KIND_ICONS: Record<NodeKind, string> = {
-  "authentication": "🔐",
-  "http-request": "🌐",
-  "response-validation": "✓",
-  "user-pool": "👥",
+  "authentication": "key",
+  "http-request": "language",
+  "response-validation": "check_circle",
+  "user-pool": "group",
 };
 
 interface K6NodeProps {
@@ -35,13 +35,13 @@ function K6NodeComponent({ data, selected }: K6NodeProps) {
       style={{
         padding: "12px 16px",
         borderRadius: "8px",
-        background: "#fff",
-        border: `2px solid ${selected ? color : "#e5e7eb"}`,
+        background: "var(--color-surface-container-low)",
+        border: `2px solid ${selected ? color : "var(--color-surface-container-high)"}`,
         boxShadow: selected
-          ? `0 0 0 2px ${color}40`
-          : "0 1px 3px rgba(0,0,0,0.1)",
+          ? `0 0 12px ${color}40`
+          : "0 1px 3px rgba(0,0,0,0.3)",
         minWidth: "150px",
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: "var(--font-sans)",
       }}
     >
       {/* Input handle */}
@@ -52,25 +52,38 @@ function K6NodeComponent({ data, selected }: K6NodeProps) {
           background: color,
           width: "10px",
           height: "10px",
-          border: "2px solid #fff",
+          border: "2px solid var(--color-surface-container-low)",
         }}
       />
 
       {/* Node content */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <span style={{ fontSize: "18px" }}>{icon}</span>
+        <span 
+          className="material-symbols-outlined"
+          style={{ fontSize: "20px", color }}
+        >
+          {icon}
+        </span>
         <div>
           <div
             style={{
-              fontSize: "12px",
-              color: "#6b7280",
+              fontSize: "11px",
+              color: "var(--color-on-surface-variant)",
               textTransform: "uppercase",
               letterSpacing: "0.05em",
             }}
           >
             {data.kind}
           </div>
-          <div style={{ fontSize: "14px", fontWeight: 500, color: "#111827" }}>
+          <div style={{ 
+            fontSize: "13px", 
+            fontWeight: 500, 
+            color: "var(--color-on-surface)",
+            maxWidth: "180px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}>
             {data.label}
           </div>
         </div>
@@ -84,7 +97,7 @@ function K6NodeComponent({ data, selected }: K6NodeProps) {
           background: color,
           width: "10px",
           height: "10px",
-          border: "2px solid #fff",
+          border: "2px solid var(--color-surface-container-low)",
         }}
       />
     </div>

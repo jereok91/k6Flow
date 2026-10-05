@@ -267,3 +267,52 @@
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
+
+/* React Flow dark theme overrides */
+.react-flow__controls {
+  background: var(--color-surface-container-low) !important;
+  border: 1px solid var(--color-surface-container-high) !important;
+  border-radius: 0.5rem !important;
+  box-shadow: var(--shadow-modal) !important;
+}
+
+.react-flow__controls-button {
+  background: var(--color-surface-container-low) !important;
+  border: none !important;
+  border-bottom: 1px solid var(--color-surface-container-high) !important;
+  color: var(--color-on-surface-variant) !important;
+  fill: var(--color-on-surface-variant) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--color-surface-container) !important;
+  color: var(--color-on-surface) !important;
+  fill: var(--color-on-surface) !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+}
+
+.react-flow__edge-path {
+  stroke: var(--color-outline-variant) !important;
+  stroke-width: 2 !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--color-primary) !important;
+}
+
+.react-flow__handle {
+  border: 2px solid var(--color-surface-container-low) !important;
+}
+
+.react-flow__minimap {
+  background: var(--color-surface-container-lowest) !important;
+  border: 1px solid var(--color-surface-container-high) !important;
+  border-radius: 0.5rem !important;
+}
