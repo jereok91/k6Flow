@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { AppHeader } from "../../lib/layout";
 
 interface Recording {
   id: string;
@@ -107,14 +108,15 @@ export default function RecordingsPage() {
   const totalPages = Math.ceil(total / pageSize);
 
   return (
-    <div className="min-h-screen bg-gray-900 p-6 text-white">
-      <div className="mx-auto max-w-6xl">
-        {/* Header */}
+    <div className="min-h-screen bg-gray-900 text-white">
+      <AppHeader />
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        {/* Page Header */}
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold">Recordings</h1>
           <Link
             href="/recorder"
-            className="rounded bg-blue-600 px-4 py-2 hover:bg-blue-500"
+            className="rounded-lg bg-blue-600 px-4 py-2 hover:bg-blue-500"
           >
             + New Recording
           </Link>
