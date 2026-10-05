@@ -10,12 +10,12 @@ import {
   Background,
   useNodesState,
   useEdgesState,
-  useOnSelectionChange,
   type Connection,
   type ReactFlowInstance,
   type NodeTypes,
   type Node,
   type Edge,
+  type OnSelectionChangeFunc,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -69,15 +69,16 @@ export function FlowEditor({
   );
 
   // Handle selection changes
-  useOnSelectionChange({
-    onChange: ({ nodes: selectedNodes }) => {
+  const handleSelectionChange: OnSelectionChangeFunc = useCallback(
+    ({ nodes: selectedNodes }) => {
       if (selectedNodes.length === 1) {
         onNodeSelect?.(selectedNodes[0] as K6NodeType);
       } else if (selectedNodes.length === 0) {
         onNodeSelect?.(null);
       }
     },
-  });
+    [onNodeSelect],
+  );
 
   // Notify parent of node changes
   const handleNodesChange = useCallback(
@@ -169,6 +170,7 @@ export function FlowEditor({
           onInit={onInit}
           onDragOver={onDragOver}
           onDrop={onDrop}
+          onSelectionChange={handleSelectionChange}
           nodeTypes={nodeTypes}
           fitView
           snapToGrid
