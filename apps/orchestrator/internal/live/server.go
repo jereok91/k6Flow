@@ -236,10 +236,16 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 // authorized validates the Sec-WebSocket-Protocol offer: the scheme
 // k6flow.bearer plus a value matching the configured token (constant time).
 // Extra offered values are ignored; an empty configured token fails closed.
+// Also accepts token as query parameter ?token= for browser WebSocket clients.
 func (s *Server) authorized(r *http.Request) bool {
 	if s.token == "" {
 		return false
 	}
+	// Check query param first (browser-friendly)
+	if queryToken := r.URL.Query().Get("token"); queryToken != "" {
+		return subtle.ConstantTimeCompare([]byte(queryToken), []byte(s.token)) == 1
+	}
+	// Fall back to subprotocol auth
 	hasScheme := false
 	tokenOK := false
 	for _, line := range r.Header.Values("Sec-WebSocket-Protocol") {

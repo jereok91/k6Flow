@@ -17,6 +17,9 @@ services:
   orchestrator:
     build:
       target: development
+    # Dev-only: expose port for WebSocket metrics streaming
+    ports:
+      - "127.0.0.1:8080:8080"
     volumes:
       - ../apps/orchestrator:/src:ro
       # Dev-only: lets the orchestrator manage per-run k6 containers (Phase 9 owns the security hardening).

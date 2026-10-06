@@ -18,6 +18,19 @@
         }
     }
     
+    # WebSocket proxy for live run metrics
+    # Token is injected by the proxy for internal auth
+    handle /api/ws/runs/* {
+        uri strip_prefix /api
+        uri query + token {$ORCHESTRATOR_SERVICE_TOKEN:k6flow-internal-token}
+        reverse_proxy orchestrator:8080 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+    
     # Proxy all other requests to the Next.js frontend
     reverse_proxy web:3000 {
         # WebSocket support for metrics streaming

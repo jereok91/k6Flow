@@ -4,6 +4,20 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
+// K6 exit code to human-readable error message
+function getK6ErrorMessage(status: string): string {
+  // When status is "failed", k6 exited with a non-zero code
+  // Common causes:
+  // - Exit 107: Script initialization error (syntax error, missing import)
+  // - Exit 99: Script error at init
+  // - Exit 1: Threshold breach
+  return "El script de k6 falló. Posibles causas:\n" +
+    "• Error de sintaxis en el script generado\n" +
+    "• Nodos sin configurar (URL vacía, etc.)\n" +
+    "• Endpoint no accesible desde el contenedor\n" +
+    "Revisa que todos los nodos tengan URLs válidas y accesibles.";
+}
+
 interface RunMetrics {
   vus: number;
   iterations: number;
@@ -64,11 +78,13 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
     return () => clearInterval(interval);
   }, [status]);
 
-  // Poll run status
+  // WebSocket for live metrics + polling for status
   useEffect(() => {
     let cancelled = false;
+    let ws: WebSocket | null = null;
     
-    const pollStatus = async () => {
+    // Fetch final status (for completion and errors)
+    const fetchStatus = async () => {
       try {
         const res = await fetch(`/api/orchestrator/runs/${runId}`);
         if (!res.ok) {
@@ -76,22 +92,156 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
             setError("Run not found");
             setStatus("failed");
           }
-          return;
+          return null;
         }
-        
-        const data = await res.json();
-        if (cancelled) return;
-        
+        return await res.json();
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to fetch status");
+        }
+        return null;
+      }
+    };
+    
+    // Connect WebSocket for live metrics
+    const connectWs = () => {
+      // In development, connect directly to orchestrator (exposed on :8080)
+      // In production, use the proxy path through Caddy
+      const isDev = window.location.port === "3000";
+      const token = "k6flow-internal-token"; // Dev token
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = isDev 
+        ? `ws://127.0.0.1:8080/ws/runs/${runId}?token=${token}`
+        : `${protocol}//${window.location.host}/api/ws/runs/${runId}`;
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        setStatus("running");
+        setLogs(prev => [...prev, "[WS] Connected to metrics stream"]);
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const frame = JSON.parse(event.data);
+          if (frame.type === "metrics" && frame.version === 1) {
+            setMetrics(prev => ({
+              ...prev,
+              vus: frame.activeVUs ?? prev.vus,
+              requestRate: frame.reqPerSec ?? prev.requestRate,
+              avgDuration: frame.latencyMs?.avg ?? prev.avgDuration,
+              p95Duration: frame.latencyMs?.p95 ?? prev.p95Duration,
+              errorRate: frame.httpFailureFraction != null 
+                ? frame.httpFailureFraction * 100 
+                : prev.errorRate,
+            }));
+          }
+        } catch {
+          // Ignore malformed frames
+        }
+      };
+      
+      ws.onclose = async (event) => {
+        // Close code 1000 = normal completion
+        if (event.code === 1000 || event.code === 1001) {
+          // Fetch final status to get completion details
+          const data = await fetchStatus();
+          if (data && !cancelled) {
+            const finalStatus = data.status as RunStatus;
+            setStatus(finalStatus);
+            if (finalStatus === "failed") {
+              setError(getK6ErrorMessage(finalStatus));
+              setLogs(prev => [...prev, "[ERROR] La ejecucion de k6 fallo"]);
+            }
+            if (finalStatus === "completed" || finalStatus === "failed" || finalStatus === "stopped") {
+              // Fetch summary for final metrics
+              try {
+                const summaryRes = await fetch(`/api/orchestrator/runs/${runId}/summary`);
+                if (summaryRes.ok) {
+                  const summary = await summaryRes.json();
+                  setMetrics(prev => ({
+                    ...prev,
+                    iterations: summary.iterations ?? prev.iterations,
+                    avgDuration: summary.avgDurationMs ?? prev.avgDuration,
+                    errorRate: summary.httpFailureFraction != null 
+                      ? summary.httpFailureFraction * 100 
+                      : prev.errorRate,
+                    dataReceived: summary.dataReceivedBytes ?? prev.dataReceived,
+                    dataSent: summary.dataSentBytes ?? prev.dataSent,
+                  }));
+                  // Show errors if any
+                  if (summary.errors && summary.errors.length > 0) {
+                    setLogs(prev => [...prev, ...summary.errors.map((e: string) => `[ERROR] ${e}`)]);
+                  }
+                }
+              } catch {
+                // Ignore summary fetch errors
+              }
+              onComplete?.({
+                runId,
+                status: finalStatus,
+                duration: elapsed,
+                iterations: metrics.iterations,
+                metrics,
+                errors: [],
+              });
+            }
+          }
+        } else {
+          // Unexpected close - fetch status to check what happened
+          const data = await fetchStatus();
+          if (data && !cancelled) {
+            setStatus(data.status as RunStatus);
+            if (data.error) {
+              setError(data.error);
+              setLogs(prev => [...prev, `[ERROR] ${data.error}`]);
+            }
+          }
+        }
+      };
+      
+      ws.onerror = () => {
+        setLogs(prev => [...prev, "[WS] Connection error - falling back to polling"]);
+        // Fall back to polling on WS error
+        startPolling();
+      };
+    };
+    
+    // Polling fallback
+    let pollInterval: NodeJS.Timeout | null = null;
+    const startPolling = () => {
+      if (pollInterval) return;
+      pollInterval = setInterval(async () => {
+        const data = await fetchStatus();
+        if (data && !cancelled) {
+          setStatus(data.status);
+          if (data.status === "failed") {
+            setError(getK6ErrorMessage(data.status));
+            setLogs(prev => [...prev, "[ERROR] La ejecucion de k6 fallo"]);
+          }
+          if (data.status === "completed" || data.status === "failed" || data.status === "stopped") {
+            if (pollInterval) clearInterval(pollInterval);
+            onComplete?.({
+              runId,
+              status: data.status,
+              duration: elapsed,
+              iterations: metrics.iterations,
+              metrics,
+              errors: data.errors || [],
+            });
+          }
+        }
+      }, 2000);
+    };
+    
+    // Start with initial status check, then connect WS
+    fetchStatus().then(data => {
+      if (data && !cancelled) {
         setStatus(data.status);
-        
-        if (data.metrics) {
-          setMetrics(prev => ({
-            ...prev,
-            ...data.metrics,
-          }));
-        }
-        
-        if (data.status === "completed" || data.status === "failed" || data.status === "stopped") {
+        if (data.status === "running" || data.status === "pending") {
+          connectWs();
+        } else {
+          // Already finished
           onComplete?.({
             runId,
             status: data.status,
@@ -101,28 +251,19 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
             errors: data.errors || [],
           });
         }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to fetch status");
-        }
       }
-    };
-
-    // Initial fetch
-    pollStatus();
-    
-    // Poll every 2 seconds while running
-    const interval = setInterval(() => {
-      if (status === "running" || status === "pending") {
-        pollStatus();
-      }
-    }, 2000);
+    });
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (ws) {
+        ws.close();
+      }
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
     };
-  }, [runId, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [runId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStop = useCallback(async () => {
     try {
