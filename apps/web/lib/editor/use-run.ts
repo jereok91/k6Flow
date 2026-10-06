@@ -8,6 +8,13 @@ import { useState, useCallback } from "react";
 import { runScenario, checkOrchestratorHealth, type RunConfig, type RunStartResult } from "./run-scenario";
 import { fromReactFlowGraph, type K6Node, type K6Edge } from "./mapping";
 
+export interface UseRunConfig extends RunConfig {
+  /** Scenario ID for history tracking */
+  scenarioId?: string;
+  /** Scenario name for history tracking */
+  scenarioName?: string;
+}
+
 interface UseRunResult {
   running: boolean;
   runId: string | null;
@@ -15,7 +22,7 @@ interface UseRunResult {
   warnings: string[];
   orchestratorAvailable: boolean | null;
   checkOrchestrator: () => Promise<void>;
-  startRun: (nodes: K6Node[], edges: K6Edge[], config?: RunConfig) => Promise<RunStartResult>;
+  startRun: (nodes: K6Node[], edges: K6Edge[], config?: UseRunConfig) => Promise<RunStartResult>;
   clearRun: () => void;
 }
 

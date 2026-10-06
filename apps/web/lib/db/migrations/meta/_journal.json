@@ -36,6 +36,13 @@
       "when": 1791300000000,
       "tag": "0004_run_ownership",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791400000000,
+      "tag": "0005_run_history",
+      "breakpoints": true
     }
   ]
 }

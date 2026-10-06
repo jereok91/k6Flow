@@ -86,6 +86,33 @@ export default function EditorPage() {
     run.checkOrchestrator();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load run history on mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const res = await fetch("/api/runs?limit=20");
+        if (res.ok) {
+          const data = await res.json();
+          setRunHistory(data.runs.map((r: any) => ({
+            runId: r.runId,
+            scenarioName: r.scenarioName,
+            startedAt: new Date(r.startedAt),
+            completedAt: r.completedAt ? new Date(r.completedAt) : undefined,
+            status: r.status,
+            vus: r.vus,
+            duration: r.durationMs ? `${Math.floor(r.durationMs / 1000)}s` : undefined,
+            iterations: r.iterations,
+            avgDuration: r.avgDurationMs,
+            errorRate: r.errorRate,
+          })));
+        }
+      } catch {
+        // Silently fail - history is not critical
+      }
+    };
+    loadHistory();
+  }, []);
+
   // Check authentication on mount
   useEffect(() => {
     fetch("/api/auth/me")
@@ -312,7 +339,10 @@ export default function EditorPage() {
     if (nodes.length === 0) {
       return;
     }
-    const result = await run.startRun(nodes, edges);
+    const result = await run.startRun(nodes, edges, {
+      scenarioId: scenario.scenarioId || undefined,
+      scenarioName: scenario.scenarioName || "Sin nombre",
+    });
     if (result.success && result.runId) {
       setCurrentRunId(result.runId);
       setShowExecutionPanel(true);
@@ -332,8 +362,8 @@ export default function EditorPage() {
     }
   };
 
-  const handleRunComplete = (result: { runId: string; status: string; iterations: number; metrics: { avgDuration: number; errorRate: number } }) => {
-    // Update history entry
+  const handleRunComplete = async (result: { runId: string; status: string; iterations: number; metrics: { avgDuration: number; errorRate: number } }) => {
+    // Update history entry in state
     setRunHistory(prev => prev.map(entry => 
       entry.runId === result.runId 
         ? { 
@@ -346,6 +376,22 @@ export default function EditorPage() {
           }
         : entry
     ));
+    
+    // Persist to database
+    try {
+      await fetch(`/api/runs/${result.runId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: result.status,
+          iterations: result.iterations,
+          avgDurationMs: result.metrics.avgDuration,
+          errorRate: result.metrics.errorRate,
+        }),
+      });
+    } catch {
+      // Silently fail - state is already updated in memory
+    }
   };
 
   // Loading state

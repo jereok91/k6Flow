@@ -38,6 +38,10 @@ export interface RunConfig {
   memoryMiB?: number;
   /** Attachments (CSV files) to include */
   attachments?: RunAttachment[];
+  /** Scenario ID for history tracking */
+  scenarioId?: string;
+  /** Scenario name for history tracking */
+  scenarioName?: string;
 }
 
 /**
@@ -65,6 +69,8 @@ export async function runScenario(
     cpuMillis = 500,
     memoryMiB = 256,
     attachments = [],
+    scenarioId,
+    scenarioName,
   } = config;
 
   // Translate graph to K6 script
@@ -107,6 +113,9 @@ export async function runScenario(
     cpuMillis,
     memoryMiB,
     attachments: attachments.map((a) => ({ id: a.id })),
+    // History tracking (not sent to orchestrator, only used by proxy)
+    scenarioId,
+    scenarioName,
   };
 
   try {

@@ -230,7 +230,7 @@ export type NewFolder = typeof folders.$inferInsert;
 export type BrowserState = typeof browserStates.$inferSelect;
 export type NewBrowserState = typeof browserStates.$inferInsert;
 
-// Run ownership tracking for orchestrator proxy
+// Run ownership and history tracking for orchestrator proxy
 export const runOwnership = pgTable(
   "run_ownership",
   {
@@ -238,9 +238,22 @@ export const runOwnership = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    scenarioId: text("scenario_id").references(() => scenarios.id, { onDelete: "set null" }),
+    scenarioName: text("scenario_name"),
+    status: text("status").notNull().default("running"),
+    vus: integer("vus").default(1),
+    durationMs: integer("duration_ms"),
+    completedAt: timestamp("completed_at"),
+    iterations: integer("iterations").default(0),
+    avgDurationMs: integer("avg_duration_ms"),
+    errorRate: integer("error_rate"), // stored as percentage * 100 (e.g., 5.5% = 550)
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [index("run_ownership_user_id_idx").on(t.userId)],
+  (t) => [
+    index("run_ownership_user_id_idx").on(t.userId),
+    index("run_ownership_scenario_id_idx").on(t.scenarioId),
+    index("run_ownership_status_idx").on(t.status),
+  ],
 );
 
 export type RunOwnership = typeof runOwnership.$inferSelect;

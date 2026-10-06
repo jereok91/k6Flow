@@ -5,7 +5,7 @@
 
 import { NextRequest } from "next/server";
 import { requireUser } from "../../../../lib/auth/require-user";
-import { setRunOwner, clearRunOwner } from "../../../../lib/editor/run-ownership";
+import { setRunOwner, clearRunOwner, type RunHistoryData } from "../../../../lib/editor/run-ownership";
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_INTERNAL_URL ?? "http://orchestrator:8080";
 const SERVICE_TOKEN = process.env.ORCHESTRATOR_SERVICE_TOKEN ?? "k6flow-internal-token";
@@ -61,7 +61,14 @@ export async function POST(request: NextRequest) {
 
       if (runId) {
         try {
-          await setRunOwner(runId, user.id);
+          // Extract history data from the request body
+          const historyData: RunHistoryData = {
+            scenarioId: body.scenarioId,
+            scenarioName: body.scenarioName,
+            vus: body.vus,
+            durationMs: body.durationMs,
+          };
+          await setRunOwner(runId, user.id, historyData);
         } catch (ownershipErr) {
           // Ownership persistence failed; rollback the run to prevent orphaned runs
           await rollbackRun(runId);
