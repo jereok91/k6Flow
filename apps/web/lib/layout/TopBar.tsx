@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useSidebar } from "./SidebarContext";
 
 export function TopBar() {
+  const { collapsed, ready } = useSidebar();
+
   return (
     <header
       style={{
         position: "fixed",
         top: 0,
-        left: "256px",
+        left: collapsed ? "72px" : "256px",
         right: 0,
         height: "64px",
         backgroundColor: "var(--color-surface-container-lowest)",
@@ -19,6 +22,7 @@ export function TopBar() {
         alignItems: "center",
         justifyContent: "space-between",
         padding: "0 20px",
+        transition: ready ? "left 0.2s ease" : "none",
       }}
     >
       {/* Breadcrumb */}
