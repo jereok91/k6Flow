@@ -44,16 +44,18 @@ export function FormField({
   label,
   children,
   hint,
+  error,
 }: {
   label: string;
   children: ReactNode;
   hint?: string;
+  error?: boolean;
 }) {
   return (
     <div style={{ marginBottom: "16px" }}>
       <label style={labelStyle}>{label}</label>
       {children}
-      {hint && <p style={hintStyle}>{hint}</p>}
+      {hint && <p style={{ ...hintStyle, color: error ? "#ef4444" : undefined }}>{hint}</p>}
     </div>
   );
 }
@@ -114,12 +116,14 @@ export function TextArea({
   placeholder,
   rows = 3,
   disabled,
+  mono,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   rows?: number;
   disabled?: boolean;
+  mono?: boolean;
 }) {
   return (
     <textarea
@@ -128,7 +132,13 @@ export function TextArea({
       placeholder={placeholder}
       rows={rows}
       disabled={disabled}
-      style={{ ...inputStyle, resize: "vertical" }}
+      style={{ 
+        ...inputStyle, 
+        resize: "vertical",
+        fontFamily: mono ? "'Fira Code', 'Monaco', 'Consolas', monospace" : undefined,
+        fontSize: mono ? "13px" : undefined,
+        lineHeight: mono ? "1.5" : undefined,
+      }}
     />
   );
 }

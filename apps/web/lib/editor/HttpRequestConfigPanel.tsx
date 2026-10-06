@@ -81,12 +81,23 @@ export function HttpRequestConfigPanel({
   };
 
   const updateBodyText = (newText: string) => {
+    const currentKind = parameters?.body?.kind ?? "text";
     onChange({
       method: parameters?.method ?? "GET",
       url: parameters?.url ?? { kind: "literal", value: "" },
-      body: { kind: "text", value: { kind: "literal", value: newText } },
+      body: { kind: currentKind === "none" ? "text" : currentKind, value: { kind: "literal", value: newText } },
     } as HttpRequestParams);
   };
+
+  // Validate JSON when body type is json
+  const jsonError = bodyKind === "json" && bodyText ? (() => {
+    try {
+      JSON.parse(bodyText);
+      return null;
+    } catch (e) {
+      return (e as Error).message;
+    }
+  })() : null;
 
   return (
     <ConfigPanel kind="http-request" title="HTTP Request" onClose={onClose}>
@@ -119,13 +130,15 @@ export function HttpRequestConfigPanel({
       {bodyKind !== "none" && (
         <FormField 
           label="Body Content" 
-          hint={bodyKind === "json" ? "JSON object" : bodyKind === "xml" ? "XML document" : bodyKind === "form" ? "key=value&key2=value2" : "Raw text"}
+          hint={jsonError ? `❌ ${jsonError}` : bodyKind === "json" ? "JSON object" : bodyKind === "xml" ? "XML document" : bodyKind === "form" ? "key=value&key2=value2" : "Raw text"}
+          error={!!jsonError}
         >
           <TextArea
             value={bodyText}
             onChange={updateBodyText}
             placeholder={bodyKind === "json" ? '{"key": "value"}' : bodyKind === "xml" ? '<root>...</root>' : bodyKind === "form" ? 'username=test&password=123' : "Request body..."}
-            rows={4}
+            rows={6}
+            mono
           />
         </FormField>
       )}
