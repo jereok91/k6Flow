@@ -165,6 +165,10 @@ export function translateToK6(
       case "user-pool": {
         if (!node.parameters) break;
         const params = node.parameters;
+        // Skip if no outputs defined or no data configured
+        if (!params.outputs || params.outputs.length === 0) break;
+        if (!params.manualUsers && !params.attachment) break;
+        
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
         bodyLines.push(`  const ${varName} = ${varName}_data[__VU % ${varName}_data.length];`);
@@ -178,9 +182,13 @@ export function translateToK6(
       case "authentication": {
         if (!node.parameters) break;
         const params = node.parameters;
+        // Skip if no method configured or method is 'none'
+        if (!params.method || params.method.kind === "literal" && params.method.value === "none") break;
+        if (!params.method.request) break;
+        
         const req = params.method.request;
         const method = req.method;
-        const url = req.url.kind === "literal" ? req.url.value : "''";
+        const url = req.url?.kind === "literal" ? req.url.value : "''";
 
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
@@ -218,11 +226,13 @@ export function translateToK6(
         bodyLines.push("  });");
 
         // Extract outputs
-        for (const output of params.outputs) {
-          if (output.selector.kind === "json-path") {
-            const jsonPath = output.selector.path.join(".");
-            bodyLines.push(`  const ${varName}_${output.name} = ${varName}_res.json('${jsonPath}');`);
-            varMap.set(`${id}.${output.name}`, `${varName}_${output.name}`);
+        if (params.outputs && Array.isArray(params.outputs)) {
+          for (const output of params.outputs) {
+            if (output.selector?.kind === "json-path") {
+              const jsonPath = output.selector.path.join(".");
+              bodyLines.push(`  const ${varName}_${output.name} = ${varName}_res.json('${jsonPath}');`);
+              varMap.set(`${id}.${output.name}`, `${varName}_${output.name}`);
+            }
           }
         }
         varMap.set(`${id}.response`, `${varName}_res`);
@@ -260,6 +270,9 @@ export function translateToK6(
       case "response-validation": {
         if (!node.parameters) break;
         const params = node.parameters;
+        // Skip if no response reference or checks configured
+        if (!params.response || !params.checks || params.checks.length === 0) break;
+        
         const responseRef = params.response;
         const responseVar = varMap.get(`${responseRef.producerNodeId}.${responseRef.output}`) ?? "null";
 
