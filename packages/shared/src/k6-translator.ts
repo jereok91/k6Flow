@@ -188,7 +188,7 @@ export function translateToK6(
         
         const req = params.method.request;
         const method = req.method;
-        const url = req.url?.kind === "literal" ? req.url.value : "''";
+        const url = req.url?.kind === "literal" ? req.url.value.trim() : "";
 
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
@@ -245,7 +245,7 @@ export function translateToK6(
         const method = params.method;
         let url = "''";
         if (params.url.kind === "literal") {
-          url = `'${params.url.value}'`;
+          url = `'${params.url.value.trim()}'`;
         } else if (params.url.kind === "reference") {
           const ref = params.url.reference;
           url = varMap.get(`${ref.producerNodeId}.${ref.output}`) ?? "''";
