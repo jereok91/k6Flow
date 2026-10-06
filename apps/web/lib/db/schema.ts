@@ -229,3 +229,19 @@ export type Folder = typeof folders.$inferSelect;
 export type NewFolder = typeof folders.$inferInsert;
 export type BrowserState = typeof browserStates.$inferSelect;
 export type NewBrowserState = typeof browserStates.$inferInsert;
+
+// Run ownership tracking for orchestrator proxy
+export const runOwnership = pgTable(
+  "run_ownership",
+  {
+    runId: text("run_id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("run_ownership_user_id_idx").on(t.userId)],
+);
+
+export type RunOwnership = typeof runOwnership.$inferSelect;
+export type NewRunOwnership = typeof runOwnership.$inferInsert;

@@ -22,13 +22,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const { runId } = await context.params;
 
   // Verify run ownership - only allow access to runs created by this user
-  // Fail-closed: if ownership is unknown, deny access
-  // TODO: Persist ownership in database for proper enforcement across restarts
-  const owner = getRunOwner(runId);
+  // Fail-closed: if ownership is unknown (not in DB), deny access
+  const owner = await getRunOwner(runId);
   if (!owner) {
     return Response.json({ error: "Forbidden: run ownership unknown" }, { status: 403 });
   }
-  if (!isRunOwner(runId, user.id)) {
+  if (!(await isRunOwner(runId, user.id))) {
     return Response.json({ error: "Forbidden: not run owner" }, { status: 403 });
   }
   

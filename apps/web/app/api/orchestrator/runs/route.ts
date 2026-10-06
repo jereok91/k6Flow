@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       try {
         const runData = JSON.parse(data);
         if (runData.id) {
-          setRunOwner(runData.id, user.id);
+          await setRunOwner(runData.id, user.id);
         }
       } catch {
         // Ignore parse errors - the run may have been created without proper JSON

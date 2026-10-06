@@ -1,29 +1,41 @@
 /**
  * Run ownership tracking for the orchestrator proxy.
  * 
- * This is a simple in-memory store mapping runId -> userId.
- * In production, this should be persisted to the database.
- * 
- * WARNING: This store is cleared on server restart. For production,
- * implement proper run ownership in the database or orchestrator.
+ * This module persists run ownership in the database, surviving
+ * server restarts and working across multiple replicas.
  */
 
-// Map of runId -> userId
-const runOwnership = new Map<string, string>();
+import { eq } from "drizzle-orm";
+import { getDb } from "../db/client";
+import { runOwnership } from "../db/schema";
 
-export function setRunOwner(runId: string, userId: string): void {
-  runOwnership.set(runId, userId);
+export async function setRunOwner(runId: string, userId: string): Promise<void> {
+  const db = getDb();
+  await db
+    .insert(runOwnership)
+    .values({ runId, userId })
+    .onConflictDoUpdate({
+      target: runOwnership.runId,
+      set: { userId },
+    });
 }
 
-export function getRunOwner(runId: string): string | undefined {
-  return runOwnership.get(runId);
+export async function getRunOwner(runId: string): Promise<string | undefined> {
+  const db = getDb();
+  const result = await db
+    .select({ userId: runOwnership.userId })
+    .from(runOwnership)
+    .where(eq(runOwnership.runId, runId))
+    .limit(1);
+  return result[0]?.userId;
 }
 
-export function isRunOwner(runId: string, userId: string): boolean {
-  const owner = runOwnership.get(runId);
+export async function isRunOwner(runId: string, userId: string): Promise<boolean> {
+  const owner = await getRunOwner(runId);
   return owner === userId;
 }
 
-export function clearRunOwner(runId: string): void {
-  runOwnership.delete(runId);
+export async function clearRunOwner(runId: string): Promise<void> {
+  const db = getDb();
+  await db.delete(runOwnership).where(eq(runOwnership.runId, runId));
 }
