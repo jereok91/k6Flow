@@ -159,10 +159,10 @@ export function RunHistoryPanel({ history, onViewRun, onClose }: RunHistoryPanel
                 <span>•</span>
                 <span>{entry.iterations} iteraciones</span>
               </div>
-              {entry.avgDuration !== undefined && (
+              {entry.avgDuration != null && (
                 <div style={entryMetricsStyle}>
                   <span>Avg: {entry.avgDuration.toFixed(0)}ms</span>
-                  {entry.errorRate !== undefined && entry.errorRate > 0 && (
+                  {entry.errorRate != null && entry.errorRate > 0 && (
                     <span style={{ color: "#ef4444" }}>
                       {(entry.errorRate * 100).toFixed(1)}% errores
                     </span>
