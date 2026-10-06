@@ -15,6 +15,7 @@ interface User {
 const navItems = [
   { path: "/", label: "Inicio", icon: "grid_view" },
   { path: "/scenarios", label: "Escenarios", icon: "account_tree" },
+  { path: "/executions", label: "Ejecuciones", icon: "play_circle", countable: true },
   { path: "/recordings", label: "Grabaciones", icon: "fiber_manual_record" },
   { path: "/recorder", label: "Grabar", icon: "videocam" },
   { path: "/editor", label: "Editor", icon: "edit_square" },
@@ -27,6 +28,7 @@ export function Sidebar() {
   const { collapsed, ready, toggleCollapsed } = useSidebar();
   const [user, setUser] = useState<User | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activeRunsCount, setActiveRunsCount] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Fetch current user
@@ -35,6 +37,19 @@ export function Sidebar() {
       .then((res) => (res.ok ? res.json() : null))
       .then(setUser)
       .catch(() => setUser(null));
+  }, []);
+
+  // Fetch active runs count
+  useEffect(() => {
+    const fetchCount = () => {
+      fetch("/api/orchestrator/runs/active")
+        .then((res) => (res.ok ? res.json() : { active: [], queued: [] }))
+        .then((data) => setActiveRunsCount((data.active?.length || 0) + (data.queued?.length || 0)))
+        .catch(() => {});
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   // Close menu on outside click
@@ -197,6 +212,23 @@ export function Sidebar() {
           >
             <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>{item.icon}</span>
             {!collapsed && <span>{item.label}</span>}
+            {item.countable && activeRunsCount > 0 && (
+              <span style={{
+                marginLeft: "auto",
+                minWidth: "20px",
+                height: "20px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "10px",
+                background: "var(--color-primary)",
+                color: "var(--color-on-primary)",
+                fontSize: "11px",
+                fontWeight: 600,
+              }}>
+                {activeRunsCount}
+              </span>
+            )}
           </Link>
         ))}
       </nav>

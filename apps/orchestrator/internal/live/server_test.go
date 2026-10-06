@@ -154,6 +154,31 @@ func mustEncode(t *testing.T, f metrics.MetricsFrame) []byte {
 	return data
 }
 
+// mustEncodeTick wraps a frame in a tick message envelope.
+func mustEncodeTick(t *testing.T, f metrics.MetricsFrame) []byte {
+	t.Helper()
+	tick := NewTickMessage(f)
+	data, err := EncodeMessage(tick)
+	if err != nil {
+		t.Fatalf("EncodeMessage: %v", err)
+	}
+	return data
+}
+
+// skipHello reads and discards the hello message sent on connection.
+func skipHello(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read hello: %v", err)
+	}
+	var probe struct{ Type string `json:"type"` }
+	if err := json.Unmarshal(data, &probe); err != nil || probe.Type != TypeHello {
+		t.Fatalf("expected hello, got %s", data)
+	}
+}
+
 func readMessage(t *testing.T, conn *websocket.Conn) []byte {
 	t.Helper()
 	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -196,7 +221,20 @@ func assertMetricsOnly(t *testing.T, msgs [][]byte, runID string, wantIncreasing
 		if err := json.Unmarshal(m, &probe); err != nil {
 			t.Fatalf("received non-JSON message %q: %v", m, err)
 		}
-		if probe.Type != "metrics" {
+		// Allow hello and tick messages
+		if probe.Type == TypeHello {
+			continue // skip hello in assertions
+		}
+		if probe.Type == TypeTick {
+			// Extract seq from tick frame
+			var tick struct {
+				Frame struct {
+					Seq int64 `json:"seq"`
+				} `json:"frame"`
+			}
+			json.Unmarshal(m, &tick)
+			probe.Seq = tick.Frame.Seq
+		} else if probe.Type != "metrics" {
 			t.Fatalf("received non-metrics message type %q (no terminal frame is allowed)", probe.Type)
 		}
 		if probe.Run != runID {
@@ -415,11 +453,12 @@ func TestUpgradeDeliversEncodedFrame(t *testing.T) {
 	env := newTestEnv(t)
 	conn := env.dial(t, "run-1")
 	env.waitSubscribers(t, "run-1", 1)
+	skipHello(t, conn)
 
 	frame := mkFrame("run-1", 0)
 	env.srv.OnFrame(frame)
 	got := readMessage(t, conn)
-	if want := mustEncode(t, frame); string(got) != string(want) {
+	if want := mustEncodeTick(t, frame); string(got) != string(want) {
 		t.Errorf("frame = %s, want %s", got, want)
 	}
 }
@@ -428,6 +467,7 @@ func TestBurstOrderingPreserved(t *testing.T) {
 	env := newTestEnv(t)
 	conn := env.dial(t, "run-1")
 	env.waitSubscribers(t, "run-1", 1)
+	skipHello(t, conn)
 
 	// 50 frames < 64-frame buffer: nothing may drop, order must hold.
 	const burst = 50
@@ -436,7 +476,7 @@ func TestBurstOrderingPreserved(t *testing.T) {
 	}
 	for i := int64(0); i < burst; i++ {
 		got := readMessage(t, conn)
-		if want := mustEncode(t, mkFrame("run-1", i)); string(got) != string(want) {
+		if want := mustEncodeTick(t, mkFrame("run-1", i)); string(got) != string(want) {
 			t.Fatalf("frame %d out of order: got %s, want %s", i, got, want)
 		}
 	}
@@ -480,10 +520,10 @@ func TestStalledSubscriberDropOldestNeverBlocks(t *testing.T) {
 		drained = append(drained, <-stalled.ch)
 	}
 	// Drop-oldest: frames 136..199 survive — latest frame preserved.
-	if want := mustEncode(t, mkFrame("run-1", total-subscriberBuffer)); string(drained[0]) != string(want) {
+	if want := mustEncodeTick(t, mkFrame("run-1", total-subscriberBuffer)); string(drained[0]) != string(want) {
 		t.Errorf("oldest surviving frame = %s, want %s", drained[0], want)
 	}
-	if want := mustEncode(t, mkFrame("run-1", total-1)); string(drained[len(drained)-1]) != string(want) {
+	if want := mustEncodeTick(t, mkFrame("run-1", total-1)); string(drained[len(drained)-1]) != string(want) {
 		t.Errorf("newest frame = %s, want %s", drained[len(drained)-1], want)
 	}
 }
@@ -501,6 +541,7 @@ func TestStalledSubscriberDoesNotStarveLiveClient(t *testing.T) {
 
 	conn := env.dial(t, "run-1")
 	env.waitSubscribers(t, "run-1", 2)
+	skipHello(t, conn)
 
 	const total = 100
 	for i := int64(0); i < total; i++ {
@@ -516,15 +557,24 @@ func TestStalledSubscriberDoesNotStarveLiveClient(t *testing.T) {
 			t.Fatalf("read: %v (last seq %d)", err, last)
 		}
 		var probe struct {
-			Seq int64 `json:"seq"`
+			Type  string `json:"type"`
+			Seq   int64  `json:"seq"`
+			Frame struct {
+				Seq int64 `json:"seq"`
+			} `json:"frame"`
 		}
 		if err := json.Unmarshal(data, &probe); err != nil {
 			t.Fatalf("parse: %v", err)
 		}
-		if probe.Seq <= last {
-			t.Fatalf("seq out of order: %d after %d", probe.Seq, last)
+		// Use frame.seq for tick messages
+		seq := probe.Seq
+		if probe.Type == TypeTick {
+			seq = probe.Frame.Seq
 		}
-		last = probe.Seq
+		if seq <= last {
+			t.Fatalf("seq out of order: %d after %d", seq, last)
+		}
+		last = seq
 	}
 }
 
@@ -617,8 +667,9 @@ func TestCloseRunSendsEmpty1000AndCleansRegistry(t *testing.T) {
 	}
 
 	// The other run's subscriber is unaffected and still receives frames.
+	skipHello(t, b) // skip hello message
 	env.srv.OnFrame(mkFrame("run-2", 7))
-	if got := readMessage(t, b); string(got) != string(mustEncode(t, mkFrame("run-2", 7))) {
+	if got := readMessage(t, b); string(got) != string(mustEncodeTick(t, mkFrame("run-2", 7))) {
 		t.Errorf("run-2 frame = %s, want seq 7 frame", got)
 	}
 }

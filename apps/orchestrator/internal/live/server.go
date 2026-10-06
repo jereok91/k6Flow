@@ -165,6 +165,28 @@ func (s *Server) OnFrame(frame metrics.MetricsFrame) {
 	s.hub.OnFrame(frame)
 }
 
+// BroadcastState sends a state change message to all subscribers of a run.
+func (s *Server) BroadcastState(runID string, from, to runs.Status, at time.Time, actor, cause string) {
+	msg := NewStateMessage(runID, from, to, at, actor, cause)
+	data, err := EncodeMessage(msg)
+	if err != nil {
+		s.logger.Warn("state message encode failed", "runId", runID, "err", err)
+		return
+	}
+	s.hub.broadcast(runID, data)
+}
+
+// BroadcastEnd sends an end message to all subscribers of a run.
+func (s *Server) BroadcastEnd(run runs.Run) {
+	msg := NewEndMessage(run)
+	data, err := EncodeMessage(msg)
+	if err != nil {
+		s.logger.Warn("end message encode failed", "runId", run.ID, "err", err)
+		return
+	}
+	s.hub.broadcast(run.ID, data)
+}
+
 // CloseRun sends the close frame (given code, empty reason, no terminal
 // frame) to every subscriber of runID and prunes the registry entry. Safe to
 // call when the run has no subscribers; concurrent with broadcasts.
@@ -205,7 +227,8 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusNotFound, codeRunNotFound, msgRunNotFound)
 		return
 	}
-	if _, ok := s.lookup.Get(runID); !ok {
+	run, ok := s.lookup.Get(runID)
+	if !ok {
 		s.logger.Warn("websocket handshake rejected", "reason", "unknown-run", "runId", runID, "remote", r.RemoteAddr)
 		s.writeError(w, http.StatusNotFound, codeRunNotFound, msgRunNotFound)
 		return
@@ -216,15 +239,24 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("websocket upgrade failed", "runId", runID, "err", err)
 		return
 	}
+	lastSeq := s.hub.GetLastSeq(runID)
 	sub := &subscriber{
-		runID: runID,
-		hub:   s.hub,
-		conn:  conn,
-		ch:    make(chan []byte, subscriberBuffer),
-		done:  make(chan struct{}),
+		runID:   runID,
+		hub:     s.hub,
+		conn:    conn,
+		ch:      make(chan []byte, subscriberBuffer),
+		done:    make(chan struct{}),
+		lastSeq: lastSeq,
 	}
 	s.hub.add(sub)
 	s.logger.Info("websocket subscriber connected", "runId", runID)
+
+	// Send hello message
+	hello := NewHelloMessage(run, lastSeq)
+	if data, err := EncodeMessage(hello); err == nil {
+		_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
+		_ = conn.WriteMessage(websocket.TextMessage, data)
+	}
 	defer func() {
 		sub.closeWithCode(closeNoFrame)
 		_ = conn.Close()
@@ -308,6 +340,7 @@ type subscriber struct {
 	ch        chan []byte
 	done      chan struct{}
 	closeOnce sync.Once
+	lastSeq   int64 // for reconnection support
 }
 
 // offer is the non-blocking drop-oldest enqueue (R3 advisory: OnFrame must
@@ -352,13 +385,18 @@ func (s *subscriber) closeWithCode(code int) {
 
 // hub is the thread-safe per-run subscriber registry and the broadcast path.
 type hub struct {
-	mu     sync.Mutex
-	runs   map[string]map[*subscriber]struct{}
-	logger *slog.Logger
+	mu       sync.Mutex
+	runs     map[string]map[*subscriber]struct{}
+	lastSeqs map[string]int64 // last sequence per run
+	logger   *slog.Logger
 }
 
 func newHub(logger *slog.Logger) *hub {
-	return &hub{runs: make(map[string]map[*subscriber]struct{}), logger: logger}
+	return &hub{
+		runs:     make(map[string]map[*subscriber]struct{}),
+		lastSeqs: make(map[string]int64),
+		logger:   logger,
+	}
 }
 
 func (h *hub) add(sub *subscriber) {
@@ -421,14 +459,33 @@ func flatten(set map[*subscriber]struct{}) []*subscriber {
 // it (R3-blocking-sink-stalls-completion). The hub lock is held only across
 // channel operations.
 func (h *hub) OnFrame(frame metrics.MetricsFrame) {
-	data, err := frame.EncodeJSON()
+	// Wrap in tick message for unified envelope
+	tick := NewTickMessage(frame)
+	data, err := EncodeMessage(tick)
 	if err != nil {
 		h.logger.Warn("metrics frame encode failed; dropped", "runId", frame.RunID, "seq", frame.Seq, "err", err)
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.lastSeqs[frame.RunID] = frame.Seq
 	for sub := range h.runs[frame.RunID] {
+		sub.offer(data)
+	}
+}
+
+// GetLastSeq returns the last sequence number for a run.
+func (h *hub) GetLastSeq(runID string) int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.lastSeqs[runID]
+}
+
+// broadcast sends encoded data to all subscribers of a run.
+func (h *hub) broadcast(runID string, data []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for sub := range h.runs[runID] {
 		sub.offer(data)
 	}
 }

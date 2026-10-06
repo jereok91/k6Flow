@@ -3,6 +3,7 @@
 // Panel to display live K6 test execution with metrics and results.
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { RpsChart, LatencyChart, Sparkline } from "./MetricsChart";
 
 // K6 exit code to human-readable error message
 function getK6ErrorMessage(status: string): string {
@@ -61,6 +62,24 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
   const [logs, setLogs] = useState<string[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [chartData, setChartData] = useState<{
+    time: number[];
+    rps: number[];
+    avgLatency: number[];
+    p95Latency: number[];
+    p99Latency: number[];
+    vus: number[];
+    errorRate: number[];
+  }>({
+    time: [],
+    rps: [],
+    avgLatency: [],
+    p95Latency: [],
+    p99Latency: [],
+    vus: [],
+    errorRate: [],
+  });
   const logsEndRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(Date.now());
 
@@ -117,14 +136,40 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
       ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
-        setStatus("running");
+        setWsConnected(true);
         setLogs(prev => [...prev, "[WS] Connected to metrics stream"]);
       };
       
       ws.onmessage = (event) => {
         try {
-          const frame = JSON.parse(event.data);
-          if (frame.type === "metrics" && frame.version === 1) {
+          const msg = JSON.parse(event.data);
+          
+          // Handle hello message (sent on connection)
+          if (msg.type === "hello") {
+            setStatus(msg.status as RunStatus || "running");
+            setLogs(prev => [...prev, `[WS] Hello received - status: ${msg.status}, lastSeq: ${msg.lastSeq}`]);
+            return;
+          }
+
+          // Handle state change messages
+          if (msg.type === "state") {
+            setStatus(msg.toState as RunStatus);
+            setLogs(prev => [...prev, `[STATE] ${msg.fromState} -> ${msg.toState}`]);
+            return;
+          }
+
+          // Handle end message
+          if (msg.type === "end") {
+            setStatus(msg.status as RunStatus);
+            setLogs(prev => [...prev, `[END] Run ${msg.status} - exit code: ${msg.exitCode}`]);
+            return;
+          }
+          
+          // Handle tick message (wraps metrics frame)
+          if (msg.type === "tick" && msg.version === 1) {
+            const frame = msg.frame;
+            const windowStartSec = (frame.window?.startMs ?? 0) / 1000;
+            
             setMetrics(prev => ({
               ...prev,
               vus: frame.activeVUs ?? prev.vus,
@@ -133,6 +178,42 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
               p95Duration: frame.latencyMs?.p95 ?? prev.p95Duration,
               errorRate: frame.httpFailureFraction ?? prev.errorRate,
             }));
+
+            // Update chart data
+            setChartData(prev => ({
+              time: [...prev.time, windowStartSec],
+              rps: [...prev.rps, frame.reqPerSec ?? 0],
+              avgLatency: [...prev.avgLatency, frame.latencyMs?.avg ?? 0],
+              p95Latency: [...prev.p95Latency, frame.latencyMs?.p95 ?? 0],
+              p99Latency: [...prev.p99Latency, frame.latencyMs?.p99 ?? 0],
+              vus: [...prev.vus, frame.activeVUs ?? 0],
+              errorRate: [...prev.errorRate, frame.httpFailureFraction ?? 0],
+            }));
+            return;
+          }
+
+          // Legacy: handle direct metrics frame (backward compat)
+          if (msg.type === "metrics" && msg.version === 1) {
+            const windowStartSec = (msg.window?.startMs ?? 0) / 1000;
+            
+            setMetrics(prev => ({
+              ...prev,
+              vus: msg.activeVUs ?? prev.vus,
+              requestRate: msg.reqPerSec ?? prev.requestRate,
+              avgDuration: msg.latencyMs?.avg ?? prev.avgDuration,
+              p95Duration: msg.latencyMs?.p95 ?? prev.p95Duration,
+              errorRate: msg.httpFailureFraction ?? prev.errorRate,
+            }));
+
+            setChartData(prev => ({
+              time: [...prev.time, windowStartSec],
+              rps: [...prev.rps, msg.reqPerSec ?? 0],
+              avgLatency: [...prev.avgLatency, msg.latencyMs?.avg ?? 0],
+              p95Latency: [...prev.p95Latency, msg.latencyMs?.p95 ?? 0],
+              p99Latency: [...prev.p99Latency, msg.latencyMs?.p99 ?? 0],
+              vus: [...prev.vus, msg.activeVUs ?? 0],
+              errorRate: [...prev.errorRate, msg.httpFailureFraction ?? 0],
+            }));
           }
         } catch {
           // Ignore malformed frames
@@ -140,6 +221,7 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
       };
       
       ws.onclose = async (event) => {
+        setWsConnected(false);
         // Close code 1000 = normal completion
         if (event.code === 1000 || event.code === 1001) {
           // Fetch final status to get completion details
@@ -338,6 +420,18 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
           <span style={{ fontSize: "12px", color: "var(--color-on-surface-variant)" }}>
             {formatElapsed(elapsed)}
           </span>
+          {wsConnected && (
+            <span style={{ 
+              fontSize: "10px", 
+              color: "#10b981",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981" }} />
+              LIVE
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", gap: "8px" }}>
           {(status === "running" || status === "pending") && (
@@ -358,14 +452,55 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
         </div>
       )}
 
-      {/* Metrics Grid */}
+      {/* KPIs with Sparklines */}
+      <div style={kpiGridStyle}>
+        <KpiCard 
+          label="VUs Activos" 
+          value={metrics.vus.toString()} 
+          sparkData={chartData.vus.slice(-30)}
+          color="#10b981"
+        />
+        <KpiCard 
+          label="Req/s" 
+          value={metrics.requestRate.toFixed(1)} 
+          sparkData={chartData.rps.slice(-30)}
+          color="#8b5cf6"
+        />
+        <KpiCard 
+          label="Avg Latency" 
+          value={formatDuration(metrics.avgDuration)} 
+          sparkData={chartData.avgLatency.slice(-30)}
+          color="#06b6d4"
+        />
+        <KpiCard 
+          label="Error Rate" 
+          value={`${(metrics.errorRate * 100).toFixed(1)}%`} 
+          sparkData={chartData.errorRate.slice(-30)}
+          color="#ef4444"
+          highlight={metrics.errorRate > 0.01}
+        />
+      </div>
+
+      {/* Charts */}
+      {chartData.time.length > 1 && (
+        <div style={chartsContainerStyle}>
+          <RpsChart 
+            data={[chartData.time, chartData.rps]} 
+            width={360}
+            height={150}
+          />
+          <LatencyChart 
+            data={[chartData.time, chartData.avgLatency, chartData.p95Latency, chartData.p99Latency]} 
+            width={360}
+            height={150}
+          />
+        </div>
+      )}
+
+      {/* Additional Metrics */}
       <div style={metricsGridStyle}>
-        <MetricCard label="VUs Activos" value={metrics.vus.toString()} />
         <MetricCard label="Iteraciones" value={metrics.iterations.toString()} />
-        <MetricCard label="Req/s" value={metrics.requestRate.toFixed(1)} />
-        <MetricCard label="Avg Duration" value={formatDuration(metrics.avgDuration)} />
         <MetricCard label="P95 Duration" value={formatDuration(metrics.p95Duration)} />
-        <MetricCard label="Error Rate" value={`${(metrics.errorRate * 100).toFixed(1)}%`} highlight={metrics.errorRate > 0.01} />
         <MetricCard label="Data Recibida" value={formatBytes(metrics.dataReceived)} />
         <MetricCard label="Data Enviada" value={formatBytes(metrics.dataSent)} />
       </div>
@@ -413,7 +548,51 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
   );
 }
 
-// Metric Card Component
+// KPI Card with Sparkline
+function KpiCard({ label, value, sparkData, color, highlight }: { 
+  label: string; 
+  value: string; 
+  sparkData: number[];
+  color: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div style={{
+      background: "var(--color-surface-container)",
+      borderRadius: "8px",
+      padding: "12px",
+      display: "flex",
+      flexDirection: "column",
+      gap: "4px",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ 
+            fontSize: "10px", 
+            color: "var(--color-on-surface-variant)",
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+          }}>
+            {label}
+          </div>
+          <div style={{ 
+            fontSize: "20px", 
+            fontWeight: 600,
+            fontFamily: "var(--font-mono)",
+            color: highlight ? "#ef4444" : "var(--color-on-surface)",
+          }}>
+            {value}
+          </div>
+        </div>
+        {sparkData.length > 2 && (
+          <Sparkline data={sparkData} width={80} height={28} color={color} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Metric Card Component (simplified)
 function MetricCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div style={{
@@ -503,11 +682,27 @@ const errorStyle: React.CSSProperties = {
   borderBottom: "1px solid rgba(239, 68, 68, 0.3)",
 };
 
-const metricsGridStyle: React.CSSProperties = {
+const kpiGridStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(4, 1fr)",
   gap: "12px",
   padding: "16px",
+  borderBottom: "1px solid var(--color-surface-container)",
+};
+
+const chartsContainerStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "12px",
+  padding: "12px 16px",
+  borderBottom: "1px solid var(--color-surface-container)",
+  overflow: "auto",
+};
+
+const metricsGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, 1fr)",
+  gap: "12px",
+  padding: "12px 16px",
   borderBottom: "1px solid var(--color-surface-container)",
 };
 

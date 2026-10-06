@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"time"
 
 	"k6flow/apps/orchestrator/internal/runs"
 )
@@ -298,5 +299,240 @@ type latency struct {
 
 // isTerminal reports membership in the closed terminal set finished|failed|stopped.
 func isTerminal(status runs.Status) bool {
-	return status == runs.StatusFinished || status == runs.StatusFailed || status == runs.StatusStopped
+	return status.IsTerminal()
+}
+
+// preflight validates a run configuration without launching it.
+func (h *handler) preflight(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, msgInvalidRequest)
+		return
+	}
+	req, err := decodeStart(raw)
+	if err != nil {
+		writeJSON(w, http.StatusOK, preflightResult{
+			Version: contractVersion,
+			Valid:   false,
+			Errors:  []string{err.Error()},
+		})
+		return
+	}
+	// Check capacity: count active runs
+	allRuns := h.store.List()
+	activeCount := 0
+	for _, run := range allRuns {
+		if !run.Status.IsTerminal() {
+			activeCount++
+		}
+	}
+	const maxConcurrent = 5 // TODO: make configurable
+	warnings := []string{}
+	if activeCount >= maxConcurrent {
+		warnings = append(warnings, fmt.Sprintf("capacity: %d active runs, max %d - will be queued", activeCount, maxConcurrent))
+	}
+	// Validate script is not empty
+	if strings.TrimSpace(req.Script) == "" {
+		writeJSON(w, http.StatusOK, preflightResult{
+			Version: contractVersion,
+			Valid:   false,
+			Errors:  []string{"script is empty"},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, preflightResult{
+		Version:      contractVersion,
+		Valid:        true,
+		Warnings:     warnings,
+		ActiveRuns:   activeCount,
+		MaxConcurrent: maxConcurrent,
+		WillQueue:    activeCount >= maxConcurrent,
+	})
+}
+
+type preflightResult struct {
+	Version       int      `json:"version"`
+	Valid         bool     `json:"valid"`
+	Errors        []string `json:"errors,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
+	ActiveRuns    int      `json:"activeRuns"`
+	MaxConcurrent int      `json:"maxConcurrent"`
+	WillQueue     bool     `json:"willQueue"`
+}
+
+// listRuns returns all runs with optional filtering.
+func (h *handler) listRuns(w http.ResponseWriter, r *http.Request) {
+	allRuns := h.store.List()
+	state := r.URL.Query().Get("state")
+	result := make([]runListItem, 0, len(allRuns))
+	for _, run := range allRuns {
+		if state != "" && string(run.Status) != state {
+			continue
+		}
+		result = append(result, runListItem{
+			ID:           run.ID,
+			Status:       string(run.Status),
+			ScenarioID:   run.ScenarioID,
+			ScenarioName: run.ScenarioName,
+			VUs:          run.VUs,
+			DurationMs:   run.DurationMs,
+			CreatedAt:    run.CreatedAt.UnixMilli(),
+			StartedAt:    timeToMilli(run.StartedAt),
+			FinishedAt:   timeToMilli(run.FinishedAt),
+		})
+	}
+	writeJSON(w, http.StatusOK, runsListResponse{
+		Version: contractVersion,
+		Runs:    result,
+		Total:   len(result),
+	})
+}
+
+// listActiveRuns returns only active (non-terminal) runs.
+func (h *handler) listActiveRuns(w http.ResponseWriter, r *http.Request) {
+	allRuns := h.store.List()
+	active := make([]runListItem, 0)
+	queued := make([]runListItem, 0)
+	for _, run := range allRuns {
+		if run.Status.IsTerminal() {
+			continue
+		}
+		item := runListItem{
+			ID:           run.ID,
+			Status:       string(run.Status),
+			ScenarioID:   run.ScenarioID,
+			ScenarioName: run.ScenarioName,
+			VUs:          run.VUs,
+			DurationMs:   run.DurationMs,
+			CreatedAt:    run.CreatedAt.UnixMilli(),
+			StartedAt:    timeToMilli(run.StartedAt),
+		}
+		if run.Status == runs.StatusQueued {
+			queued = append(queued, item)
+		} else {
+			active = append(active, item)
+		}
+	}
+	writeJSON(w, http.StatusOK, activeRunsResponse{
+		Version: contractVersion,
+		Active:  active,
+		Queued:  queued,
+	})
+}
+
+// emergencyStop stops all active runs.
+func (h *handler) emergencyStop(w http.ResponseWriter, r *http.Request) {
+	allRuns := h.store.List()
+	stopped := 0
+	for _, run := range allRuns {
+		if run.Status.IsTerminal() {
+			continue
+		}
+		if err := h.launcher.Stop(r.Context(), run.ID); err != nil {
+			h.logger.Warn("emergency stop failed for run", "runId", run.ID, "error", err)
+			continue
+		}
+		h.store.SetStatusWithCause(run.ID, runs.StatusAborted, "user", "emergency stop")
+		stopped++
+	}
+	h.logger.Warn("emergency stop executed", "stoppedRuns", stopped)
+	writeJSON(w, http.StatusOK, emergencyStopResponse{
+		Version:     contractVersion,
+		StoppedRuns: stopped,
+	})
+}
+
+type runListItem struct {
+	ID           string `json:"id"`
+	Status       string `json:"status"`
+	ScenarioID   string `json:"scenarioId,omitempty"`
+	ScenarioName string `json:"scenarioName,omitempty"`
+	VUs          int    `json:"vus"`
+	DurationMs   int    `json:"durationMs"`
+	CreatedAt    int64  `json:"createdAt"`
+	StartedAt    *int64 `json:"startedAt,omitempty"`
+	FinishedAt   *int64 `json:"finishedAt,omitempty"`
+}
+
+type runsListResponse struct {
+	Version int           `json:"version"`
+	Runs    []runListItem `json:"runs"`
+	Total   int           `json:"total"`
+}
+
+type activeRunsResponse struct {
+	Version int           `json:"version"`
+	Active  []runListItem `json:"active"`
+	Queued  []runListItem `json:"queued"`
+}
+
+type emergencyStopResponse struct {
+	Version     int `json:"version"`
+	StoppedRuns int `json:"stoppedRuns"`
+}
+
+func timeToMilli(t *time.Time) *int64 {
+	if t == nil {
+		return nil
+	}
+	ms := t.UnixMilli()
+	return &ms
+}
+
+// getEndpoints returns per-endpoint metrics for a run.
+func (h *handler) getEndpoints(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("runId")
+	if _, ok := h.store.Get(id); !ok {
+		h.logger.Warn("endpoints lookup for unknown run", "runId", id)
+		writeError(w, http.StatusNotFound, codeRunNotFound, msgRunNotFound)
+		return
+	}
+	// TODO: Wire endpoint tracker to engine
+	writeJSON(w, http.StatusOK, endpointsResponse{
+		Version:   contractVersion,
+		Endpoints: []endpointData{},
+	})
+}
+
+// getFailures returns grouped failures for a run.
+func (h *handler) getFailures(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("runId")
+	if _, ok := h.store.Get(id); !ok {
+		h.logger.Warn("failures lookup for unknown run", "runId", id)
+		writeError(w, http.StatusNotFound, codeRunNotFound, msgRunNotFound)
+		return
+	}
+	// TODO: Wire endpoint tracker to engine
+	writeJSON(w, http.StatusOK, failuresResponse{
+		Version:  contractVersion,
+		Failures: []failureData{},
+	})
+}
+
+type endpointData struct {
+	Method      string  `json:"method"`
+	URL         string  `json:"url"`
+	Name        string  `json:"name,omitempty"`
+	Requests    int64   `json:"requests"`
+	Failures    int64   `json:"failures"`
+	AvgDuration float64 `json:"avgDurationMs"`
+	P95Duration float64 `json:"p95DurationMs"`
+}
+
+type endpointsResponse struct {
+	Version   int            `json:"version"`
+	Endpoints []endpointData `json:"endpoints"`
+}
+
+type failureData struct {
+	Method    string `json:"method"`
+	URL       string `json:"url"`
+	Status    int    `json:"status"`
+	ErrorCode string `json:"errorCode,omitempty"`
+	Count     int64  `json:"count"`
+}
+
+type failuresResponse struct {
+	Version  int           `json:"version"`
+	Failures []failureData `json:"failures"`
 }

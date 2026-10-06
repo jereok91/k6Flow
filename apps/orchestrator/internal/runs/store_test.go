@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// allStatuses is the closed contract-04 status set.
-var allStatuses = []Status{StatusPending, StatusRunning, StatusFinished, StatusFailed, StatusStopped}
+// allStatuses is the closed contract-04 status set, including legacy and new.
+var allStatuses = []Status{StatusQueued, StatusPending, StatusStarting, StatusRunning, StatusStopping, StatusFinished, StatusFailed, StatusAborted, StatusErrored, StatusStopped}
 
 // mustCreate stores run and fails the test on error.
 func mustCreate(t *testing.T, store *Store, run Run) Run {
@@ -34,11 +34,35 @@ func newStoreWithStatus(t *testing.T, status Status) (*Store, string) {
 	t.Helper()
 	store := NewStore()
 	run := mustCreate(t, store, Run{Script: "k6 run -", IdempotencyKey: "key", PayloadHash: "hash"})
-	if status != StatusPending {
+	// Build path to desired status
+	switch status {
+	case StatusPending:
+		// Already pending from Create
+	case StatusRunning:
 		mustStatus(t, store, run.ID, StatusRunning)
-	}
-	if status != StatusPending && status != StatusRunning {
-		mustStatus(t, store, run.ID, status)
+	case StatusQueued:
+		// Manually set, not reachable from pending
+		run, _ := store.Get(run.ID)
+		run.Status = StatusQueued
+		store.mu.Lock()
+		store.runs[run.ID].Status = StatusQueued
+		store.mu.Unlock()
+	case StatusStarting:
+		run, _ := store.Get(run.ID)
+		store.mu.Lock()
+		store.runs[run.ID].Status = StatusStarting
+		store.mu.Unlock()
+	case StatusStopping:
+		mustStatus(t, store, run.ID, StatusRunning)
+		mustStatus(t, store, run.ID, StatusStopping)
+	default:
+		// Terminal states via running
+		if status != StatusPending {
+			mustStatus(t, store, run.ID, StatusRunning)
+		}
+		if status != StatusPending && status != StatusRunning {
+			mustStatus(t, store, run.ID, status)
+		}
 	}
 	return store, run.ID
 }
@@ -48,10 +72,31 @@ func newStoreWithStatus(t *testing.T, status Status) (*Store, string) {
 // mutate the stored status, and verifies started/finished timestamps.
 func TestStatusTransitionsLegalAndRejected(t *testing.T) {
 	legal := map[[2]Status]bool{
+		// Legacy (pending-based flow)
 		{StatusPending, StatusRunning}:  true,
+		{StatusPending, StatusFailed}:   true,
+		{StatusPending, StatusErrored}:  true,
+		{StatusPending, StatusStopped}:  true,
 		{StatusRunning, StatusFinished}: true,
 		{StatusRunning, StatusFailed}:   true,
 		{StatusRunning, StatusStopped}:  true,
+		{StatusRunning, StatusAborted}:  true,
+		{StatusRunning, StatusErrored}:  true,
+		{StatusRunning, StatusStopping}: true,
+		// New flow (queued -> starting -> running)
+		{StatusQueued, StatusStarting}:  true,
+		{StatusQueued, StatusAborted}:   true,
+		{StatusQueued, StatusStopped}:   true,
+		{StatusStarting, StatusRunning}: true,
+		{StatusStarting, StatusErrored}: true,
+		{StatusStarting, StatusAborted}: true,
+		{StatusStarting, StatusStopped}: true,
+		// Stopping state
+		{StatusStopping, StatusAborted}:  true,
+		{StatusStopping, StatusStopped}:  true,
+		{StatusStopping, StatusFinished}: true,
+		{StatusStopping, StatusFailed}:   true,
+		{StatusStopping, StatusErrored}:  true,
 	}
 	for _, from := range allStatuses {
 		for _, to := range allStatuses {
@@ -72,7 +117,7 @@ func TestStatusTransitionsLegalAndRejected(t *testing.T) {
 				if err == nil && to == StatusRunning && run.StartedAt == nil {
 					t.Error("accepted ->running did not stamp StartedAt")
 				}
-				if err == nil && to != StatusPending && to != StatusRunning && run.FinishedAt == nil {
+				if err == nil && to.IsTerminal() && run.FinishedAt == nil {
 					t.Error("accepted terminal move did not stamp FinishedAt")
 				}
 			})

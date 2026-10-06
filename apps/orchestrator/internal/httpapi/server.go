@@ -73,10 +73,16 @@ func NewHandler(deps Deps) http.Handler {
 	h := &handler{store: deps.Store, launcher: deps.Launcher, token: deps.Token, logger: logger}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.healthz)
+	mux.HandleFunc("POST /api/runs/preflight", h.preflight)
+	mux.HandleFunc("GET /api/runs", h.listRuns)
+	mux.HandleFunc("GET /api/runs/active", h.listActiveRuns)
 	mux.HandleFunc("POST /api/runs", h.startRun)
 	mux.HandleFunc("GET /api/runs/{runId}", h.getRun)
 	mux.HandleFunc("POST /api/runs/{runId}/stop", h.stopRun)
 	mux.HandleFunc("GET /api/runs/{runId}/summary", h.getSummary)
+	mux.HandleFunc("GET /api/runs/{runId}/endpoints", h.getEndpoints)
+	mux.HandleFunc("GET /api/runs/{runId}/failures", h.getFailures)
+	mux.HandleFunc("POST /api/runs/emergency-stop", h.emergencyStop)
 	return h.authorize(mux)
 }
 

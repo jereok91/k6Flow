@@ -9,35 +9,52 @@ import (
 	"time"
 )
 
-// Status is the lifecycle state of a run; the value set is the closed
-// contract-04 set pending|running|finished|failed|stopped.
+// Status is the lifecycle state of a run.
 type Status string
 
-// The closed set of run statuses (REST contract 04).
+// The closed set of run statuses.
 const (
-	StatusPending  Status = "pending"
-	StatusRunning  Status = "running"
-	StatusFinished Status = "finished"
-	StatusFailed   Status = "failed"
-	StatusStopped  Status = "stopped"
+	StatusQueued   Status = "queued"   // waiting for capacity
+	StatusPending  Status = "pending"  // legacy: use Starting
+	StatusStarting Status = "starting" // container being created
+	StatusRunning  Status = "running"  // k6 executing
+	StatusStopping Status = "stopping" // graceful shutdown requested
+	StatusFinished Status = "finished" // completed, thresholds passed
+	StatusFailed   Status = "failed"   // thresholds failed or script error
+	StatusAborted  Status = "aborted"  // stopped by user
+	StatusErrored  Status = "errored"  // infrastructure error
+	StatusStopped  Status = "stopped"  // legacy: maps to Aborted
 )
 
 // Valid reports whether the status belongs to the closed set.
 func (s Status) Valid() bool {
 	switch s {
-	case StatusPending, StatusRunning, StatusFinished, StatusFailed, StatusStopped:
+	case StatusQueued, StatusPending, StatusStarting, StatusRunning, StatusStopping,
+		StatusFinished, StatusFailed, StatusAborted, StatusErrored, StatusStopped:
 		return true
 	default:
 		return false
 	}
 }
 
-// legalMoves is the legal transition table: pending -> running; running ->
-// finished|failed|stopped. Terminal states have no outgoing moves, so they
-// are immutable.
+// IsTerminal reports whether the status is a terminal state.
+func (s Status) IsTerminal() bool {
+	switch s {
+	case StatusFinished, StatusFailed, StatusAborted, StatusErrored, StatusStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// legalMoves is the legal transition table.
+// Note: stopped is legacy; prefer aborted for user-initiated stops.
 var legalMoves = map[Status][]Status{
-	StatusPending: {StatusRunning},
-	StatusRunning: {StatusFinished, StatusFailed, StatusStopped},
+	StatusQueued:   {StatusStarting, StatusAborted, StatusStopped},    // can cancel from queue
+	StatusPending:  {StatusRunning, StatusFailed, StatusErrored, StatusStopped}, // legacy
+	StatusStarting: {StatusRunning, StatusErrored, StatusAborted, StatusStopped}, // container start
+	StatusRunning:  {StatusStopping, StatusFinished, StatusFailed, StatusErrored, StatusStopped, StatusAborted},
+	StatusStopping: {StatusAborted, StatusFinished, StatusFailed, StatusErrored, StatusStopped},
 }
 
 // canMove reports whether the from -> to transition is legal.
@@ -73,12 +90,36 @@ type Summary struct {
 	DataSent         int64 // bytes sent
 }
 
+// RunEvent records a state transition for auditing.
+type RunEvent struct {
+	ID        string
+	RunID     string
+	At        time.Time
+	FromState Status
+	ToState   Status
+	Actor     string // "system", "user", "orchestrator"
+	Cause     string // reason for transition
+}
+
+// Result is the outcome of a completed run.
+type Result string
+
+const (
+	ResultPassed          Result = "passed"           // all thresholds OK
+	ResultThresholdFailed Result = "thresholds_failed" // some threshold breached
+	ResultAborted         Result = "aborted"          // user stopped
+	ResultErrored         Result = "errored"          // infrastructure error
+)
+
 // Run is one stored run. CreatedAt is always set; StartedAt and FinishedAt
 // stay nil until SetStatus stamps them.
 type Run struct {
 	ID             string
 	Status         Status
+	Result         Result  // set when terminal
 	Script         string
+	ScenarioID     string  // reference to scenario
+	ScenarioName   string
 	VUs            int
 	DurationMs     int
 	CPUMillis      int
@@ -86,8 +127,13 @@ type Run struct {
 	Attachments    []string
 	IdempotencyKey string
 	PayloadHash    string
+	ContainerID    string   // Docker container ID
+	ExitCode       int      // k6 exit code
+	AbortReason    string   // if aborted, why
 	Summary        *Summary
+	Events         []RunEvent
 	CreatedAt      time.Time
+	QueuedAt       *time.Time
 	StartedAt      *time.Time
 	FinishedAt     *time.Time
 }
@@ -167,15 +213,68 @@ func (s *Store) SetStatus(id string, to Status) error {
 	if !canMove(run.Status, to) {
 		return fmt.Errorf("runs: illegal transition %s -> %s for run %s", run.Status, to, id)
 	}
+	from := run.Status
 	run.Status = to
 	now := time.Now()
 	if to == StatusRunning {
 		run.StartedAt = &now
 	}
-	if to == StatusFinished || to == StatusFailed || to == StatusStopped {
+	if to.IsTerminal() {
 		run.FinishedAt = &now
 	}
+	// Record event
+	event := RunEvent{
+		ID:        generateEventID(),
+		RunID:     id,
+		At:        now,
+		FromState: from,
+		ToState:   to,
+		Actor:     "system",
+	}
+	run.Events = append(run.Events, event)
 	return nil
+}
+
+// SetStatusWithCause applies a legal transition and records the cause.
+func (s *Store) SetStatusWithCause(id string, to Status, actor, cause string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, ok := s.runs[id]
+	if !ok {
+		return fmt.Errorf("runs: unknown run %q", id)
+	}
+	if !to.Valid() {
+		return fmt.Errorf("runs: invalid status %q", to)
+	}
+	if !canMove(run.Status, to) {
+		return fmt.Errorf("runs: illegal transition %s -> %s for run %s", run.Status, to, id)
+	}
+	from := run.Status
+	run.Status = to
+	now := time.Now()
+	if to == StatusRunning {
+		run.StartedAt = &now
+	}
+	if to.IsTerminal() {
+		run.FinishedAt = &now
+	}
+	event := RunEvent{
+		ID:        generateEventID(),
+		RunID:     id,
+		At:        now,
+		FromState: from,
+		ToState:   to,
+		Actor:     actor,
+		Cause:     cause,
+	}
+	run.Events = append(run.Events, event)
+	return nil
+}
+
+func generateEventID() string {
+	var random [8]byte
+	rand.Read(random[:])
+	return "evt-" + hex.EncodeToString(random[:])
 }
 
 // SetSummary stores a detached copy of the terminal payload; the run must
