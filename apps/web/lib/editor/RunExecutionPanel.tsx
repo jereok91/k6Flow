@@ -131,9 +131,7 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
               requestRate: frame.reqPerSec ?? prev.requestRate,
               avgDuration: frame.latencyMs?.avg ?? prev.avgDuration,
               p95Duration: frame.latencyMs?.p95 ?? prev.p95Duration,
-              errorRate: frame.httpFailureFraction != null 
-                ? frame.httpFailureFraction * 100 
-                : prev.errorRate,
+              errorRate: frame.httpFailureFraction ?? prev.errorRate,
             }));
           }
         } catch {
@@ -163,9 +161,7 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
                     ...prev,
                     iterations: summary.iterations ?? prev.iterations,
                     avgDuration: summary.avgDurationMs ?? prev.avgDuration,
-                    errorRate: summary.httpFailureFraction != null 
-                      ? summary.httpFailureFraction * 100 
-                      : prev.errorRate,
+                    errorRate: summary.httpFailureFraction ?? prev.errorRate,
                     dataReceived: summary.dataReceivedBytes ?? prev.dataReceived,
                     dataSent: summary.dataSentBytes ?? prev.dataSent,
                   }));
