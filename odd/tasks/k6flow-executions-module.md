@@ -19,53 +19,53 @@
 ## Fases
 
 ### X1 — Ciclo de vida mínimo
-- [ ] Máquina de estados completa (QUEUED→STARTING→RUNNING→STOPPING→terminal)
-- [ ] Tabla run_events para auditoría de transiciones
-- [ ] Preflight básico (validación escenario, capacidad)
-- [ ] Detención ordenada y forzada
-- [ ] Resultado final por código de salida + umbrales
+- [x] Máquina de estados completa (QUEUED→STARTING→RUNNING→STOPPING→terminal)
+- [x] Tabla run_events para auditoría de transiciones
+- [x] Preflight básico (validación escenario, capacidad)
+- [x] Detención ordenada y forzada
+- [x] Resultado final por código de salida + umbrales
 
 ### X2 — Pipeline de métricas
-- [ ] t-digest para percentiles correctos
-- [ ] Ring buffer en memoria
-- [ ] Eventos WS: hello, snapshot, tick, state, end
-- [ ] Persistencia de series (run_series)
-- [ ] Reconexión con lastSeq
+- [x] t-digest para percentiles correctos
+- [x] Ring buffer en memoria
+- [x] Eventos WS: hello, snapshot, tick, state, end
+- [x] Persistencia de series (run_series)
+- [x] Reconexión con lastSeq
 
 ### X3 — Vista en vivo mejorada
-- [ ] 4 KPIs con sparklines
-- [ ] 2 gráficas uPlot (RPS, Latencia)
-- [ ] Modo seguir/explorar
-- [ ] Estados de conexión visibles
-- [ ] Banner de alertas
+- [x] 4 KPIs con sparklines
+- [x] 2 gráficas uPlot (RPS, Latencia)
+- [x] Modo seguir/explorar
+- [x] Estados de conexión visibles
+- [x] Banner de alertas
 
 ### X4 — Endpoints, fallos y logs
-- [ ] Tabla métricas por endpoint
-- [ ] Agrupación de fallos (endpoint × status × error_code)
-- [ ] Muestreo de ejemplos (max 20 por grupo)
-- [ ] Flujo de logs con backpressure
-- [ ] Recursos del contenedor (CPU/mem)
+- [x] Tabla métricas por endpoint
+- [x] Agrupación de fallos (endpoint × status × error_code)
+- [x] Muestreo de ejemplos (max 20 por grupo)
+- [x] Flujo de logs con backpressure
+- [x] Recursos del contenedor (CPU/mem)
 
 ### X5 — Lista y lanzamiento global
-- [ ] Canal `/ws/runs` para resumen de activas
-- [ ] Página /executions con pestañas En curso/En cola
-- [ ] Contador en sidebar
-- [ ] Asistente "Nueva prueba" con preflight completo
-- [ ] Encolado si excede límite
+- [x] Canal `/ws/runs` para resumen de activas
+- [x] Página /executions con pestañas En curso/En cola
+- [x] Contador en sidebar
+- [x] Asistente "Nueva prueba" con preflight completo
+- [x] Encolado si excede límite
 
 ### X6 — Historial y comparación
-- [ ] Listado con filtros y paginación cursor
-- [ ] Detalle finalizado con zoom de rango
-- [ ] Comparación 2-4 ejecuciones
-- [ ] Línea base y detección de regresión
-- [ ] Exportación HTML/CSV/JSON
+- [x] Listado con filtros y paginación cursor
+- [x] Detalle finalizado con zoom de rango
+- [x] Comparación 2-4 ejecuciones
+- [x] Línea base y detección de regresión
+- [x] Exportación HTML/CSV/JSON
 
 ### X7 — Control avanzado
-- [ ] Detención de emergencia global
-- [ ] Auto-detención por saturación
-- [ ] Notificaciones (campana)
-- [ ] Límites duros en orquestador
-- [ ] Auditoría completa
+- [x] Detención de emergencia global
+- [x] Auto-detención por saturación
+- [x] Notificaciones (campana)
+- [x] Límites duros en orquestador
+- [x] Auditoría completa
 
 ## Commits
-- (pendiente) feat(executions): implementación módulo de ejecuciones X1-X7
+- `f5f780f` feat(executions): implement executions module X1-X7
