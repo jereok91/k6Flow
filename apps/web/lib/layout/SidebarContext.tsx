@@ -6,6 +6,7 @@ const STORAGE_KEY = "k6flow-sidebar-collapsed";
 
 interface SidebarContextType {
   collapsed: boolean;
+  mounted: boolean;
   toggleCollapsed: () => void;
 }
 
@@ -34,7 +35,7 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
   const toggleCollapsed = () => setCollapsed((prev) => !prev);
 
   return (
-    <SidebarContext.Provider value={{ collapsed, toggleCollapsed }}>
+    <SidebarContext.Provider value={{ collapsed, mounted, toggleCollapsed }}>
       {children}
     </SidebarContext.Provider>
   );
