@@ -18,7 +18,12 @@ interface HttpRequestParams {
   method: string;
   url: { kind: "literal"; value: string } | { kind: "reference"; reference: unknown };
   headers?: { name: string; value: { kind: "literal"; value: string } }[];
-  body?: { kind: "none" } | { kind: "text"; value: { kind: "literal"; value: string } } | { kind: "json"; value: unknown };
+  body?: 
+    | { kind: "none" } 
+    | { kind: "text"; value: { kind: "literal"; value: string } } 
+    | { kind: "json"; value: { kind: "literal"; value: string } }
+    | { kind: "xml"; value: { kind: "literal"; value: string } }
+    | { kind: "form"; value: { kind: "literal"; value: string } };
 }
 
 interface HttpRequestConfigPanelProps {
@@ -36,7 +41,10 @@ export function HttpRequestConfigPanel({
   const url = parameters?.url?.kind === "literal" ? parameters.url.value : "";
   const bodyKind = parameters?.body?.kind ?? "none";
   const bodyText =
-    parameters?.body?.kind === "text" && parameters.body.value.kind === "literal"
+    parameters?.body && 
+    parameters.body.kind !== "none" && 
+    "value" in parameters.body && 
+    parameters.body.value.kind === "literal"
       ? parameters.body.value.value
       : "";
 
@@ -63,10 +71,11 @@ export function HttpRequestConfigPanel({
     };
     if (newKind === "none") {
       onChange({ ...baseParams, body: { kind: "none" } } as HttpRequestParams);
-    } else if (newKind === "text") {
+    } else {
+      // text, json, xml all use the same structure with different contentType
       onChange({
         ...baseParams,
-        body: { kind: "text", value: { kind: "literal", value: "" } },
+        body: { kind: newKind, value: { kind: "literal", value: bodyText } },
       } as HttpRequestParams);
     }
   };
@@ -99,17 +108,23 @@ export function HttpRequestConfigPanel({
           onChange={updateBodyKind}
           options={[
             { value: "none", label: "None" },
-            { value: "text", label: "Text" },
+            { value: "json", label: "JSON" },
+            { value: "xml", label: "XML" },
+            { value: "text", label: "Raw Text" },
+            { value: "form", label: "Form URL-Encoded" },
           ]}
         />
       </FormField>
 
-      {bodyKind === "text" && (
-        <FormField label="Body Content">
+      {bodyKind !== "none" && (
+        <FormField 
+          label="Body Content" 
+          hint={bodyKind === "json" ? "JSON object" : bodyKind === "xml" ? "XML document" : bodyKind === "form" ? "key=value&key2=value2" : "Raw text"}
+        >
           <TextArea
             value={bodyText}
             onChange={updateBodyText}
-            placeholder="Request body..."
+            placeholder={bodyKind === "json" ? '{"key": "value"}' : bodyKind === "xml" ? '<root>...</root>' : bodyKind === "form" ? 'username=test&password=123' : "Request body..."}
             rows={4}
           />
         </FormField>

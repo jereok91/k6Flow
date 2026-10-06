@@ -262,16 +262,26 @@ export function translateToK6(
         }
 
         let body = "null";
-        if (params.body?.kind === "text" && params.body.value.kind === "literal") {
+        let contentType = "application/json";
+        
+        if (params.body?.kind === "json" && params.body.value?.kind === "literal") {
           body = `'${escapeString(params.body.value.value)}'`;
-        } else if (params.body?.kind === "json") {
-          body = "JSON.stringify({})"; // Simplified
+          contentType = "application/json";
+        } else if (params.body?.kind === "xml" && params.body.value?.kind === "literal") {
+          body = `'${escapeString(params.body.value.value)}'`;
+          contentType = "application/xml";
+        } else if (params.body?.kind === "form" && params.body.value?.kind === "literal") {
+          body = `'${escapeString(params.body.value.value)}'`;
+          contentType = "application/x-www-form-urlencoded";
+        } else if (params.body?.kind === "text" && params.body.value?.kind === "literal") {
+          body = `'${escapeString(params.body.value.value)}'`;
+          contentType = "text/plain";
         }
 
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
         bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}(${url}, ${body}, {`);
-        bodyLines.push("    headers: { 'Content-Type': 'application/json' },");
+        bodyLines.push(`    headers: { 'Content-Type': '${contentType}' },`);
         bodyLines.push("  });");
         varMap.set(`${id}.response`, `${varName}_res`);
         break;
