@@ -55,6 +55,7 @@ type Totals struct {
 	Requests     int64
 	Errors       int64
 	FailedChecks int64
+	Iterations   int64
 }
 
 // LatencyMs are the cumulative latency quantiles in milliseconds.
@@ -68,6 +69,8 @@ type Summary struct {
 	Totals           Totals
 	LatencyMs        LatencyMs
 	ThresholdsPassed bool
+	DataReceived     int64 // bytes received
+	DataSent         int64 // bytes sent
 }
 
 // Run is one stored run. CreatedAt is always set; StartedAt and FinishedAt

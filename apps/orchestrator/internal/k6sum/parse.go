@@ -36,6 +36,11 @@ const (
 	// fold into failedChecks; real k6 never emits it.
 	MetricCheckLegacy = "check"
 	MetricDurationMs  = "http_req_duration"
+	// MetricIterations counts completed VU iterations.
+	MetricIterations = "iterations"
+	// MetricDataReceived and MetricDataSent are byte counters.
+	MetricDataReceived = "data_received"
+	MetricDataSent     = "data_sent"
 )
 
 // MaxLineBytes bounds one stream line: a line longer than 1 MiB is rejected
@@ -131,6 +136,9 @@ type aggregator struct {
 	failedSum    float64
 	failedChecks int64
 	latencies    []float64
+	iterations   int64
+	dataReceived float64
+	dataSent     float64
 }
 
 // add folds one Point sample into the aggregate by metric name.
@@ -146,6 +154,12 @@ func (a *aggregator) add(name string, value float64) {
 		}
 	case MetricDurationMs:
 		a.latencies = append(a.latencies, value)
+	case MetricIterations:
+		a.iterations++
+	case MetricDataReceived:
+		a.dataReceived += value
+	case MetricDataSent:
+		a.dataSent += value
 	}
 }
 
@@ -158,8 +172,11 @@ func (a *aggregator) summary() runs.Summary {
 			Requests:     a.requests,
 			Errors:       int64(math.Round(a.failedSum)),
 			FailedChecks: a.failedChecks,
+			Iterations:   a.iterations,
 		},
-		LatencyMs: latencyOf(a.latencies),
+		LatencyMs:    latencyOf(a.latencies),
+		DataReceived: int64(a.dataReceived),
+		DataSent:     int64(a.dataSent),
 	}
 }
 

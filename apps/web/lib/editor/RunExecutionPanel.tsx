@@ -37,14 +37,14 @@ interface RunExecutionPanelProps {
 
 interface RunResult {
   runId: string;
-  status: "completed" | "failed" | "stopped";
+  status: "finished" | "completed" | "failed" | "stopped";
   duration: number;
   iterations: number;
   metrics: RunMetrics;
   errors: string[];
 }
 
-type RunStatus = "pending" | "running" | "completed" | "failed" | "stopped";
+type RunStatus = "pending" | "running" | "finished" | "completed" | "failed" | "stopped";
 
 export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPanelProps) {
   const [status, setStatus] = useState<RunStatus>("pending");
@@ -151,7 +151,7 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
               setError(getK6ErrorMessage(finalStatus));
               setLogs(prev => [...prev, "[ERROR] La ejecucion de k6 fallo"]);
             }
-            if (finalStatus === "completed" || finalStatus === "failed" || finalStatus === "stopped") {
+            if (finalStatus === "finished" || finalStatus === "completed" || finalStatus === "failed" || finalStatus === "stopped") {
               // Fetch summary for final metrics
               try {
                 const summaryRes = await fetch(`/api/orchestrator/runs/${runId}/summary`);
@@ -159,9 +159,11 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
                   const summary = await summaryRes.json();
                   setMetrics(prev => ({
                     ...prev,
-                    iterations: summary.iterations ?? prev.iterations,
-                    avgDuration: summary.avgDurationMs ?? prev.avgDuration,
-                    errorRate: summary.httpFailureFraction ?? prev.errorRate,
+                    iterations: summary.totals?.iterations ?? prev.iterations,
+                    avgDuration: summary.latency?.avgMs ?? prev.avgDuration,
+                    errorRate: summary.totals?.errors > 0 && summary.totals?.requests > 0
+                      ? summary.totals.errors / summary.totals.requests
+                      : prev.errorRate,
                     dataReceived: summary.dataReceivedBytes ?? prev.dataReceived,
                     dataSent: summary.dataSentBytes ?? prev.dataSent,
                   }));
@@ -215,7 +217,7 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
             setError(getK6ErrorMessage(data.status));
             setLogs(prev => [...prev, "[ERROR] La ejecucion de k6 fallo"]);
           }
-          if (data.status === "completed" || data.status === "failed" || data.status === "stopped") {
+          if (data.status === "finished" || data.status === "completed" || data.status === "failed" || data.status === "stopped") {
             if (pollInterval) clearInterval(pollInterval);
             onComplete?.({
               runId,
@@ -295,6 +297,7 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
     switch (s) {
       case "pending": return "#f59e0b";
       case "running": return "#10b981";
+      case "finished":
       case "completed": return "#10b981";
       case "failed": return "#ef4444";
       case "stopped": return "#6b7280";
@@ -306,6 +309,7 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
     switch (s) {
       case "pending": return "Iniciando...";
       case "running": return "Ejecutando";
+      case "finished":
       case "completed": return "Completado";
       case "failed": return "Fallido";
       case "stopped": return "Detenido";
@@ -384,7 +388,7 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
       </div>
 
       {/* Result summary for completed runs */}
-      {(status === "completed" || status === "failed" || status === "stopped") && (
+      {(status === "finished" || status === "completed" || status === "failed" || status === "stopped") && (
         <div style={resultSummaryStyle}>
           <div style={{ fontWeight: 600, marginBottom: "8px" }}>
             Resumen de Ejecución

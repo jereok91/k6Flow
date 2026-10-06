@@ -149,6 +149,23 @@ func TestParseLatencyRoundsToThreeDecimals(t *testing.T) {
 	}
 }
 
+func TestParseIterationsDataReceivedDataSent(t *testing.T) {
+	summary := parse(t, stream(
+		point("iterations", 1), point("iterations", 1), point("iterations", 1),
+		point("data_received", 1024), point("data_received", 2048),
+		point("data_sent", 512), point("data_sent", 256),
+	))
+	if summary.Totals.Iterations != 3 {
+		t.Errorf("Iterations = %d, want 3", summary.Totals.Iterations)
+	}
+	if summary.DataReceived != 3072 {
+		t.Errorf("DataReceived = %d, want 3072", summary.DataReceived)
+	}
+	if summary.DataSent != 768 {
+		t.Errorf("DataSent = %d, want 768", summary.DataSent)
+	}
+}
+
 func TestParseNoSamplesYieldsAllZeroSummary(t *testing.T) {
 	for name, input := range map[string]string{
 		"empty":           "",

@@ -251,6 +251,7 @@ func (h *handler) getSummary(w http.ResponseWriter, r *http.Request) {
 			Requests:     run.Summary.Totals.Requests,
 			Errors:       run.Summary.Totals.Errors,
 			FailedChecks: run.Summary.Totals.FailedChecks,
+			Iterations:   run.Summary.Totals.Iterations,
 		},
 		Latency: latency{
 			AvgMs: run.Summary.LatencyMs.Avg,
@@ -258,7 +259,9 @@ func (h *handler) getSummary(w http.ResponseWriter, r *http.Request) {
 			P95Ms: run.Summary.LatencyMs.P95,
 			P99Ms: run.Summary.LatencyMs.P99,
 		},
-		Status: string(run.Status),
+		Status:       string(run.Status),
+		DataReceived: run.Summary.DataReceived,
+		DataSent:     run.Summary.DataSent,
 	}
 	if run.Status == runs.StatusFinished {
 		passed := run.Summary.ThresholdsPassed
@@ -275,12 +278,15 @@ type summaryBody struct {
 	Latency          latency `json:"latency"`
 	Status           string  `json:"status"`
 	ThresholdsPassed *bool   `json:"thresholdsPassed,omitempty"`
+	DataReceived     int64   `json:"dataReceivedBytes"`
+	DataSent         int64   `json:"dataSentBytes"`
 }
 
 type totals struct {
 	Requests     int64 `json:"requests"`
 	Errors       int64 `json:"errors"`
 	FailedChecks int64 `json:"failedChecks"`
+	Iterations   int64 `json:"iterations"`
 }
 
 type latency struct {
