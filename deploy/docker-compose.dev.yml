@@ -25,4 +25,4 @@ services:
       # K6F3-04: browser origin of the dashboard behind the proxy (human-authorized 2026-10-02).
       ORCHESTRATOR_ALLOWED_ORIGINS: ${WEB_ORIGIN:-http://127.0.0.1:3000}
       ORCHESTRATOR_NETWORK: deploy_backend
-      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
+      SERVICE_TOKEN: ${ORCHESTRATOR_SERVICE_TOKEN:-k6flow-internal-token}
