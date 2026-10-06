@@ -1,8 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../theme";
+
+interface User {
+  id: string;
+  username: string;
+  role: string;
+}
 
 const navItems = [
   { path: "/", label: "Inicio", icon: "grid_view" },
@@ -14,7 +21,37 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { theme, toggleTheme } = useTheme();
+  const [user, setUser] = useState<User | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Fetch current user
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then(setUser)
+      .catch(() => setUser(null));
+  }, []);
+
+  // Close menu on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    if (menuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [menuOpen]);
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  }
 
   const isActive = (path: string) => {
     if (path === "/") return pathname === "/";
@@ -174,7 +211,9 @@ export function Sidebar() {
 
         {/* User */}
         <div
+          ref={menuRef}
           style={{
+            position: "relative",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -196,21 +235,22 @@ export function Sidebar() {
                 flexShrink: 0,
               }}
             >
-              <span className="material-symbols-outlined" style={{ color: "var(--color-secondary)", fontSize: "18px" }}>
-                person
+              <span style={{ color: "var(--color-secondary)", fontSize: "14px", fontWeight: 600 }}>
+                {user?.username?.charAt(0).toUpperCase() || "U"}
               </span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
               <span style={{ fontSize: "12px", fontWeight: 500, color: "var(--color-on-surface)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                Usuario
+                {user?.username || "Usuario"}
               </span>
               <span style={{ fontSize: "11px", color: "var(--color-on-surface-variant)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                DevOps Engineer
+                {user?.role || ""}
               </span>
             </div>
           </div>
           <button
             type="button"
+            onClick={() => setMenuOpen(!menuOpen)}
             style={{
               color: "var(--color-on-surface-variant)",
               background: "none",
@@ -221,6 +261,47 @@ export function Sidebar() {
           >
             <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>more_vert</span>
           </button>
+
+          {/* Dropdown menu */}
+          {menuOpen && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: "100%",
+                right: "0",
+                marginBottom: "4px",
+                minWidth: "160px",
+                backgroundColor: "var(--color-surface-container-high)",
+                borderRadius: "8px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                overflow: "hidden",
+                zIndex: 100,
+              }}
+            >
+              <button
+                type="button"
+                onClick={handleLogout}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "10px 12px",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--color-error)",
+                  fontSize: "13px",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--color-surface-container-highest)")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>logout</span>
+                Cerrar sesión
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </aside>
