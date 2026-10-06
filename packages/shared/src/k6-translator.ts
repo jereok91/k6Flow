@@ -165,16 +165,25 @@ export function translateToK6(
       case "user-pool": {
         if (!node.parameters) break;
         const params = node.parameters;
-        // Skip if no outputs defined or no data configured
-        if (!params.outputs || params.outputs.length === 0) break;
+        // Skip if no data configured
         if (!params.manualUsers && !params.attachment) break;
+        if (params.manualUsers && params.manualUsers.length === 0) break;
         
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
         bodyLines.push(`  const ${varName} = ${varName}_data[__VU % ${varName}_data.length];`);
-        // Map outputs - use bracket notation with JSON.stringify for safe property access
-        for (const output of params.outputs) {
-          varMap.set(`${id}.${output.name}`, `${varName}[${JSON.stringify(output.name)}]`);
+        
+        // Map outputs - use explicit outputs if defined, otherwise infer from manualUsers fields
+        let outputNames: string[] = [];
+        if (params.outputs && params.outputs.length > 0) {
+          outputNames = params.outputs.map((o: { name: string }) => o.name);
+        } else if (params.manualUsers && params.manualUsers.length > 0) {
+          // Infer outputs from the keys of the first manual user
+          outputNames = Object.keys(params.manualUsers[0]);
+        }
+        
+        for (const name of outputNames) {
+          varMap.set(`${id}.${name}`, `${varName}[${JSON.stringify(name)}]`);
         }
         break;
       }
