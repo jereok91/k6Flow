@@ -4,10 +4,20 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
+// Validate redirect to prevent open redirect attacks
+function getSafeRedirect(redirect: string | null): string {
+  if (!redirect) return "/";
+  // Must start with / and not be protocol-relative (//)
+  if (!redirect.startsWith("/") || redirect.startsWith("//")) return "/";
+  // Block javascript: and data: URIs
+  if (/^\/?\s*(javascript|data):/i.test(redirect)) return "/";
+  return redirect;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirect") || "/";
+  const redirectTo = getSafeRedirect(searchParams.get("redirect"));
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);

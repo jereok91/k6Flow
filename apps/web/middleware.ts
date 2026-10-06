@@ -61,8 +61,9 @@ export function middleware(request: NextRequest) {
   if (!sessionToken) {
     // No session → redirect to login
     const loginUrl = new URL("/login", request.url);
-    // Preserve the original URL for redirect after login
-    loginUrl.searchParams.set("redirect", pathname);
+    // Preserve the original URL (path + query) for redirect after login
+    const originalUrl = pathname + request.nextUrl.search;
+    loginUrl.searchParams.set("redirect", originalUrl);
     return NextResponse.redirect(loginUrl);
   }
   
