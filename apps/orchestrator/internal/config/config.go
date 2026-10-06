@@ -11,8 +11,8 @@ import (
 
 // Config holds the orchestrator runtime settings.
 type Config struct {
-	Addr, K6Image, ServiceToken, LogLevel         string
-	MaxConcurrentRuns, MaxVUsPerRun, RunTimeoutMS int
+	Addr, K6Image, ServiceToken, LogLevel, Network string
+	MaxConcurrentRuns, MaxVUsPerRun, RunTimeoutMS  int
 	// K6F9-01: Allowed target hosts/patterns for K6 tests (security)
 	AllowedTargets []string
 }
@@ -21,6 +21,7 @@ type Config struct {
 const (
 	DefaultAddr              = ":8080"
 	DefaultK6Image           = "grafana/k6"
+	DefaultNetwork           = "bridge"
 	DefaultMaxConcurrentRuns = 3
 	DefaultMaxVUsPerRun      = 500
 	DefaultRunTimeoutMS      = 3600000
@@ -41,6 +42,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.K6Image, err = strEnv("K6_IMAGE", DefaultK6Image, false); err != nil {
+		return Config{}, err
+	}
+	if cfg.Network, err = strEnv("ORCHESTRATOR_NETWORK", DefaultNetwork, false); err != nil {
 		return Config{}, err
 	}
 	if cfg.MaxConcurrentRuns, err = intEnv("MAX_CONCURRENT_RUNS", DefaultMaxConcurrentRuns); err != nil {

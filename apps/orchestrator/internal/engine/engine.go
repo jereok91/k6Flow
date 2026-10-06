@@ -30,6 +30,7 @@ type Deps struct {
 	Runtime runtime.ContainerRuntime
 	Sem     *runtime.Semaphore
 	K6Image string
+	Network string
 	Log     *slog.Logger
 	// Sink receives the live per-window metrics frames produced by the
 	// Output() tap (nil disables frames; the hub wiring is cmd/server's
@@ -60,13 +61,14 @@ type RunFinisher interface {
 // Engine owns in-flight launches keyed by run id; the handle map is the
 // double-launch guard and the Stop rendezvous point.
 type Engine struct {
-	store *runs.Store
-	rt    runtime.ContainerRuntime
-	sem   *runtime.Semaphore
-	image string
-	log   *slog.Logger
-	sink  metrics.FrameSink
-	nowFn func() time.Time
+	store   *runs.Store
+	rt      runtime.ContainerRuntime
+	sem     *runtime.Semaphore
+	image   string
+	network string
+	log     *slog.Logger
+	sink    metrics.FrameSink
+	nowFn   func() time.Time
 
 	mu      sync.Mutex
 	handles map[string]*handle
@@ -108,6 +110,7 @@ func New(d Deps) *Engine {
 		rt:      d.Runtime,
 		sem:     d.Sem,
 		image:   d.K6Image,
+		network: d.Network,
 		log:     logger,
 		sink:    d.Sink,
 		nowFn:   d.Now,
@@ -466,6 +469,7 @@ func forwardLine(agg *metrics.RunWindowAggregator, runID string, log *slog.Logge
 func (e *Engine) spec(run runs.Run) runtime.Spec {
 	return runtime.Spec{
 		Image:   e.image,
+		Network: e.network,
 		Command: []string{"run"},
 		Args: []string{
 			"--out", "json",
