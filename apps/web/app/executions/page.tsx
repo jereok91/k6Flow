@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { MainLayout } from "../../lib/layout";
 
 interface RunItem {
   id: string;
@@ -126,6 +127,7 @@ export default function ExecutionsPage() {
   const currentRuns = tab === "active" ? activeRuns : tab === "queued" ? queuedRuns : historyRuns;
 
   return (
+    <MainLayout>
     <div style={containerStyle}>
       {/* Header */}
       <div style={headerStyle}>
@@ -228,6 +230,7 @@ export default function ExecutionsPage() {
         </div>
       )}
     </div>
+    </MainLayout>
   );
 }
 

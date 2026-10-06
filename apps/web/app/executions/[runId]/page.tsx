@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
+import { MainLayout } from "../../../lib/layout";
 
 interface RunSummary {
   totals: {
@@ -116,16 +117,19 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
 
   if (loading) {
     return (
+      <MainLayout>
       <div style={containerStyle}>
         <div style={{ padding: 48, textAlign: "center", color: "var(--color-on-surface-variant)" }}>
           Cargando...
         </div>
       </div>
+      </MainLayout>
     );
   }
 
   if (error || !run) {
     return (
+      <MainLayout>
       <div style={containerStyle}>
         <div style={errorStyle}>
           {error || "Ejecución no encontrada"}
@@ -134,6 +138,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
           ← Volver
         </button>
       </div>
+      </MainLayout>
     );
   }
 
@@ -142,6 +147,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     : 0;
 
   return (
+    <MainLayout>
     <div style={containerStyle}>
       {/* Header */}
       <div style={headerStyle}>
@@ -284,6 +290,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
         </div>
       )}
     </div>
+    </MainLayout>
   );
 }
 
