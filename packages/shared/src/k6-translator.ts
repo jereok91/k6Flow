@@ -191,9 +191,8 @@ export function translateToK6(
       case "authentication": {
         if (!node.parameters) break;
         const params = node.parameters;
-        // Skip if no method configured or method is 'none'
-        if (!params.method || params.method.kind === "literal" && params.method.value === "none") break;
-        if (!params.method.request) break;
+        // Skip if no method configured
+        if (!params.method || params.method.kind !== "http" || !params.method.request) break;
         
         const req = params.method.request;
         const method = req.method;
@@ -278,19 +277,63 @@ export function translateToK6(
           contentType = "text/plain";
         }
 
+        // Build headers object with both literal values and variable references
+        const headerEntries: string[] = [];
+        const methodsWithBody = ["POST", "PUT", "PATCH", "DELETE"];
+        
+        // Add Content-Type for methods with body
+        if (methodsWithBody.includes(method.toUpperCase()) && body !== "null") {
+          headerEntries.push(`'Content-Type': '${contentType}'`);
+        }
+        
+        // Add user-defined headers
+        if (params.headers && Array.isArray(params.headers)) {
+          for (const header of params.headers) {
+            if (!header.name) continue; // Skip headers without name
+            const headerName = escapeString(header.name);
+            let headerValue: string;
+            
+            if (header.value.kind === "literal") {
+              headerValue = `'${escapeString(header.value.value ?? "")}'`;
+            } else if (header.value.kind === "reference" && header.value.reference) {
+              // Look up the variable from the varMap
+              const ref = header.value.reference;
+              const varRef = varMap.get(`${ref.producerNodeId}.${ref.output}`);
+              if (varRef) {
+                // For Authorization header with Bearer pattern, wrap it
+                if (header.name.toLowerCase() === "authorization") {
+                  headerValue = `'Bearer ' + ${varRef}`;
+                } else {
+                  headerValue = varRef;
+                }
+              } else {
+                // Fallback to placeholder if variable not found
+                headerValue = `'{{${ref.output}}}'`;
+              }
+            } else {
+              continue; // Skip invalid header values
+            }
+            
+            headerEntries.push(`'${headerName}': ${headerValue}`);
+          }
+        }
+
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
         
-        // Methods that support a request body
-        const methodsWithBody = ["POST", "PUT", "PATCH", "DELETE"];
+        // Generate headers object
+        const headersObj = headerEntries.length > 0
+          ? `{ ${headerEntries.join(", ")} }`
+          : "{}";
+        
         if (methodsWithBody.includes(method.toUpperCase())) {
           bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}(${url}, ${body}, {`);
-          bodyLines.push(`    headers: { 'Content-Type': '${contentType}' },`);
+          bodyLines.push(`    headers: ${headersObj},`);
           bodyLines.push("  });");
         } else {
           // GET, HEAD, OPTIONS - no body parameter
           bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}(${url}, {`);
-          bodyLines.push("    headers: {},");
+          bodyLines.push(`    headers: ${headersObj},`);
           bodyLines.push("  });");
         }
         varMap.set(`${id}.response`, `${varName}_res`);

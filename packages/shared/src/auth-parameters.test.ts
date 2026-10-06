@@ -56,7 +56,7 @@ describe("standalone authentication boundary", () => {
       method: "custom", url: { kind: "reference", reference },
       headers: [{ name: "X-Input", value: { kind: "reference", reference } }],
       query: [{ name: "q", value: { kind: "literal", value: "${literal}" } }],
-      body: { kind: "json", value: { kind: "literal", value: { user: "sample" } } },
+      body: { kind: "json", value: { kind: "literal", value: '{"user": "sample"}' } },
     };
     const parsed = authParametersSchema.parse({ ...parameters(),
       method: { kind: "http", request: http } });

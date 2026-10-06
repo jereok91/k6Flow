@@ -158,7 +158,7 @@ function parseBody(
     try {
       // Validate it's valid JSON
       JSON.parse(bodyExcerpt);
-      const jsonValue: JsonParameterValue = { kind: "literal", value: bodyExcerpt };
+      const jsonValue: StringParameterValue = { kind: "literal", value: bodyExcerpt };
       return { kind: "json", value: jsonValue };
     } catch {
       // If not valid JSON, treat as text

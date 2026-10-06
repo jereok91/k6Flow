@@ -9,7 +9,9 @@ export const httpNamedValueSchema = z.strictObject({
 export const httpBodySchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("none") }),
   z.strictObject({ kind: z.literal("text"), value: stringParameterValueSchema }),
-  z.strictObject({ kind: z.literal("json"), value: jsonParameterValueSchema }),
+  z.strictObject({ kind: z.literal("json"), value: stringParameterValueSchema }),
+  z.strictObject({ kind: z.literal("xml"), value: stringParameterValueSchema }),
+  z.strictObject({ kind: z.literal("form"), value: stringParameterValueSchema }),
 ]);
 export const httpParametersSchema = z.strictObject({
   method: httpMethodSchema,

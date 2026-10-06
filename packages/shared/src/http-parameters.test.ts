@@ -30,9 +30,11 @@ describe("standalone HTTP parameters", () => {
 
   it.each([
     { kind: "none" }, { kind: "text", value: literal("") },
-    { kind: "json", value: { kind: "literal", value: { items: [null, true, 1, "${token}"] } } },
-    { kind: "json", value: { kind: "literal", value: null } },
+    { kind: "json", value: literal('{"items": [null, true, 1, "${token}"]}') },
+    { kind: "json", value: literal('null') },
     { kind: "json", value: reference },
+    { kind: "xml", value: literal('<root><item/></root>') },
+    { kind: "form", value: literal('key=value&other=123') },
   ])("accepts approved body variant: %j", (body) => {
     expect(httpBodySchema.parse(body)).toEqual(body);
     expect(httpParametersSchema.parse({ ...minimal, body })).toEqual({ ...minimal, body });
@@ -46,7 +48,7 @@ describe("standalone HTTP parameters", () => {
     { ...minimal, headers: [{ name: "X", value: { kind: "literal", value: 1 } }] },
     { ...minimal, body: { kind: "none", value: null } },
     { ...minimal, body: { kind: "text", value: { kind: "literal", value: {} } } },
-    { ...minimal, body: { kind: "json", value: { kind: "literal", value: { x: NaN } } } },
+    { ...minimal, body: { kind: "json", value: { kind: "literal", value: 123 } } }, // value must be string
     { ...minimal, body: { kind: "multipart", files: [] } },
     { ...minimal, body: { kind: "form-urlencoded", fields: [] } },
     { ...minimal, authentication: {} }, { ...minimal, timeout: 1000 },

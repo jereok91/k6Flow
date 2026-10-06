@@ -108,7 +108,8 @@ describe("composition reference reconciliation", () => {
   });
 
   it("never treats reference-shaped literal JSON as a reference", () => {
-    const body = { kind: "json", value: literal({ kind: "reference", reference: tokenReference }) };
+    // JSON body is now a string, not a parsed JSON object
+    const body = { kind: "json", value: literal(JSON.stringify({ kind: "reference", reference: tokenReference })) };
     const literalData = node("request", "http-request", [], httpParameters({ body }));
     expect(parseDraft(draft([authNode, literalData])).success).toBe(true);
   });

@@ -314,6 +314,37 @@ export default function EditorPage() {
       .map((n) => ({ id: n.id, label: n.data.label || n.id }));
   };
 
+  // Get available outputs from Authentication and User Pool nodes for variable injection
+  const getAvailableOutputs = () => {
+    const outputs: { nodeId: string; nodeLabel: string; outputName: string }[] = [];
+    
+    for (const node of nodes) {
+      const params = node.data.parameters as Record<string, unknown> | undefined;
+      const nodeLabel = node.data.label || node.id;
+      
+      if (node.data.kind === "authentication" && params?.outputs) {
+        const authOutputs = params.outputs as { name: string }[];
+        for (const output of authOutputs) {
+          outputs.push({ nodeId: node.id, nodeLabel, outputName: output.name });
+        }
+      } else if (node.data.kind === "user-pool") {
+        // Get outputs from explicit outputs or infer from manualUsers
+        if (params?.outputs && Array.isArray(params.outputs)) {
+          for (const output of params.outputs as { name: string }[]) {
+            outputs.push({ nodeId: node.id, nodeLabel, outputName: output.name });
+          }
+        } else if (params?.manualUsers && Array.isArray(params.manualUsers) && params.manualUsers.length > 0) {
+          const firstUser = params.manualUsers[0] as Record<string, unknown>;
+          for (const key of Object.keys(firstUser)) {
+            outputs.push({ nodeId: node.id, nodeLabel, outputName: key });
+          }
+        }
+      }
+    }
+    
+    return outputs;
+  };
+
   const handleRunClick = () => {
     const targets = nodes
       .filter((n) => n.data.kind === "http-request")
@@ -340,7 +371,7 @@ export default function EditorPage() {
       return;
     }
     const result = await run.startRun(nodes, edges, {
-      scenarioId: scenario.scenarioId || undefined,
+      scenarioId: scenario.scenarioId ? String(scenario.scenarioId) : undefined,
       scenarioName: scenario.scenarioName || "Sin nombre",
     });
     if (result.success && result.runId) {
@@ -442,6 +473,7 @@ export default function EditorPage() {
         return (
           <HttpRequestConfigPanel
             parameters={parameters as Parameters<typeof HttpRequestConfigPanel>[0]["parameters"]}
+            availableOutputs={getAvailableOutputs()}
             onChange={(params) => updateNodeParameters(nodeId, params)}
             onClose={closeConfigPanel}
           />
