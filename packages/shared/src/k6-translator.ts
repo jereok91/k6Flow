@@ -280,9 +280,19 @@ export function translateToK6(
 
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
-        bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}(${url}, ${body}, {`);
-        bodyLines.push(`    headers: { 'Content-Type': '${contentType}' },`);
-        bodyLines.push("  });");
+        
+        // Methods that support a request body
+        const methodsWithBody = ["POST", "PUT", "PATCH", "DELETE"];
+        if (methodsWithBody.includes(method.toUpperCase())) {
+          bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}(${url}, ${body}, {`);
+          bodyLines.push(`    headers: { 'Content-Type': '${contentType}' },`);
+          bodyLines.push("  });");
+        } else {
+          // GET, HEAD, OPTIONS - no body parameter
+          bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}(${url}, {`);
+          bodyLines.push("    headers: {},");
+          bodyLines.push("  });");
+        }
         varMap.set(`${id}.response`, `${varName}_res`);
         break;
       }
