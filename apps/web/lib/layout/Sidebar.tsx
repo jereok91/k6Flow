@@ -83,8 +83,8 @@ export function Sidebar() {
           height: "64px",
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 16px",
+          justifyContent: collapsed ? "center" : "space-between",
+          padding: collapsed ? "0 8px" : "0 16px",
         }}
       >
         <Link href="/" style={{ display: "flex", alignItems: "center", gap: "8px", textDecoration: "none" }}>
@@ -130,27 +130,32 @@ export function Sidebar() {
             <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>dock_to_right</span>
           </button>
         )}
-        {collapsed && (
+      </div>
+
+      {/* Expand button when collapsed */}
+      {collapsed && (
+        <div style={{ padding: "0 8px 8px" }}>
           <button
             type="button"
             onClick={toggleCollapsed}
             style={{
-              position: "absolute",
-              top: "20px",
-              right: "8px",
-              padding: "4px",
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "8px",
               color: "var(--color-on-surface-variant)",
-              background: "none",
+              background: "var(--color-surface-container-low)",
               border: "none",
               cursor: "pointer",
               borderRadius: "8px",
             }}
             title="Expandir sidebar"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>dock_to_left</span>
+            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>chevron_right</span>
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Workspace indicator */}
       {!collapsed && (
