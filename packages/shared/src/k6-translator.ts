@@ -238,7 +238,8 @@ export function translateToK6(
         if (params.outputs && Array.isArray(params.outputs)) {
           for (const output of params.outputs) {
             if (output.selector?.kind === "json-path") {
-              const jsonPath = output.selector.path.join(".");
+              // Filter empty segments (can occur during UI editing)
+              const jsonPath = output.selector.path.filter(Boolean).join(".");
               bodyLines.push(`  const ${varName}_${output.name} = ${varName}_res.json('${jsonPath}');`);
               varMap.set(`${id}.${output.name}`, `${varName}_${output.name}`);
             }

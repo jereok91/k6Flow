@@ -93,7 +93,8 @@ export function AuthenticationConfigPanel({
       outputs: [
         {
           name: newOutputName,
-          selector: { kind: "json-path", path: newOutputPath.split(".").filter(Boolean) },
+          // Store path segments, filtering empty only on save (not during typing)
+          selector: { kind: "json-path", path: newOutputPath ? newOutputPath.split(".") : [] },
           expectedType: "string",
           required: true,
         },
