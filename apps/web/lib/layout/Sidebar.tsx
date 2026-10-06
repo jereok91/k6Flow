@@ -24,7 +24,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, toggleTheme } = useTheme();
-  const { collapsed, mounted, toggleCollapsed } = useSidebar();
+  const { collapsed, ready, toggleCollapsed } = useSidebar();
   const [user, setUser] = useState<User | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -73,7 +73,7 @@ export function Sidebar() {
         flexDirection: "column",
         zIndex: 50,
         boxShadow: "0 1px 8px rgba(0,0,0,0.3)",
-        transition: mounted ? "width 0.2s ease" : "none",
+        transition: ready ? "width 0.2s ease" : "none",
         overflow: "hidden",
       }}
     >

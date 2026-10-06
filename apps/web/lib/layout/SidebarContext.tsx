@@ -6,36 +6,36 @@ const STORAGE_KEY = "k6flow-sidebar-collapsed";
 
 interface SidebarContextType {
   collapsed: boolean;
-  mounted: boolean;
+  ready: boolean;
   toggleCollapsed: () => void;
 }
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
-export function SidebarProvider({ children }: { children: ReactNode }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [mounted, setMounted] = useState(false);
+// Read initial value synchronously on client
+function getInitialCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(STORAGE_KEY) === "true";
+}
 
-  // Load from localStorage on mount
+export function SidebarProvider({ children }: { children: ReactNode }) {
+  const [collapsed, setCollapsed] = useState(getInitialCollapsed);
+  const [ready, setReady] = useState(false);
+
+  // Mark as ready after hydration
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "true") {
-      setCollapsed(true);
-    }
-    setMounted(true);
+    setReady(true);
   }, []);
 
   // Save to localStorage on change
   useEffect(() => {
-    if (mounted) {
-      localStorage.setItem(STORAGE_KEY, String(collapsed));
-    }
-  }, [collapsed, mounted]);
+    localStorage.setItem(STORAGE_KEY, String(collapsed));
+  }, [collapsed]);
 
   const toggleCollapsed = () => setCollapsed((prev) => !prev);
 
   return (
-    <SidebarContext.Provider value={{ collapsed, mounted, toggleCollapsed }}>
+    <SidebarContext.Provider value={{ collapsed, ready, toggleCollapsed }}>
       {children}
     </SidebarContext.Provider>
   );

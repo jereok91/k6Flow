@@ -10,7 +10,7 @@ interface MainLayoutProps {
 }
 
 function LayoutContent({ children }: { children: ReactNode }) {
-  const { collapsed, mounted } = useSidebar();
+  const { collapsed, ready } = useSidebar();
 
   return (
     <div className="min-h-screen bg-background">
@@ -21,7 +21,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
           paddingLeft: collapsed ? "72px" : "256px",
           paddingTop: "64px",
           minHeight: "100vh",
-          transition: mounted ? "padding-left 0.2s ease" : "none",
+          transition: ready ? "padding-left 0.2s ease" : "none",
         }}
       >
         <div className="w-full px-6 py-6">{children}</div>
