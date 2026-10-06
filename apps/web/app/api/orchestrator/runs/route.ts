@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       let runId: string | undefined;
       try {
         const runData = JSON.parse(data);
-        runId = runData.id;
+        runId = runData.runId;
       } catch {
         // Could not parse run ID - run exists but we can't track it
         return Response.json(

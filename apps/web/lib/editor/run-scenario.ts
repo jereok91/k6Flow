@@ -137,7 +137,7 @@ export async function runScenario(
     const result = await res.json();
     return {
       success: true,
-      runId: result.id,
+      runId: result.runId,
       warnings: translation.warnings,
     };
   } catch (err) {
