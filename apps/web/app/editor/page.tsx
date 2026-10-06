@@ -265,11 +265,45 @@ export default function EditorPage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (nodeId: string, parameters: any) => {
       setNodes((current) =>
-        current.map((node) =>
-          node.id === nodeId
-            ? { ...node, data: { ...node.data, parameters } as K6NodeData }
-            : node,
-        ),
+        current.map((node) => {
+          if (node.id !== nodeId) return node;
+          
+          // Extract references from parameters (headers, url, body)
+          const references: { producerNodeId: string; output: string }[] = [];
+          const seen = new Set<string>();
+          
+          const addRef = (ref: { producerNodeId: string; output: string }) => {
+            const key = `${ref.producerNodeId}::${ref.output}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              references.push(ref);
+            }
+          };
+          
+          // Check URL
+          if (parameters?.url?.kind === "reference" && parameters.url.reference) {
+            addRef(parameters.url.reference);
+          }
+          
+          // Check headers
+          if (Array.isArray(parameters?.headers)) {
+            for (const header of parameters.headers) {
+              if (header?.value?.kind === "reference" && header.value.reference) {
+                addRef(header.value.reference);
+              }
+            }
+          }
+          
+          // Check body
+          if (parameters?.body?.value?.kind === "reference" && parameters.body.value.reference) {
+            addRef(parameters.body.value.reference);
+          }
+          
+          return {
+            ...node,
+            data: { ...node.data, parameters, references } as K6NodeData,
+          };
+        }),
       );
     },
     [],
