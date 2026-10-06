@@ -34,13 +34,17 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
+    // Extract history fields before sending to orchestrator
+    // (orchestrator rejects unknown fields)
+    const { scenarioId, scenarioName, ...orchestratorBody } = body;
+
     const res = await fetch(`${ORCHESTRATOR_URL}/api/runs`, {
       method: "POST",
       headers: { 
         "Content-Type": "application/json",
         "Authorization": `Bearer ${SERVICE_TOKEN}`,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(orchestratorBody),
     });
 
     const data = await res.text();
