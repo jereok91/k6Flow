@@ -16,6 +16,25 @@ interface RunMetrics {
   dataSent: number;
 }
 
+interface EndpointData {
+  method: string;
+  url: string;
+  name?: string;
+  requests: number;
+  failures: number;
+  avgDurationMs: number;
+  p95DurationMs: number;
+}
+
+interface FailureData {
+  method: string;
+  url: string;
+  status: number;
+  errorCode?: string;
+  count: number;
+  lastError?: string;
+}
+
 interface RunSummary {
   totals: {
     requests: number;
@@ -50,6 +69,7 @@ interface RunDetail {
 }
 
 type RunStatus = "queued" | "starting" | "running" | "stopping" | "finished" | "completed" | "failed" | "aborted" | "errored";
+type TabType = "overview" | "endpoints" | "errors";
 
 export default function RunDetailPage({ params }: { params: Promise<{ runId: string }> }) {
   const { runId } = use(params);
@@ -58,6 +78,11 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabType>("overview");
+  
+  // Endpoints and failures data
+  const [endpoints, setEndpoints] = useState<EndpointData[]>([]);
+  const [failures, setFailures] = useState<FailureData[]>([]);
   
   // Live execution state
   const [isLive, setIsLive] = useState(false);
@@ -128,6 +153,20 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
         if (summaryRes.ok) {
           const summaryData = await summaryRes.json();
           setSummary(summaryData);
+        }
+        
+        // Fetch endpoints
+        const endpointsRes = await fetch(`/api/orchestrator/runs/${runId}/endpoints`);
+        if (endpointsRes.ok) {
+          const endpointsData = await endpointsRes.json();
+          setEndpoints(endpointsData.endpoints || []);
+        }
+        
+        // Fetch failures
+        const failuresRes = await fetch(`/api/orchestrator/runs/${runId}/failures`);
+        if (failuresRes.ok) {
+          const failuresData = await failuresRes.json();
+          setFailures(failuresData.failures || []);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch run");
@@ -259,6 +298,17 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     };
     return colors[s] || "#6b7280";
   };
+  
+  const getMethodColor = (method: string) => {
+    const colors: Record<string, string> = {
+      GET: "#10b981",
+      POST: "#3b82f6",
+      PUT: "#f59e0b",
+      DELETE: "#ef4444",
+      PATCH: "#8b5cf6",
+    };
+    return colors[method] || "#6b7280";
+  };
 
   if (loading) {
     return (
@@ -314,8 +364,8 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
                 {status}
               </span>
               {isLive && wsConnected && (
-                <span style={{ fontSize: 11, color: "var(--color-on-surface-variant)" }}>
-                  🔴 LIVE
+                <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600 }}>
+                  ● LIVE
                 </span>
               )}
               <span style={{ fontSize: 12, color: "var(--color-on-surface-variant)" }}>
@@ -333,95 +383,281 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
           </div>
         </div>
 
-        {/* Live KPIs */}
-        <div style={kpiGridStyle}>
-          <KpiCard 
-            label="VUs Activos" 
-            value={metrics.vus.toString()} 
-            sparkData={chartData.vus.slice(-30)}
-            color="#10b981"
-          />
-          <KpiCard 
-            label="Req/s" 
-            value={metrics.requestRate.toFixed(1)} 
-            sparkData={chartData.rps.slice(-30)}
-            color="#8b5cf6"
-          />
-          <KpiCard 
-            label="Latencia Promedio" 
-            value={`${Math.round(metrics.avgDuration)}ms`} 
-            sparkData={chartData.avgLatency.slice(-30)}
-            color="#f59e0b"
-          />
-          <KpiCard 
-            label="Tasa de Error" 
-            value={`${(metrics.errorRate * 100).toFixed(1)}%`} 
-            sparkData={chartData.errorRate.slice(-30)}
-            color={metrics.errorRate > 0.01 ? "#ef4444" : "#6b7280"}
-            highlight={metrics.errorRate > 0.01}
-          />
+        {/* Tabs */}
+        <div style={tabsContainerStyle}>
+          <button
+            onClick={() => setActiveTab("overview")}
+            style={{
+              ...tabStyle,
+              ...(activeTab === "overview" ? activeTabStyle : {}),
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>monitoring</span>
+            Overview
+          </button>
+          <button
+            onClick={() => setActiveTab("endpoints")}
+            style={{
+              ...tabStyle,
+              ...(activeTab === "endpoints" ? activeTabStyle : {}),
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>api</span>
+            Endpoints
+            {endpoints.length > 0 && (
+              <span style={tabBadgeStyle}>{endpoints.length}</span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("errors")}
+            style={{
+              ...tabStyle,
+              ...(activeTab === "errors" ? activeTabStyle : {}),
+              color: failures.length > 0 || metrics.errorRate > 0 ? "#ef4444" : undefined,
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>error</span>
+            Errores
+            {(failures.length > 0 || metrics.errorRate > 0) && (
+              <span style={{ ...tabBadgeStyle, background: "#ef4444" }}>
+                {failures.length || Math.round(metrics.errorRate * metrics.iterations)}
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Charts */}
-        <div style={chartsGridStyle}>
-          <div style={chartContainerStyle}>
-            <h3 style={chartTitleStyle}>Requests/s</h3>
-            <div style={{ height: 200 }}>
-              <RpsChart 
-                data={[
-                  chartData.time.map((_, i) => i),
-                  chartData.rps,
-                ]}
-                height={180}
+        {/* Tab Content */}
+        {activeTab === "overview" && (
+          <>
+            {/* Live KPIs */}
+            <div style={kpiGridStyle}>
+              <KpiCard 
+                label="VUs Activos" 
+                value={metrics.vus.toString()} 
+                sparkData={chartData.vus.slice(-30)}
+                color="#10b981"
+              />
+              <KpiCard 
+                label="Req/s" 
+                value={metrics.requestRate.toFixed(1)} 
+                sparkData={chartData.rps.slice(-30)}
+                color="#8b5cf6"
+              />
+              <KpiCard 
+                label="Latencia Promedio" 
+                value={`${Math.round(metrics.avgDuration)}ms`} 
+                sparkData={chartData.avgLatency.slice(-30)}
+                color="#f59e0b"
+              />
+              <KpiCard 
+                label="Tasa de Error" 
+                value={`${(metrics.errorRate * 100).toFixed(1)}%`} 
+                sparkData={chartData.errorRate.slice(-30)}
+                color={metrics.errorRate > 0.01 ? "#ef4444" : "#6b7280"}
+                highlight={metrics.errorRate > 0.01}
               />
             </div>
-          </div>
-          <div style={chartContainerStyle}>
-            <h3 style={chartTitleStyle}>Latencia (ms)</h3>
-            <div style={{ height: 200 }}>
-              <LatencyChart 
-                data={[
-                  chartData.time.map((_, i) => i),
-                  chartData.avgLatency,
-                  chartData.p95Latency,
-                  chartData.p99Latency,
-                ]}
-                height={180}
-              />
-            </div>
-          </div>
-        </div>
 
-        {/* Metrics Grid */}
-        <div style={metricsGridStyle}>
-          <MetricCard label="Iteraciones" value={metrics.iterations.toString()} />
-          <MetricCard label="P95 Duration" value={`${Math.round(metrics.p95Duration)}ms`} />
-          <MetricCard label="Data Recibida" value={formatBytes(metrics.dataReceived)} />
-          <MetricCard label="Data Enviada" value={formatBytes(metrics.dataSent)} />
-        </div>
-
-        {/* Summary Section (for finished runs) */}
-        {!isLive && summary && (
-          <div style={summaryContainerStyle}>
-            <h2 style={sectionTitleStyle}>Resumen de Ejecución</h2>
-            <div style={summaryGridStyle}>
-              <SummaryCard title="Latencia">
-                <SummaryRow label="Promedio" value={formatDuration(summary.latency.avgMs)} />
-                <SummaryRow label="P90" value={formatDuration(summary.latency.p90Ms)} />
-                <SummaryRow label="P95" value={formatDuration(summary.latency.p95Ms)} />
-                <SummaryRow label="P99" value={formatDuration(summary.latency.p99Ms)} />
-              </SummaryCard>
-              <SummaryCard title="Totales">
-                <SummaryRow label="Requests" value={summary.totals.requests.toString()} />
-                <SummaryRow label="Iteraciones" value={summary.totals.iterations.toString()} />
-                <SummaryRow label="Errores" value={summary.totals.errors.toString()} highlight={summary.totals.errors > 0} />
-                <SummaryRow label="Checks Fallidos" value={summary.totals.failedChecks.toString()} highlight={summary.totals.failedChecks > 0} />
-              </SummaryCard>
-              <SummaryCard title="Transferencia">
-                <SummaryRow label="Recibido" value={formatBytes(summary.dataReceivedBytes)} />
-                <SummaryRow label="Enviado" value={formatBytes(summary.dataSentBytes)} />
-              </SummaryCard>
+            {/* Charts */}
+            <div style={chartsGridStyle}>
+              <div style={chartContainerStyle}>
+                <h3 style={chartTitleStyle}>Requests/s</h3>
+                <div style={{ height: 220 }}>
+                  <RpsChart 
+                    data={[
+                      chartData.time.map((_, i) => i),
+                      chartData.rps,
+                    ]}
+                    height={200}
+                  />
+                </div>
+              </div>
+              <div style={chartContainerStyle}>
+                <h3 style={chartTitleStyle}>Latencia (ms)</h3>
+                <div style={{ height: 220 }}>
+                  <LatencyChart 
+                    data={[
+                      chartData.time.map((_, i) => i),
+                      chartData.avgLatency,
+                      chartData.p95Latency,
+                      chartData.p99Latency,
+                    ]}
+                    height={200}
+                  />
+                </div>
+              </div>
             </div>
+
+            {/* Metrics Grid */}
+            <div style={metricsGridStyle}>
+              <MetricCard label="Iteraciones" value={metrics.iterations.toString()} />
+              <MetricCard label="P95 Duration" value={`${Math.round(metrics.p95Duration)}ms`} />
+              <MetricCard label="Data Recibida" value={formatBytes(metrics.dataReceived)} />
+              <MetricCard label="Data Enviada" value={formatBytes(metrics.dataSent)} />
+            </div>
+
+            {/* Summary Section (for finished runs) */}
+            {!isLive && summary && (
+              <div style={summaryContainerStyle}>
+                <h2 style={sectionTitleStyle}>Resumen Final</h2>
+                <div style={summaryGridStyle}>
+                  <SummaryCard title="Latencia">
+                    <SummaryRow label="Promedio" value={formatDuration(summary.latency.avgMs)} />
+                    <SummaryRow label="P90" value={formatDuration(summary.latency.p90Ms)} />
+                    <SummaryRow label="P95" value={formatDuration(summary.latency.p95Ms)} />
+                    <SummaryRow label="P99" value={formatDuration(summary.latency.p99Ms)} />
+                  </SummaryCard>
+                  <SummaryCard title="Totales">
+                    <SummaryRow label="Requests" value={summary.totals.requests.toString()} />
+                    <SummaryRow label="Iteraciones" value={summary.totals.iterations.toString()} />
+                    <SummaryRow label="Errores" value={summary.totals.errors.toString()} highlight={summary.totals.errors > 0} />
+                    <SummaryRow label="Checks Fallidos" value={summary.totals.failedChecks.toString()} highlight={summary.totals.failedChecks > 0} />
+                  </SummaryCard>
+                  <SummaryCard title="Transferencia">
+                    <SummaryRow label="Recibido" value={formatBytes(summary.dataReceivedBytes)} />
+                    <SummaryRow label="Enviado" value={formatBytes(summary.dataSentBytes)} />
+                  </SummaryCard>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === "endpoints" && (
+          <div style={tabContentStyle}>
+            <h2 style={sectionTitleStyle}>Endpoints ({endpoints.length})</h2>
+            {endpoints.length === 0 ? (
+              <div style={emptyStateStyle}>
+                <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>api</span>
+                <p>No hay datos de endpoints disponibles</p>
+                <p style={{ fontSize: 12, opacity: 0.7 }}>Los datos se mostrarán cuando el test termine</p>
+              </div>
+            ) : (
+              <div style={tableContainerStyle}>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Método</th>
+                      <th style={{ ...thStyle, textAlign: "left" }}>URL</th>
+                      <th style={thStyle}>Requests</th>
+                      <th style={thStyle}>Errores</th>
+                      <th style={thStyle}>Error %</th>
+                      <th style={thStyle}>Avg (ms)</th>
+                      <th style={thStyle}>P95 (ms)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {endpoints.map((ep, i) => {
+                      const errorPct = ep.requests > 0 ? (ep.failures / ep.requests) * 100 : 0;
+                      return (
+                        <tr key={i} style={trStyle}>
+                          <td style={tdStyle}>
+                            <span style={{ 
+                              ...methodBadgeStyle, 
+                              background: getMethodColor(ep.method) 
+                            }}>
+                              {ep.method}
+                            </span>
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: "left", fontFamily: "monospace", fontSize: 12 }}>
+                            {ep.name || ep.url}
+                          </td>
+                          <td style={tdStyle}>{ep.requests.toLocaleString()}</td>
+                          <td style={{ ...tdStyle, color: ep.failures > 0 ? "#ef4444" : undefined }}>
+                            {ep.failures.toLocaleString()}
+                          </td>
+                          <td style={{ ...tdStyle, color: errorPct > 1 ? "#ef4444" : undefined }}>
+                            {errorPct.toFixed(1)}%
+                          </td>
+                          <td style={tdStyle}>{ep.avgDurationMs.toFixed(0)}</td>
+                          <td style={tdStyle}>{ep.p95DurationMs.toFixed(0)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "errors" && (
+          <div style={tabContentStyle}>
+            <h2 style={sectionTitleStyle}>
+              Errores 
+              {(failures.length > 0 || metrics.errorRate > 0) && (
+                <span style={{ color: "#ef4444", marginLeft: 8 }}>
+                  ({failures.length || Math.round(metrics.errorRate * metrics.iterations)})
+                </span>
+              )}
+            </h2>
+            {failures.length === 0 && metrics.errorRate === 0 ? (
+              <div style={emptyStateStyle}>
+                <span className="material-symbols-outlined" style={{ fontSize: 48, color: "#10b981" }}>check_circle</span>
+                <p style={{ color: "#10b981" }}>Sin errores</p>
+                <p style={{ fontSize: 12, opacity: 0.7 }}>Todos los requests fueron exitosos</p>
+              </div>
+            ) : failures.length === 0 ? (
+              <div style={emptyStateStyle}>
+                <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>error</span>
+                <p>Tasa de error: {(metrics.errorRate * 100).toFixed(2)}%</p>
+                <p style={{ fontSize: 12, opacity: 0.7 }}>Los detalles de errores se mostrarán cuando el test termine</p>
+              </div>
+            ) : (
+              <div style={tableContainerStyle}>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Método</th>
+                      <th style={{ ...thStyle, textAlign: "left" }}>URL</th>
+                      <th style={thStyle}>Status</th>
+                      <th style={thStyle}>Código</th>
+                      <th style={thStyle}>Cantidad</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {failures.map((f, i) => (
+                      <tr key={i} style={trStyle}>
+                        <td style={tdStyle}>
+                          <span style={{ 
+                            ...methodBadgeStyle, 
+                            background: getMethodColor(f.method) 
+                          }}>
+                            {f.method}
+                          </span>
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "left", fontFamily: "monospace", fontSize: 12 }}>
+                          {f.url}
+                        </td>
+                        <td style={{ ...tdStyle, color: "#ef4444", fontWeight: 600 }}>
+                          {f.status}
+                        </td>
+                        <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: 11 }}>
+                          {f.errorCode || "-"}
+                        </td>
+                        <td style={tdStyle}>{f.count.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            
+            {/* Error Rate Over Time Chart */}
+            {chartData.errorRate.some(r => r > 0) && (
+              <div style={{ marginTop: 24 }}>
+                <h3 style={chartTitleStyle}>Tasa de Error en el Tiempo</h3>
+                <div style={{ ...chartContainerStyle, height: 200 }}>
+                  <RpsChart 
+                    data={[
+                      chartData.time.map((_, i) => i),
+                      chartData.errorRate.map(r => r * 100),
+                    ]}
+                    height={180}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -502,7 +738,7 @@ const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
   gap: 16,
-  marginBottom: 24,
+  marginBottom: 16,
   paddingBottom: 16,
   borderBottom: "1px solid var(--color-surface-container)",
 };
@@ -540,6 +776,49 @@ const stopButtonStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: 13,
   fontWeight: 500,
+};
+
+const tabsContainerStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 4,
+  marginBottom: 24,
+  borderBottom: "1px solid var(--color-surface-container)",
+  paddingBottom: 0,
+};
+
+const tabStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "12px 16px",
+  background: "none",
+  border: "none",
+  borderBottom: "2px solid transparent",
+  color: "var(--color-on-surface-variant)",
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 500,
+  marginBottom: -1,
+};
+
+const activeTabStyle: React.CSSProperties = {
+  color: "var(--color-primary)",
+  borderBottomColor: "var(--color-primary)",
+};
+
+const tabBadgeStyle: React.CSSProperties = {
+  background: "var(--color-primary)",
+  color: "white",
+  fontSize: 11,
+  fontWeight: 600,
+  padding: "2px 6px",
+  borderRadius: 10,
+  minWidth: 18,
+  textAlign: "center",
+};
+
+const tabContentStyle: React.CSSProperties = {
+  minHeight: 400,
 };
 
 const kpiGridStyle: React.CSSProperties = {
@@ -625,4 +904,59 @@ const errorBoxStyle: React.CSSProperties = {
   borderRadius: 8,
   color: "#ef4444",
   marginBottom: 16,
+};
+
+const emptyStateStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 48,
+  color: "var(--color-on-surface-variant)",
+  textAlign: "center",
+  gap: 8,
+};
+
+const tableContainerStyle: React.CSSProperties = {
+  background: "var(--color-surface-container-low)",
+  borderRadius: 12,
+  border: "1px solid var(--color-surface-container)",
+  overflow: "hidden",
+};
+
+const tableStyle: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  fontSize: 13,
+};
+
+const thStyle: React.CSSProperties = {
+  padding: "12px 16px",
+  textAlign: "center",
+  fontWeight: 600,
+  fontSize: 11,
+  textTransform: "uppercase",
+  letterSpacing: "0.5px",
+  color: "var(--color-on-surface-variant)",
+  background: "var(--color-surface-container)",
+  borderBottom: "1px solid var(--color-surface-container-high)",
+};
+
+const trStyle: React.CSSProperties = {
+  borderBottom: "1px solid var(--color-surface-container)",
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "12px 16px",
+  textAlign: "center",
+  color: "var(--color-on-surface)",
+};
+
+const methodBadgeStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "2px 8px",
+  borderRadius: 4,
+  fontSize: 11,
+  fontWeight: 600,
+  color: "white",
 };
