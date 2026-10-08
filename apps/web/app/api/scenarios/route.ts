@@ -113,6 +113,8 @@ export async function POST(request: Request): Promise<Response> {
       ownerId: user.id,
       name: classified.name,
       graph: classified.graph,
+      vus: classified.vus ?? 1,
+      durationSeconds: classified.durationSeconds ?? 30,
       createdAt: now,
       updatedAt: now,
     });

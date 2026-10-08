@@ -61,6 +61,8 @@ export default function EditorPage() {
   const [showRunConfirmation, setShowRunConfirmation] = useState(false);
   const [runTargets, setRunTargets] = useState<string[]>([]);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
+  const [editorVus, setEditorVus] = useState(1);
+  const [editorDuration, setEditorDuration] = useState("30s");
   const [showExecutionPanel, setShowExecutionPanel] = useState(false);
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
@@ -144,6 +146,8 @@ export default function EditorPage() {
         if (result) {
           setNodes(result.nodes);
           setEdges(result.edges);
+          setEditorVus(result.vus);
+          setEditorDuration(`${result.durationSeconds}s`);
         }
       });
       if (typeof scenarioId === 'number') {
@@ -314,17 +318,30 @@ export default function EditorPage() {
     setNodes((current) => current.map((n) => ({ ...n, selected: false })));
   }, []);
 
+  // Parse duration string to seconds (e.g., "30s" -> 30, "1m" -> 60, "1m30s" -> 90)
+  const parseDurationToSeconds = (dur: string): number => {
+    let total = 0;
+    const minuteMatch = dur.match(/(\d+)m/);
+    const secondMatch = dur.match(/(\d+)s/);
+    if (minuteMatch) total += parseInt(minuteMatch[1], 10) * 60;
+    if (secondMatch) total += parseInt(secondMatch[1], 10);
+    if (total === 0 && /^\d+$/.test(dur)) total = parseInt(dur, 10);
+    return total || 30;
+  };
+
   const handleSave = async () => {
     if (!scenario.scenarioId) {
       setShowSaveDialog(true);
       return;
     }
-    await scenario.updateScenario(scenario.scenarioId, scenario.scenarioName, nodes, edges);
+    const durationSecs = parseDurationToSeconds(editorDuration);
+    await scenario.updateScenario(scenario.scenarioId, scenario.scenarioName, nodes, edges, editorVus, durationSecs);
   };
 
   const handleCreateScenario = async () => {
     if (!scenarioNameInput.trim()) return;
-    const result = await scenario.saveScenario(scenarioNameInput.trim(), nodes, edges);
+    const durationSecs = parseDurationToSeconds(editorDuration);
+    const result = await scenario.saveScenario(scenarioNameInput.trim(), nodes, edges, editorVus, durationSecs);
     if (result) {
       setShowSaveDialog(false);
       setScenarioNameInput("");
@@ -404,9 +421,12 @@ export default function EditorPage() {
     if (nodes.length === 0) {
       return;
     }
+    const durationMs = parseDurationToSeconds(editorDuration) * 1000;
     const result = await run.startRun(nodes, edges, {
       scenarioId: scenario.scenarioId ? String(scenario.scenarioId) : undefined,
       scenarioName: scenario.scenarioName || "Sin nombre",
+      vus: editorVus,
+      durationMs,
     });
     if (result.success && result.runId) {
       setCurrentRunId(result.runId);
@@ -419,8 +439,8 @@ export default function EditorPage() {
         scenarioName: scenario.scenarioName || "Sin nombre",
         startedAt: new Date(),
         status: "running",
-        vus: 1,
-        duration: "30s",
+        vus: editorVus,
+        duration: editorDuration,
         iterations: 0,
       };
       setRunHistory(prev => [newEntry, ...prev]);
@@ -750,7 +770,13 @@ export default function EditorPage() {
           <ScriptPanel
             nodes={nodes}
             edges={edges}
+            initialVus={editorVus}
+            initialDuration={editorDuration}
             onClose={() => setShowScriptPanel(false)}
+            onConfigChange={(vus, duration) => {
+              setEditorVus(vus);
+              setEditorDuration(duration);
+            }}
           />
         )}
         

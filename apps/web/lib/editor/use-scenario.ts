@@ -15,25 +15,33 @@ interface Scenario {
   id: string | number;
   name: string;
   graph: { nodes: unknown[]; edges: unknown[] };
+  vus?: number;
+  durationSeconds?: number;
 }
 
 interface UseScenarioResult {
   scenarioId: string | number | null;
   scenarioName: string;
+  vus: number;
+  durationSeconds: number;
   loading: boolean;
   saving: boolean;
   error: string | null;
-  loadScenario: (id: string | number) => Promise<{ nodes: K6Node[]; edges: K6Edge[] } | null>;
+  loadScenario: (id: string | number) => Promise<{ nodes: K6Node[]; edges: K6Edge[]; vus: number; durationSeconds: number } | null>;
   saveScenario: (
     name: string,
     nodes: K6Node[],
     edges: K6Edge[],
+    vus?: number,
+    durationSeconds?: number,
   ) => Promise<{ id: string | number } | null>;
   updateScenario: (
     id: string | number,
     name: string,
     nodes: K6Node[],
     edges: K6Edge[],
+    vus?: number,
+    durationSeconds?: number,
   ) => Promise<boolean>;
   clearScenario: () => void;
 }
@@ -41,6 +49,8 @@ interface UseScenarioResult {
 export function useScenario(): UseScenarioResult {
   const [scenarioId, setScenarioId] = useState<string | number | null>(null);
   const [scenarioName, setScenarioName] = useState("");
+  const [vus, setVus] = useState(1);
+  const [durationSeconds, setDurationSeconds] = useState(30);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,11 +73,18 @@ export function useScenario(): UseScenarioResult {
       const scenario: Scenario = await res.json();
       setScenarioId(scenario.id);
       setScenarioName(scenario.name);
+      setVus(scenario.vus ?? 1);
+      setDurationSeconds(scenario.durationSeconds ?? 30);
 
       // Convert stored graph to React Flow format
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { nodes, edges } = toReactFlowGraph(scenario.graph as any);
-      return { nodes, edges };
+      return { 
+        nodes, 
+        edges, 
+        vus: scenario.vus ?? 1, 
+        durationSeconds: scenario.durationSeconds ?? 30 
+      };
     } catch {
       setError("Network error");
       return null;
@@ -77,7 +94,7 @@ export function useScenario(): UseScenarioResult {
   }, []);
 
   const saveScenario = useCallback(
-    async (name: string, nodes: K6Node[], edges: K6Edge[]) => {
+    async (name: string, nodes: K6Node[], edges: K6Edge[], vusValue?: number, durationValue?: number) => {
       setSaving(true);
       setError(null);
       try {
@@ -87,7 +104,12 @@ export function useScenario(): UseScenarioResult {
         const res = await fetch("/api/scenarios", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, graph }),
+          body: JSON.stringify({ 
+            name, 
+            graph,
+            vus: vusValue,
+            durationSeconds: durationValue,
+          }),
         });
 
         if (!res.ok) {
@@ -116,7 +138,7 @@ export function useScenario(): UseScenarioResult {
   );
 
   const updateScenario = useCallback(
-    async (id: string | number, name: string, nodes: K6Node[], edges: K6Edge[]) => {
+    async (id: string | number, name: string, nodes: K6Node[], edges: K6Edge[], vusValue?: number, durationValue?: number) => {
       setSaving(true);
       setError(null);
       try {
@@ -125,7 +147,12 @@ export function useScenario(): UseScenarioResult {
         const res = await fetch(`/api/scenarios/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, graph }),
+          body: JSON.stringify({ 
+            name, 
+            graph,
+            vus: vusValue,
+            durationSeconds: durationValue,
+          }),
         });
 
         if (!res.ok) {
@@ -156,12 +183,16 @@ export function useScenario(): UseScenarioResult {
   const clearScenario = useCallback(() => {
     setScenarioId(null);
     setScenarioName("");
+    setVus(1);
+    setDurationSeconds(30);
     setError(null);
   }, []);
 
   return {
     scenarioId,
     scenarioName,
+    vus,
+    durationSeconds,
     loading,
     saving,
     error,

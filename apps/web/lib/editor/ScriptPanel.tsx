@@ -10,14 +10,28 @@ import { fromReactFlowGraph, type K6Node, type K6Edge } from "./mapping";
 interface ScriptPanelProps {
   nodes: K6Node[];
   edges: K6Edge[];
+  initialVus?: number;
+  initialDuration?: string;
   onClose: () => void;
+  onConfigChange?: (vus: number, duration: string) => void;
 }
 
-export function ScriptPanel({ nodes, edges, onClose }: ScriptPanelProps) {
+export function ScriptPanel({ nodes, edges, initialVus, initialDuration, onClose, onConfigChange }: ScriptPanelProps) {
   const [copied, setCopied] = useState(false);
-  const [vus, setVus] = useState(1);
-  const [duration, setDuration] = useState("30s");
+  const [vus, setVus] = useState(initialVus ?? 1);
+  const [duration, setDuration] = useState(initialDuration ?? "30s");
   const [showConfig, setShowConfig] = useState(false);
+
+  // Notify parent when config changes
+  const handleVusChange = (newVus: number) => {
+    setVus(newVus);
+    onConfigChange?.(newVus, duration);
+  };
+
+  const handleDurationChange = (newDuration: string) => {
+    setDuration(newDuration);
+    onConfigChange?.(vus, newDuration);
+  };
 
   const result = useMemo(() => {
     if (nodes.length === 0) {
@@ -117,7 +131,7 @@ export function ScriptPanel({ nodes, edges, onClose }: ScriptPanelProps) {
             <input
               type="number"
               value={vus}
-              onChange={(e) => setVus(Math.max(1, parseInt(e.target.value) || 1))}
+              onChange={(e) => handleVusChange(Math.max(1, parseInt(e.target.value) || 1))}
               min={1}
               style={inputStyle}
             />
@@ -130,7 +144,7 @@ export function ScriptPanel({ nodes, edges, onClose }: ScriptPanelProps) {
             <input
               type="text"
               value={duration}
-              onChange={(e) => setDuration(e.target.value)}
+              onChange={(e) => handleDurationChange(e.target.value)}
               placeholder="30s"
               style={inputStyle}
             />

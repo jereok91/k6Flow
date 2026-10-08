@@ -46,7 +46,7 @@ export interface CreateScenarioBody {
 }
 
 export type CreateScenarioResult =
-  | { ok: true; name: string; graph: GraphDraftComposition }
+  | { ok: true; name: string; graph: GraphDraftComposition; vus?: number; durationSeconds?: number }
   | { ok: false; reason: "invalid-shape" | "invalid-graph"; message: string };
 
 export function classifyCreateScenario(body: unknown): CreateScenarioResult {
@@ -59,7 +59,12 @@ export function classifyCreateScenario(body: unknown): CreateScenarioResult {
     return { ok: false, reason: "invalid-shape", message: "Missing name or graph" };
   }
 
-  const { name, graph } = body as { name: unknown; graph: unknown };
+  const { name, graph, vus, durationSeconds } = body as { 
+    name: unknown; 
+    graph: unknown; 
+    vus?: unknown;
+    durationSeconds?: unknown;
+  };
 
   if (typeof name !== "string" || name.trim() === "") {
     return { ok: false, reason: "invalid-shape", message: "Name must be a non-empty string" };
@@ -74,16 +79,21 @@ export function classifyCreateScenario(body: unknown): CreateScenarioResult {
     };
   }
 
-  return { ok: true, name: name.trim(), graph: graphResult.graph };
+  const parsedVus = typeof vus === "number" && vus > 0 ? vus : undefined;
+  const parsedDuration = typeof durationSeconds === "number" && durationSeconds > 0 ? durationSeconds : undefined;
+
+  return { ok: true, name: name.trim(), graph: graphResult.graph, vus: parsedVus, durationSeconds: parsedDuration };
 }
 
 export interface UpdateScenarioBody {
   name?: string;
   graph?: unknown;
+  vus?: number;
+  durationSeconds?: number;
 }
 
 export type UpdateScenarioResult =
-  | { ok: true; name?: string; graph?: GraphDraftComposition }
+  | { ok: true; name?: string; graph?: GraphDraftComposition; vus?: number; durationSeconds?: number }
   | { ok: false; reason: "invalid-shape" | "invalid-graph" | "empty-update"; message: string };
 
 export function classifyUpdateScenario(body: unknown): UpdateScenarioResult {
@@ -91,17 +101,26 @@ export function classifyUpdateScenario(body: unknown): UpdateScenarioResult {
     return { ok: false, reason: "invalid-shape", message: "Body must be an object" };
   }
 
-  const { name, graph } = body as { name?: unknown; graph?: unknown };
+  const { name, graph, vus, durationSeconds } = body as { 
+    name?: unknown; 
+    graph?: unknown; 
+    vus?: unknown;
+    durationSeconds?: unknown;
+  };
 
   // At least one field must be present
   const hasName = "name" in (body as object);
   const hasGraph = "graph" in (body as object);
-  if (!hasName && !hasGraph) {
+  const hasVus = "vus" in (body as object);
+  const hasDuration = "durationSeconds" in (body as object);
+  if (!hasName && !hasGraph && !hasVus && !hasDuration) {
     return { ok: false, reason: "empty-update", message: "No fields to update" };
   }
 
   let validatedName: string | undefined;
   let validatedGraph: GraphDraftComposition | undefined;
+  let validatedVus: number | undefined;
+  let validatedDuration: number | undefined;
 
   if (hasName) {
     if (typeof name !== "string" || name.trim() === "") {
@@ -122,5 +141,13 @@ export function classifyUpdateScenario(body: unknown): UpdateScenarioResult {
     validatedGraph = graphResult.graph;
   }
 
-  return { ok: true, name: validatedName, graph: validatedGraph };
+  if (hasVus && typeof vus === "number" && vus > 0) {
+    validatedVus = vus;
+  }
+
+  if (hasDuration && typeof durationSeconds === "number" && durationSeconds > 0) {
+    validatedDuration = durationSeconds;
+  }
+
+  return { ok: true, name: validatedName, graph: validatedGraph, vus: validatedVus, durationSeconds: validatedDuration };
 }

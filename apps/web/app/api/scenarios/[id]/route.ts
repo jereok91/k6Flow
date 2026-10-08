@@ -46,6 +46,8 @@ export async function GET(
       name: row.name,
       ownerId: row.ownerId,
       graph: row.graph,
+      vus: row.vus ?? 1,
+      durationSeconds: row.durationSeconds ?? 30,
       isFavorite: row.isFavorite,
       folderId: row.folderId,
       createdAt: row.createdAt.toISOString(),
@@ -123,11 +125,13 @@ export async function PUT(
     }
 
     // Build update object
-    const updates: { name?: string; graph?: unknown; updatedAt: Date } = {
+    const updates: { name?: string; graph?: unknown; vus?: number; durationSeconds?: number; updatedAt: Date } = {
       updatedAt: new Date(),
     };
     if (classified.name !== undefined) updates.name = classified.name;
     if (classified.graph !== undefined) updates.graph = classified.graph;
+    if (classified.vus !== undefined) updates.vus = classified.vus;
+    if (classified.durationSeconds !== undefined) updates.durationSeconds = classified.durationSeconds;
 
     await db
       .update(scenarios)

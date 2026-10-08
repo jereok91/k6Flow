@@ -35,6 +35,9 @@ export const scenarios = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     graph: jsonb("graph").notNull(),
+    // Load configuration
+    vus: integer("vus").default(1),
+    durationSeconds: integer("duration_seconds").default(30),
     // K6R6-06: Optional folder for organization
     folderId: text("folder_id"),
     // K6R6-06: Favorite flag
