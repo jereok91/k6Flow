@@ -3,6 +3,7 @@
 // Panel to display live K6 test execution with metrics and results.
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { RpsChart, LatencyChart, Sparkline } from "./MetricsChart";
 
 // K6 exit code to human-readable error message
@@ -48,6 +49,7 @@ interface RunResult {
 type RunStatus = "pending" | "running" | "finished" | "completed" | "failed" | "stopped";
 
 export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPanelProps) {
+  const router = useRouter();
   const [status, setStatus] = useState<RunStatus>("pending");
   const [metrics, setMetrics] = useState<RunMetrics>({
     vus: 0,
@@ -433,12 +435,19 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
             </span>
           )}
         </div>
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           {(status === "running" || status === "pending") && (
             <button onClick={handleStop} style={stopButtonStyle}>
               Detener
             </button>
           )}
+          <button 
+            onClick={() => router.push(`/executions/${runId}`)}
+            style={fullPageButtonStyle}
+            title="Abrir en página completa"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>open_in_full</span>
+          </button>
           <button onClick={onClose} style={closeButtonStyle}>
             ✕
           </button>
@@ -672,6 +681,19 @@ const closeButtonStyle: React.CSSProperties = {
   cursor: "pointer",
   padding: "4px 8px",
   fontSize: "16px",
+};
+
+const fullPageButtonStyle: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "var(--color-on-surface-variant)",
+  cursor: "pointer",
+  padding: "4px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "4px",
+  transition: "background 0.15s",
 };
 
 const errorStyle: React.CSSProperties = {

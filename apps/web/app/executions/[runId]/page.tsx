@@ -1,8 +1,20 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, useRef, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
 import { MainLayout } from "../../../lib/layout";
+import { RpsChart, LatencyChart, Sparkline } from "../../../lib/editor/MetricsChart";
+
+interface RunMetrics {
+  vus: number;
+  iterations: number;
+  requestRate: number;
+  avgDuration: number;
+  p95Duration: number;
+  errorRate: number;
+  dataReceived: number;
+  dataSent: number;
+}
 
 interface RunSummary {
   totals: {
@@ -37,6 +49,8 @@ interface RunDetail {
   errorRate?: number;
 }
 
+type RunStatus = "queued" | "starting" | "running" | "stopping" | "finished" | "completed" | "failed" | "aborted" | "errored";
+
 export default function RunDetailPage({ params }: { params: Promise<{ runId: string }> }) {
   const { runId } = use(params);
   const router = useRouter();
@@ -44,18 +58,55 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Live execution state
+  const [isLive, setIsLive] = useState(false);
+  const [status, setStatus] = useState<RunStatus>("queued");
+  const [metrics, setMetrics] = useState<RunMetrics>({
+    vus: 0,
+    iterations: 0,
+    requestRate: 0,
+    avgDuration: 0,
+    p95Duration: 0,
+    errorRate: 0,
+    dataReceived: 0,
+    dataSent: 0,
+  });
+  const [elapsed, setElapsed] = useState(0);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [chartData, setChartData] = useState<{
+    time: number[];
+    rps: number[];
+    avgLatency: number[];
+    p95Latency: number[];
+    p99Latency: number[];
+    vus: number[];
+    errorRate: number[];
+  }>({
+    time: [],
+    rps: [],
+    avgLatency: [],
+    p95Latency: [],
+    p99Latency: [],
+    vus: [],
+    errorRate: [],
+  });
 
+  const wsRef = useRef<WebSocket | null>(null);
+  const startTimeRef = useRef<number>(Date.now());
+
+  // Fetch initial run data
   useEffect(() => {
     async function fetchData() {
       try {
-        // Fetch run details from orchestrator
         const runRes = await fetch(`/api/orchestrator/runs/${runId}`);
         if (!runRes.ok) {
-          // Try local DB
           const localRes = await fetch(`/api/runs/${runId}`);
           if (localRes.ok) {
             const data = await localRes.json();
             setRun(data);
+            setStatus(data.status as RunStatus);
+            setIsLive(["queued", "starting", "running", "stopping"].includes(data.status));
           } else {
             throw new Error("Run not found");
           }
@@ -67,10 +118,12 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
             vus: data.vus,
             durationMs: data.durationMs,
             createdAt: Date.now(),
+            scenarioName: data.scenarioName,
           });
+          setStatus(data.status as RunStatus);
+          setIsLive(["queued", "starting", "running", "stopping"].includes(data.status));
         }
 
-        // Fetch summary
         const summaryRes = await fetch(`/api/orchestrator/runs/${runId}/summary`);
         if (summaryRes.ok) {
           const summaryData = await summaryRes.json();
@@ -85,6 +138,94 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     fetchData();
   }, [runId]);
 
+  // WebSocket for live metrics
+  useEffect(() => {
+    if (!isLive) return;
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/api/orchestrator/ws/metrics/${runId}`;
+    
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setWsConnected(true);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === "hello") {
+          startTimeRef.current = Date.now();
+        } else if (data.type === "tick") {
+          const newMetrics: RunMetrics = {
+            vus: data.currentVUs ?? data.vus ?? 0,
+            iterations: data.iterations ?? 0,
+            requestRate: data.requestsPerSecond ?? data.rps ?? 0,
+            avgDuration: data.avgResponseTimeMs ?? data.avgDuration ?? 0,
+            p95Duration: data.p95ResponseTimeMs ?? data.p95Duration ?? 0,
+            errorRate: data.errorRate ?? 0,
+            dataReceived: data.dataReceived ?? 0,
+            dataSent: data.dataSent ?? 0,
+          };
+          setMetrics(newMetrics);
+          setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+          
+          setChartData(prev => ({
+            time: [...prev.time, Date.now()].slice(-60),
+            rps: [...prev.rps, newMetrics.requestRate].slice(-60),
+            avgLatency: [...prev.avgLatency, newMetrics.avgDuration].slice(-60),
+            p95Latency: [...prev.p95Latency, newMetrics.p95Duration].slice(-60),
+            p99Latency: [...prev.p99Latency, newMetrics.p95Duration * 1.1].slice(-60),
+            vus: [...prev.vus, newMetrics.vus].slice(-60),
+            errorRate: [...prev.errorRate, newMetrics.errorRate].slice(-60),
+          }));
+        } else if (data.type === "state") {
+          setStatus(data.status as RunStatus);
+          if (!["queued", "starting", "running", "stopping"].includes(data.status)) {
+            setIsLive(false);
+          }
+        } else if (data.type === "end") {
+          setStatus((data.status || "finished") as RunStatus);
+          setIsLive(false);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    };
+
+    ws.onclose = () => {
+      setWsConnected(false);
+    };
+
+    ws.onerror = () => {
+      setWsConnected(false);
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [isLive, runId]);
+
+  // Timer for elapsed time
+  useEffect(() => {
+    if (!isLive) return;
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isLive]);
+
+  const handleStop = useCallback(async () => {
+    try {
+      await fetch(`/api/orchestrator/runs/${runId}/stop`, { method: "POST" });
+      setStatus("stopping");
+    } catch {
+      // Ignore
+    }
+  }, [runId]);
+
   const formatDuration = (ms: number) => {
     if (ms < 1000) return `${ms.toFixed(0)}ms`;
     if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
@@ -97,32 +238,36 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
   };
 
-  const formatDateTime = (timestamp: number) => {
-    return new Date(timestamp).toLocaleString("es-AR", {
-      dateStyle: "short",
-      timeStyle: "medium",
-    });
+  const formatElapsed = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (s: string) => {
     const colors: Record<string, string> = {
+      running: "#10b981",
       finished: "#10b981",
       completed: "#10b981",
       failed: "#ef4444",
+      errored: "#ef4444",
       aborted: "#6b7280",
       stopped: "#6b7280",
+      stopping: "#f59e0b",
+      queued: "#6b7280",
+      starting: "#3b82f6",
     };
-    return colors[status] || "#6b7280";
+    return colors[s] || "#6b7280";
   };
 
   if (loading) {
     return (
       <MainLayout>
-      <div style={containerStyle}>
-        <div style={{ padding: 48, textAlign: "center", color: "var(--color-on-surface-variant)" }}>
-          Cargando...
+        <div style={containerStyle}>
+          <div style={{ padding: 48, textAlign: "center", color: "var(--color-on-surface-variant)" }}>
+            Cargando...
+          </div>
         </div>
-      </div>
       </MainLayout>
     );
   }
@@ -130,208 +275,227 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
   if (error || !run) {
     return (
       <MainLayout>
-      <div style={containerStyle}>
-        <div style={errorStyle}>
-          {error || "Ejecución no encontrada"}
+        <div style={containerStyle}>
+          <div style={errorBoxStyle}>
+            {error || "Ejecución no encontrada"}
+          </div>
+          <button onClick={() => router.back()} style={backButtonStyle}>
+            ← Volver
+          </button>
         </div>
-        <button onClick={() => router.back()} style={backButtonStyle}>
-          ← Volver
-        </button>
-      </div>
       </MainLayout>
     );
   }
 
-  const elapsed = run.finishedAt && run.startedAt
-    ? Math.floor((run.finishedAt - run.startedAt) / 1000)
-    : 0;
-
   return (
     <MainLayout>
-    <div style={containerStyle}>
-      {/* Header */}
-      <div style={headerStyle}>
-        <button onClick={() => router.back()} style={backButtonStyle}>
-          ← Volver
-        </button>
-        <div style={{ flex: 1 }}>
-          <h1 style={titleStyle}>
-            {run.scenarioName || run.id.slice(0, 12)}
-          </h1>
-          <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
-            <span style={{
-              color: getStatusColor(run.status),
-              fontWeight: 600,
-              textTransform: "uppercase",
-              fontSize: 12,
-            }}>
-              {run.status}
-            </span>
-            {run.startedAt && (
-              <span style={{ color: "var(--color-on-surface-variant)", fontSize: 12 }}>
-                {formatDateTime(run.startedAt)}
+      <div style={containerStyle}>
+        {/* Header */}
+        <div style={headerStyle}>
+          <button onClick={() => router.back()} style={backButtonStyle}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+            Volver
+          </button>
+          <div style={{ flex: 1 }}>
+            <h1 style={titleStyle}>
+              {run.scenarioName || `Run ${runId.slice(0, 8)}`}
+            </h1>
+            <div style={{ display: "flex", gap: 16, alignItems: "center", marginTop: 4 }}>
+              <span style={{
+                color: getStatusColor(status),
+                fontWeight: 600,
+                textTransform: "uppercase",
+                fontSize: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}>
+                {isLive && <span style={{ width: 8, height: 8, borderRadius: "50%", background: getStatusColor(status), animation: "pulse 1.5s infinite" }} />}
+                {status}
               </span>
+              {isLive && wsConnected && (
+                <span style={{ fontSize: 11, color: "var(--color-on-surface-variant)" }}>
+                  🔴 LIVE
+                </span>
+              )}
+              <span style={{ fontSize: 12, color: "var(--color-on-surface-variant)" }}>
+                {formatElapsed(elapsed)}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {isLive && (
+              <button onClick={handleStop} style={stopButtonStyle}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>stop</span>
+                Detener
+              </button>
             )}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button style={actionButtonStyle}>
-            📊 Exportar
-          </button>
-          <button style={actionButtonStyle}>
-            🔄 Re-ejecutar
-          </button>
+
+        {/* Live KPIs */}
+        <div style={kpiGridStyle}>
+          <KpiCard 
+            label="VUs Activos" 
+            value={metrics.vus.toString()} 
+            sparkData={chartData.vus.slice(-30)}
+            color="#10b981"
+          />
+          <KpiCard 
+            label="Req/s" 
+            value={metrics.requestRate.toFixed(1)} 
+            sparkData={chartData.rps.slice(-30)}
+            color="#8b5cf6"
+          />
+          <KpiCard 
+            label="Latencia Promedio" 
+            value={`${Math.round(metrics.avgDuration)}ms`} 
+            sparkData={chartData.avgLatency.slice(-30)}
+            color="#f59e0b"
+          />
+          <KpiCard 
+            label="Tasa de Error" 
+            value={`${(metrics.errorRate * 100).toFixed(1)}%`} 
+            sparkData={chartData.errorRate.slice(-30)}
+            color={metrics.errorRate > 0.01 ? "#ef4444" : "#6b7280"}
+            highlight={metrics.errorRate > 0.01}
+          />
         </div>
-      </div>
 
-      {/* Overview Cards */}
-      <div style={overviewGridStyle}>
-        <OverviewCard
-          label="Duración Total"
-          value={`${Math.floor(elapsed / 60)}:${(elapsed % 60).toString().padStart(2, "0")}`}
-        />
-        <OverviewCard
-          label="VUs Configurados"
-          value={run.vus.toString()}
-        />
-        <OverviewCard
-          label="Iteraciones"
-          value={(summary?.totals.iterations || run.iterations || 0).toString()}
-        />
-        <OverviewCard
-          label="Requests"
-          value={(summary?.totals.requests || 0).toString()}
-        />
-      </div>
-
-      {/* Summary Sections */}
-      {summary && (
-        <div style={sectionsGridStyle}>
-          {/* Latency Section */}
-          <div style={sectionStyle}>
-            <h3 style={sectionTitleStyle}>Latencia</h3>
-            <div style={metricsGridStyle}>
-              <MetricRow label="Promedio" value={formatDuration(summary.latency.avgMs)} />
-              <MetricRow label="P90" value={formatDuration(summary.latency.p90Ms)} />
-              <MetricRow label="P95" value={formatDuration(summary.latency.p95Ms)} />
-              <MetricRow label="P99" value={formatDuration(summary.latency.p99Ms)} />
-            </div>
-          </div>
-
-          {/* Errors Section */}
-          <div style={sectionStyle}>
-            <h3 style={sectionTitleStyle}>Errores</h3>
-            <div style={metricsGridStyle}>
-              <MetricRow
-                label="Errores HTTP"
-                value={summary.totals.errors.toString()}
-                highlight={summary.totals.errors > 0}
-              />
-              <MetricRow
-                label="Checks Fallidos"
-                value={summary.totals.failedChecks.toString()}
-                highlight={summary.totals.failedChecks > 0}
-              />
-              <MetricRow
-                label="Tasa de Error"
-                value={summary.totals.requests > 0
-                  ? `${((summary.totals.errors / summary.totals.requests) * 100).toFixed(2)}%`
-                  : "0%"
-                }
-                highlight={summary.totals.errors > 0}
+        {/* Charts */}
+        <div style={chartsGridStyle}>
+          <div style={chartContainerStyle}>
+            <h3 style={chartTitleStyle}>Requests/s</h3>
+            <div style={{ height: 200 }}>
+              <RpsChart 
+                data={[
+                  chartData.time.map((_, i) => i),
+                  chartData.rps,
+                ]}
+                height={180}
               />
             </div>
           </div>
-
-          {/* Data Transfer Section */}
-          <div style={sectionStyle}>
-            <h3 style={sectionTitleStyle}>Transferencia</h3>
-            <div style={metricsGridStyle}>
-              <MetricRow label="Recibido" value={formatBytes(summary.dataReceivedBytes)} />
-              <MetricRow label="Enviado" value={formatBytes(summary.dataSentBytes)} />
-            </div>
-          </div>
-
-          {/* Thresholds Section */}
-          <div style={sectionStyle}>
-            <h3 style={sectionTitleStyle}>Thresholds</h3>
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "16px",
-              background: summary.thresholdsPassed
-                ? "rgba(16, 185, 129, 0.1)"
-                : summary.thresholdsPassed === false
-                  ? "rgba(239, 68, 68, 0.1)"
-                  : "var(--color-surface-container)",
-              borderRadius: 8,
-            }}>
-              <span style={{ fontSize: 24 }}>
-                {summary.thresholdsPassed ? "✅" : summary.thresholdsPassed === false ? "❌" : "➖"}
-              </span>
-              <span style={{
-                fontWeight: 500,
-                color: summary.thresholdsPassed
-                  ? "#10b981"
-                  : summary.thresholdsPassed === false
-                    ? "#ef4444"
-                    : "var(--color-on-surface-variant)",
-              }}>
-                {summary.thresholdsPassed
-                  ? "Todos los thresholds pasaron"
-                  : summary.thresholdsPassed === false
-                    ? "Algunos thresholds fallaron"
-                    : "Sin thresholds definidos"
-                }
-              </span>
+          <div style={chartContainerStyle}>
+            <h3 style={chartTitleStyle}>Latencia (ms)</h3>
+            <div style={{ height: 200 }}>
+              <LatencyChart 
+                data={[
+                  chartData.time.map((_, i) => i),
+                  chartData.avgLatency,
+                  chartData.p95Latency,
+                  chartData.p99Latency,
+                ]}
+                height={180}
+              />
             </div>
           </div>
         </div>
-      )}
-    </div>
+
+        {/* Metrics Grid */}
+        <div style={metricsGridStyle}>
+          <MetricCard label="Iteraciones" value={metrics.iterations.toString()} />
+          <MetricCard label="P95 Duration" value={`${Math.round(metrics.p95Duration)}ms`} />
+          <MetricCard label="Data Recibida" value={formatBytes(metrics.dataReceived)} />
+          <MetricCard label="Data Enviada" value={formatBytes(metrics.dataSent)} />
+        </div>
+
+        {/* Summary Section (for finished runs) */}
+        {!isLive && summary && (
+          <div style={summaryContainerStyle}>
+            <h2 style={sectionTitleStyle}>Resumen de Ejecución</h2>
+            <div style={summaryGridStyle}>
+              <SummaryCard title="Latencia">
+                <SummaryRow label="Promedio" value={formatDuration(summary.latency.avgMs)} />
+                <SummaryRow label="P90" value={formatDuration(summary.latency.p90Ms)} />
+                <SummaryRow label="P95" value={formatDuration(summary.latency.p95Ms)} />
+                <SummaryRow label="P99" value={formatDuration(summary.latency.p99Ms)} />
+              </SummaryCard>
+              <SummaryCard title="Totales">
+                <SummaryRow label="Requests" value={summary.totals.requests.toString()} />
+                <SummaryRow label="Iteraciones" value={summary.totals.iterations.toString()} />
+                <SummaryRow label="Errores" value={summary.totals.errors.toString()} highlight={summary.totals.errors > 0} />
+                <SummaryRow label="Checks Fallidos" value={summary.totals.failedChecks.toString()} highlight={summary.totals.failedChecks > 0} />
+              </SummaryCard>
+              <SummaryCard title="Transferencia">
+                <SummaryRow label="Recibido" value={formatBytes(summary.dataReceivedBytes)} />
+                <SummaryRow label="Enviado" value={formatBytes(summary.dataSentBytes)} />
+              </SummaryCard>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <style jsx global>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
     </MainLayout>
   );
 }
 
-function OverviewCard({ label, value }: { label: string; value: string }) {
+// Components
+function KpiCard({ label, value, sparkData, color, highlight }: { 
+  label: string; 
+  value: string; 
+  sparkData: number[];
+  color: string;
+  highlight?: boolean;
+}) {
   return (
     <div style={{
-      background: "var(--color-surface-container)",
-      borderRadius: 8,
-      padding: 16,
-      textAlign: "center",
+      ...kpiCardStyle,
+      borderColor: highlight ? "#ef4444" : "var(--color-surface-container)",
     }}>
-      <div style={{ fontSize: 11, color: "var(--color-on-surface-variant)", marginBottom: 4 }}>
+      <div style={{ fontSize: 11, color: "var(--color-on-surface-variant)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
         {label}
       </div>
-      <div style={{ fontSize: 24, fontWeight: 600, fontFamily: "var(--font-mono)" }}>
-        {value}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+        <span style={{ fontSize: 28, fontWeight: 600, color: highlight ? "#ef4444" : "var(--color-on-surface)", fontFamily: "monospace" }}>
+          {value}
+        </span>
+        <div style={{ width: 80, height: 32 }}>
+          <Sparkline data={sparkData} color={color} />
+        </div>
       </div>
     </div>
   );
 }
 
-function MetricRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0" }}>
+    <div style={metricCardStyle}>
+      <div style={{ fontSize: 11, color: "var(--color-on-surface-variant)", textTransform: "uppercase" }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 600, fontFamily: "monospace", marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+
+function SummaryCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={summaryCardStyle}>
+      <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "var(--color-on-surface)" }}>{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function SummaryRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--color-surface-container)" }}>
       <span style={{ color: "var(--color-on-surface-variant)", fontSize: 13 }}>{label}</span>
-      <span style={{
-        fontWeight: 500,
-        fontFamily: "var(--font-mono)",
-        color: highlight ? "#ef4444" : "var(--color-on-surface)",
-      }}>
-        {value}
-      </span>
+      <span style={{ fontWeight: 500, fontFamily: "monospace", color: highlight ? "#ef4444" : "var(--color-on-surface)" }}>{value}</span>
     </div>
   );
 }
 
 // Styles
 const containerStyle: React.CSSProperties = {
-  padding: 24,
-  maxWidth: 1000,
+  maxWidth: 1400,
   margin: "0 auto",
+  padding: "24px 32px",
 };
 
 const headerStyle: React.CSSProperties = {
@@ -339,75 +503,126 @@ const headerStyle: React.CSSProperties = {
   alignItems: "flex-start",
   gap: 16,
   marginBottom: 24,
+  paddingBottom: 16,
+  borderBottom: "1px solid var(--color-surface-container)",
 };
 
 const backButtonStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
   padding: "8px 12px",
+  background: "var(--color-surface-container)",
+  border: "none",
+  borderRadius: 8,
+  color: "var(--color-on-surface)",
+  cursor: "pointer",
   fontSize: 13,
   fontWeight: 500,
-  background: "var(--color-surface-container)",
-  color: "var(--color-on-surface)",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
 };
 
 const titleStyle: React.CSSProperties = {
-  fontSize: 20,
+  fontSize: 24,
   fontWeight: 600,
   margin: 0,
   color: "var(--color-on-surface)",
 };
 
-const actionButtonStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  fontSize: 12,
-  fontWeight: 500,
-  background: "var(--color-surface-container)",
-  color: "var(--color-on-surface)",
-  border: "1px solid var(--color-surface-container-high)",
-  borderRadius: 6,
-  cursor: "pointer",
-};
-
-const errorStyle: React.CSSProperties = {
-  padding: 16,
-  background: "rgba(239, 68, 68, 0.1)",
-  color: "#ef4444",
+const stopButtonStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "8px 16px",
+  background: "#ef4444",
+  border: "none",
   borderRadius: 8,
-  marginBottom: 16,
+  color: "white",
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 500,
 };
 
-const overviewGridStyle: React.CSSProperties = {
+const kpiGridStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(4, 1fr)",
-  gap: 12,
+  gap: 16,
   marginBottom: 24,
 };
 
-const sectionsGridStyle: React.CSSProperties = {
+const kpiCardStyle: React.CSSProperties = {
+  background: "var(--color-surface-container-low)",
+  borderRadius: 12,
+  padding: 16,
+  border: "1px solid var(--color-surface-container)",
+};
+
+const chartsGridStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(2, 1fr)",
   gap: 16,
+  marginBottom: 24,
 };
 
-const sectionStyle: React.CSSProperties = {
-  background: "var(--color-surface-container-lowest)",
-  border: "1px solid var(--color-surface-container)",
-  borderRadius: 8,
+const chartContainerStyle: React.CSSProperties = {
+  background: "var(--color-surface-container-low)",
+  borderRadius: 12,
   padding: 16,
+  border: "1px solid var(--color-surface-container)",
 };
 
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 13,
+const chartTitleStyle: React.CSSProperties = {
+  fontSize: 14,
   fontWeight: 600,
-  margin: "0 0 12px 0",
-  color: "var(--color-on-surface-variant)",
-  textTransform: "uppercase",
-  letterSpacing: "0.5px",
+  marginBottom: 12,
+  color: "var(--color-on-surface)",
 };
 
 const metricsGridStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
+  display: "grid",
+  gridTemplateColumns: "repeat(4, 1fr)",
+  gap: 16,
+  marginBottom: 24,
+};
+
+const metricCardStyle: React.CSSProperties = {
+  background: "var(--color-surface-container-low)",
+  borderRadius: 12,
+  padding: 16,
+  border: "1px solid var(--color-surface-container)",
+  textAlign: "center",
+};
+
+const summaryContainerStyle: React.CSSProperties = {
+  marginTop: 32,
+  paddingTop: 24,
+  borderTop: "1px solid var(--color-surface-container)",
+};
+
+const sectionTitleStyle: React.CSSProperties = {
+  fontSize: 18,
+  fontWeight: 600,
+  marginBottom: 16,
+  color: "var(--color-on-surface)",
+};
+
+const summaryGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, 1fr)",
+  gap: 16,
+};
+
+const summaryCardStyle: React.CSSProperties = {
+  background: "var(--color-surface-container-low)",
+  borderRadius: 12,
+  padding: 16,
+  border: "1px solid var(--color-surface-container)",
+};
+
+const errorBoxStyle: React.CSSProperties = {
+  padding: 16,
+  background: "rgba(239, 68, 68, 0.1)",
+  border: "1px solid rgba(239, 68, 68, 0.3)",
+  borderRadius: 8,
+  color: "#ef4444",
+  marginBottom: 16,
 };
