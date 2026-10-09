@@ -54,6 +54,8 @@ describe("db schema", () => {
       graph: "graph",
       folderId: "folder_id",
       isFavorite: "is_favorite",
+      vus: "vus",
+      durationSeconds: "duration_seconds",
       createdAt: "created_at",
       updatedAt: "updated_at",
     });
