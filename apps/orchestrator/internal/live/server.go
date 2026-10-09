@@ -4,10 +4,14 @@
 // record (gorilla pin, auth scheme, origin policy, backpressure and close
 // semantics) lives in docs/DECISIONES.md, K6F3-02. Documented policies:
 //
-//   - Handshake auth (approved Phase 3 policy 2): the client offers the
+//   - Handshake auth: browsers present a short-lived signed ticket as
+//     `?ticket=` (see ticket.go; scope `run:<runId>` must match the path,
+//     minted by the web app after session + ownership checks). Non-browser /
+//     server-side clients keep approved Phase 3 policy 2: they offer the
 //     subprotocols ["k6flow.bearer", "<token>"]; the token is compared in
 //     constant time against config's ServiceToken (fail-closed when the
-//     configured token is empty) and the scheme must be present. Missing,
+//     configured token is empty) and the scheme must be present. The raw
+//     service token is NOT accepted as a query parameter. Missing,
 //     wrong-scheme, wrong-token or fail-closed handshakes get HTTP 401 before
 //     the upgrade, with no Sec-WebSocket-* headers. Authentication runs
 //     before the run-existence lookup so unauthenticated clients cannot
@@ -92,7 +96,7 @@ const (
 	codeUnauthorized = "unauthorized"
 	codeRunNotFound  = "run-not-found"
 
-	msgUnauthorized = "missing or invalid Sec-WebSocket-Protocol bearer token"
+	msgUnauthorized = "missing or invalid ticket or Sec-WebSocket-Protocol bearer token"
 	msgRunNotFound  = "unknown runId"
 )
 
@@ -218,7 +222,7 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	// Auth precedes the lookup: an unauthenticated client learns nothing
 	// about which runs exist.
-	if !s.authorized(r) {
+	if !s.authorized(r, runID) {
 		s.logger.Warn("websocket handshake rejected", "reason", "auth", "runId", runID, "remote", r.RemoteAddr)
 		s.writeError(w, http.StatusUnauthorized, codeUnauthorized, msgUnauthorized)
 		return
@@ -265,19 +269,21 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	s.readPump(sub)
 }
 
-// authorized validates the Sec-WebSocket-Protocol offer: the scheme
-// k6flow.bearer plus a value matching the configured token (constant time).
-// Extra offered values are ignored; an empty configured token fails closed.
-// Also accepts token as query parameter ?token= for browser WebSocket clients.
-func (s *Server) authorized(r *http.Request) bool {
+// authorized gates the handshake. Browser clients present `?ticket=` (a
+// short-lived HMAC ticket scoped to run:<runId>, see ticket.go); when a
+// ticket is present it is the only credential considered. Otherwise the
+// Sec-WebSocket-Protocol offer must carry the scheme k6flow.bearer plus a
+// value matching the configured token (constant time); extra offered values
+// are ignored. The raw service token is never accepted in the query string.
+// An empty configured token fails closed on both paths.
+func (s *Server) authorized(r *http.Request, runID string) bool {
 	if s.token == "" {
 		return false
 	}
-	// Check query param first (browser-friendly)
-	if queryToken := r.URL.Query().Get("token"); queryToken != "" {
-		return subtle.ConstantTimeCompare([]byte(queryToken), []byte(s.token)) == 1
+	if ticket := r.URL.Query().Get("ticket"); ticket != "" {
+		return VerifyTicket(ticket, s.token, RunTicketScope(runID), time.Now()) == nil
 	}
-	// Fall back to subprotocol auth
+	// Server-side / non-browser clients: subprotocol bearer auth.
 	hasScheme := false
 	tokenOK := false
 	for _, line := range r.Header.Values("Sec-WebSocket-Protocol") {

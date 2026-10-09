@@ -85,6 +85,36 @@ interface RunDetail {
   exitCode?: number | null;
 }
 
+/** Orchestrator MetricsFrame (docs/api/ws-metrics.md), carried in `tick.frame`. */
+interface LiveMetricsFrame {
+  window?: { startMs?: number; durationMs?: number };
+  reqPerSec?: number | null;
+  latencyMs?: { avg?: number | null; p90?: number | null; p95?: number | null; p99?: number | null };
+  httpFailureFraction?: number | null;
+  activeVUs?: number;
+  failedChecks?: number;
+}
+
+/**
+ * Fetches a short-lived WS ticket for runId and returns the same-origin
+ * socket URL, or null when no ticket could be obtained (caller polls).
+ */
+async function fetchRunWsUrl(runId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/orchestrator/ws-ticket?runId=${encodeURIComponent(runId)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    const ticket = (body as { ticket?: unknown } | null)?.ticket;
+    if (typeof ticket !== "string" || ticket === "") return null;
+    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${scheme}://${window.location.host}/api/ws/runs/${encodeURIComponent(runId)}?ticket=${encodeURIComponent(ticket)}`;
+  } catch {
+    return null;
+  }
+}
+
 type RunStatus = "queued" | "starting" | "running" | "stopping" | "finished" | "completed" | "failed" | "aborted" | "errored";
 type TabType = "overview" | "endpoints" | "errors";
 
@@ -181,74 +211,122 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     fetchData();
   }, [runId]);
 
-  // WebSocket for live metrics
+  // WebSocket for live metrics: same-origin /api/ws proxy authenticated by a
+  // fresh short-lived ticket (never the service token). Without a ticket, or
+  // when the socket drops while live, fall back to polling the run status.
+  //
+  // Orchestrator messages (apps/orchestrator/internal/live/messages.go):
+  //   hello { status, lastSeq, startedAt, elapsedMs }
+  //   tick  { seq, frame: MetricsFrame }
+  //         frame = { window.startMs, reqPerSec, latencyMs.{avg,p90,p95,p99},
+  //                   httpFailureFraction (0-1), activeVUs, failedChecks }
+  //         sample fields are null in no-sample windows (keep previous KPI)
+  //   state { fromState, toState, at }
+  //   end   { status, result, exitCode, finishedAt }
   useEffect(() => {
     if (!isLive) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/api/orchestrator/ws/metrics/${runId}`;
-    
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    let cancelled = false;
+    let ws: WebSocket | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
 
-    ws.onopen = () => {
-      setWsConnected(true);
+    const startPolling = () => {
+      if (pollInterval || cancelled) return;
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/orchestrator/runs/${runId}`);
+          if (!res.ok || cancelled) return;
+          const data = await res.json();
+          if (cancelled || typeof data?.status !== "string") return;
+          if (typeof data.exitCode === "number") setExitCode(data.exitCode);
+          setStatus(data.status as RunStatus);
+          if (!LIVE_STATUSES.includes(data.status)) setIsLive(false);
+        } catch {
+          // Ignore; the next tick retries
+        }
+      }, LIVE_REFRESH_MS);
     };
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === "hello") {
-          startTimeRef.current = Date.now();
-        } else if (data.type === "tick") {
-          const newMetrics: RunMetrics = {
-            vus: data.currentVUs ?? data.vus ?? 0,
-            iterations: data.iterations ?? 0,
-            requestRate: data.requestsPerSecond ?? data.rps ?? 0,
-            avgDuration: data.avgResponseTimeMs ?? data.avgDuration ?? 0,
-            p95Duration: data.p95ResponseTimeMs ?? data.p95Duration ?? 0,
-            errorRate: data.errorRate ?? 0,
-            dataReceived: data.dataReceived ?? 0,
-            dataSent: data.dataSent ?? 0,
-          };
-          setMetrics(newMetrics);
-          setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
-          
-          setChartData(prev => ({
-            time: [...prev.time, Date.now()].slice(-60),
-            rps: [...prev.rps, newMetrics.requestRate].slice(-60),
-            avgLatency: [...prev.avgLatency, newMetrics.avgDuration].slice(-60),
-            p95Latency: [...prev.p95Latency, newMetrics.p95Duration].slice(-60),
-            p99Latency: [...prev.p99Latency, newMetrics.p95Duration * 1.1].slice(-60),
-            vus: [...prev.vus, newMetrics.vus].slice(-60),
-            errorRate: [...prev.errorRate, newMetrics.errorRate].slice(-60),
-          }));
-        } else if (data.type === "state") {
-          setStatus(data.status as RunStatus);
-          if (!LIVE_STATUSES.includes(data.status)) {
+    const applyFrame = (frame: LiveMetricsFrame) => {
+      setMetrics(prev => ({
+        ...prev,
+        vus: frame.activeVUs ?? prev.vus,
+        requestRate: frame.reqPerSec ?? prev.requestRate,
+        avgDuration: frame.latencyMs?.avg ?? prev.avgDuration,
+        p95Duration: frame.latencyMs?.p95 ?? prev.p95Duration,
+        errorRate: frame.httpFailureFraction ?? prev.errorRate,
+      }));
+      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      setChartData(prev => ({
+        time: [...prev.time, (frame.window?.startMs ?? 0) / 1000].slice(-60),
+        rps: [...prev.rps, frame.reqPerSec ?? 0].slice(-60),
+        avgLatency: [...prev.avgLatency, frame.latencyMs?.avg ?? 0].slice(-60),
+        p95Latency: [...prev.p95Latency, frame.latencyMs?.p95 ?? 0].slice(-60),
+        p99Latency: [...prev.p99Latency, frame.latencyMs?.p99 ?? 0].slice(-60),
+        vus: [...prev.vus, frame.activeVUs ?? 0].slice(-60),
+        errorRate: [...prev.errorRate, frame.httpFailureFraction ?? 0].slice(-60),
+      }));
+    };
+
+    (async () => {
+      const wsUrl = await fetchRunWsUrl(runId);
+      if (cancelled) return;
+      if (!wsUrl) {
+        startPolling();
+        return;
+      }
+
+      const socket = new WebSocket(wsUrl);
+      ws = socket;
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        setWsConnected(true);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === "hello") {
+            startTimeRef.current = Date.now() - (typeof data.elapsedMs === "number" ? data.elapsedMs : 0);
+            if (typeof data.status === "string") setStatus(data.status as RunStatus);
+          } else if (data.type === "tick" && data.frame) {
+            applyFrame(data.frame as LiveMetricsFrame);
+          } else if (data.type === "metrics") {
+            // Legacy: bare metrics frame without the tick envelope
+            applyFrame(data as LiveMetricsFrame);
+          } else if (data.type === "state") {
+            const next = data.toState;
+            if (typeof next === "string") {
+              setStatus(next as RunStatus);
+              if (!LIVE_STATUSES.includes(next)) setIsLive(false);
+            }
+          } else if (data.type === "end") {
+            if (typeof data.exitCode === "number") setExitCode(data.exitCode);
+            setStatus((data.status || "finished") as RunStatus);
             setIsLive(false);
           }
-        } else if (data.type === "end") {
-          if (typeof data.exitCode === "number") setExitCode(data.exitCode);
-          setStatus((data.status || "finished") as RunStatus);
-          setIsLive(false);
+        } catch {
+          // Ignore parse errors
         }
-      } catch {
-        // Ignore parse errors
-      }
-    };
+      };
 
-    ws.onclose = () => {
-      setWsConnected(false);
-    };
+      socket.onclose = () => {
+        setWsConnected(false);
+        // Dropped while still live (no end message yet): poll the status.
+        if (!cancelled) startPolling();
+      };
 
-    ws.onerror = () => {
-      setWsConnected(false);
-    };
+      socket.onerror = () => {
+        setWsConnected(false);
+      };
+    })();
 
     return () => {
-      ws.close();
+      cancelled = true;
+      ws?.close();
+      if (pollInterval) clearInterval(pollInterval);
     };
   }, [isLive, runId]);
 

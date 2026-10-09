@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -285,6 +286,73 @@ func TestHandshakeAuthRejections(t *testing.T) {
 				t.Errorf("upgrade headers present on rejected handshake")
 			}
 		})
+	}
+}
+
+// dialURL performs a handshake against an explicit URL with no subprotocol
+// offer (the browser ticket path).
+func (e *testEnv) dialURL(t *testing.T, rawURL string) (*websocket.Conn, *http.Response, error) {
+	t.Helper()
+	conn, resp, err := websocket.DefaultDialer.Dial(rawURL, nil)
+	if conn != nil {
+		e.track(conn)
+	}
+	return conn, resp, err
+}
+
+func TestHandshakeAcceptsRunTicket(t *testing.T) {
+	env := newTestEnv(t)
+	ticket := mintTestTicket("run:run-1", time.Now().Add(time.Minute), "n0nce", testToken)
+	conn, resp, err := env.dialURL(t, env.wsURL("run-1")+"?ticket="+url.QueryEscape(ticket))
+	if err != nil {
+		t.Fatalf("dial with ticket: %v (resp=%v)", err, resp)
+	}
+	defer conn.Close()
+	if got := resp.Header.Get("Sec-WebSocket-Protocol"); got != "" {
+		t.Errorf("ticket handshake echoed subprotocol %q, want none", got)
+	}
+	env.waitSubscribers(t, "run-1", 1)
+}
+
+func TestHandshakeTicketRejections(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		name   string
+		token  string
+		ticket string
+	}{
+		{"ticket for another run", testToken, mintTestTicket("run:run-2", now.Add(time.Minute), "n", testToken)},
+		{"expired ticket", testToken, mintTestTicket("run:run-1", now.Add(-time.Minute), "n", testToken)},
+		{"ticket signed with wrong key", testToken, mintTestTicket("run:run-1", now.Add(time.Minute), "n", "wrong-key")},
+		{"malformed ticket", testToken, "not-a-ticket"},
+		{"empty configured token fails closed", "", mintTestTicket("run:run-1", now.Add(time.Minute), "n", "")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newTestEnv(t, func(d *Deps) { d.Token = tc.token })
+			conn, resp, err := env.dialURL(t, env.wsURL("run-1")+"?ticket="+url.QueryEscape(tc.ticket))
+			if err == nil {
+				_ = conn.Close()
+				t.Fatal("handshake unexpectedly succeeded")
+			}
+			if resp == nil || resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("resp = %v, want 401", resp)
+			}
+		})
+	}
+}
+
+// The raw service token in the query string is no longer accepted: it
+// encouraged shipping the credential to browsers.
+func TestHandshakeRejectsServiceTokenQueryParam(t *testing.T) {
+	env := newTestEnv(t)
+	conn, resp, err := env.dialURL(t, env.wsURL("run-1")+"?token="+url.QueryEscape(testToken))
+	if err == nil {
+		_ = conn.Close()
+		t.Fatal("?token= handshake unexpectedly succeeded")
+	}
+	if resp == nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("resp = %v, want 401", resp)
 	}
 }
 

@@ -107,6 +107,29 @@ Future enhancement: AES-256 encryption at rest.
 - Admin role can access all resources
 - Resource ownership is verified on every request
 
+### Live metrics WebSocket (browser auth)
+
+The orchestrator service token (`ORCHESTRATOR_SERVICE_TOKEN`) is a server-side credential. It
+is **never sent to browsers**, never embedded in client code and never placed in a URL.
+
+Browsers authenticate the live metrics socket with short-lived signed tickets:
+
+1. Before each connect or reconnect, the browser calls
+   `GET /api/orchestrator/ws-ticket?runId=...`. The route requires a session (401) and run
+   ownership (403, fail-closed when ownership is unknown).
+2. The route returns `{ ticket, expiresAt }`. The ticket is an HMAC-SHA256 signature over
+   `v1.<scope>.<exp>.<nonce>`, keyed with the service token. It is scoped to one run
+   (`run:<runId>`) and expires after 60 seconds.
+3. The browser opens the same-origin `/api/ws/runs/{runId}?ticket=...`. It never connects to
+   the orchestrator port directly.
+4. The orchestrator verifies the signature in constant time, the expiry (5 s skew allowance)
+   and the exact scope before the upgrade. An empty configured secret fails closed.
+
+A leaked ticket opens only that run's stream, for at most about a minute. An already-open
+socket is not cut when its ticket expires. Server-side clients keep the
+`Sec-WebSocket-Protocol: k6flow.bearer, <token>` handshake. The `?token=<service token>`
+query parameter is no longer accepted. Contract details: [api/ws-metrics.md](api/ws-metrics.md).
+
 ## Recommendations
 
 1. **Deploy behind reverse proxy**: Use Caddy/nginx for TLS termination

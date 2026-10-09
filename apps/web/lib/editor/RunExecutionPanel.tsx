@@ -66,6 +66,26 @@ function mergeSummaryMetrics(prev: RunMetrics, summary: RunSummary): RunMetrics 
   };
 }
 
+/**
+ * Fetches a short-lived WS ticket for runId and returns the same-origin
+ * socket URL, or null when no ticket could be obtained (caller polls).
+ */
+async function fetchRunWsUrl(runId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/orchestrator/ws-ticket?runId=${encodeURIComponent(runId)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    const ticket = (body as { ticket?: unknown } | null)?.ticket;
+    if (typeof ticket !== "string" || ticket === "") return null;
+    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${scheme}://${window.location.host}/api/ws/runs/${encodeURIComponent(runId)}?ticket=${encodeURIComponent(ticket)}`;
+  } catch {
+    return null;
+  }
+}
+
 export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecutionPanelProps) {
   const router = useRouter();
   const [status, setStatus] = useState<RunStatus>("pending");
@@ -192,17 +212,18 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
       }
     };
     
-    // Connect WebSocket for live metrics
-    const connectWs = () => {
-      // In development, connect directly to orchestrator (exposed on :8080)
-      // In production, use the proxy path through Caddy
-      const isDev = window.location.port === "3000";
-      const token = "k6flow-internal-token"; // Dev token
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = isDev 
-        ? `ws://127.0.0.1:8080/ws/runs/${runId}?token=${token}`
-        : `${protocol}//${window.location.host}/api/ws/runs/${runId}`;
-      
+    // Connect WebSocket for live metrics: always same-origin through the
+    // /api/ws proxy, authenticated by a fresh short-lived ticket (the service
+    // token never reaches the browser). No ticket → status polling fallback.
+    const connectWs = async () => {
+      const wsUrl = await fetchRunWsUrl(runId);
+      if (cancelled) return;
+      if (!wsUrl) {
+        setLogs(prev => [...prev, "[WS] Ticket unavailable - falling back to polling"]);
+        startPolling();
+        return;
+      }
+
       ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
@@ -358,7 +379,7 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
       if (data && !cancelled) {
         setStatus(data.status);
         if (data.status === "running" || data.status === "pending") {
-          connectWs();
+          void connectWs();
         } else {
           // Already finished
           void completeRun(data.status, data.errors || []);

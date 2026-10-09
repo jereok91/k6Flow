@@ -9,30 +9,51 @@ import {
   formatFailurePercent,
   formatLatency,
   formatRate,
-  wsProtocols,
   type WindowList,
 } from "../../../lib/live-metrics";
 
 type Status = "idle" | "connecting" | "open" | "closed" | "run finished";
+
+/** Short-lived WS ticket for runId from the session-gated web route, or null. */
+async function fetchWsTicket(runId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/orchestrator/ws-ticket?runId=${encodeURIComponent(runId)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    const ticket = (body as { ticket?: unknown } | null)?.ticket;
+    return typeof ticket === "string" && ticket !== "" ? ticket : null;
+  } catch {
+    return null;
+  }
+}
 
 // Thin state shell: the repo has no testing library, so no component test is
 // written — all behavior lives in lib/live-metrics (covered by
 // live-metrics.test.ts); this file only holds React state and rendering.
 export default function RunPage() {
   const { runId } = useParams<Record<string, string>>();
-  const [token, setToken] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [list, setList] = useState<WindowList>(emptyWindowList);
   const socket = useRef<WebSocket | null>(null);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (socket.current) {
       socket.current.onclose = null;
       socket.current.close(4000, "client reconnect");
+      socket.current = null;
     }
     setStatus("connecting");
     setList(emptyWindowList()); // fresh session: manual reconnect, no replay (contract deferral)
-    const ws = new WebSocket(buildWsUrl(window.location.origin, runId), wsProtocols(token));
+    // Fresh short-lived ticket per (re)connect; the service token never reaches the browser.
+    const ticket = await fetchWsTicket(runId);
+    if (ticket === null) {
+      setStatus("closed");
+      return;
+    }
+    const url = `${buildWsUrl(window.location.origin, runId)}?ticket=${encodeURIComponent(ticket)}`;
+    const ws = new WebSocket(url);
     socket.current = ws;
     ws.onopen = () => setStatus("open");
     ws.onmessage = (event) => {
@@ -42,7 +63,12 @@ export default function RunPage() {
       } catch {
         parsed = undefined; // unparsable payload → counted as rejected by appendWindow
       }
-      setList((prev) => appendWindow(prev, parsed));
+      // The orchestrator wraps each metrics frame in a `tick` envelope; the
+      // hello/state/end lifecycle messages carry no window and are skipped.
+      const type = (parsed as { type?: unknown } | undefined)?.type;
+      if (type === "hello" || type === "state" || type === "end") return;
+      const frame = type === "tick" ? (parsed as { frame?: unknown }).frame : parsed;
+      setList((prev) => appendWindow(prev, frame));
     };
     ws.onclose = (event) => {
       if (socket.current !== ws) return; // superseded by a reconnect or closed by the client
@@ -50,7 +76,7 @@ export default function RunPage() {
       // Clean close(1000) is the server's terminal signal; any other close is plain "closed".
       setStatus(event.code === 1000 ? "run finished" : "closed");
     };
-  }, [runId, token]);
+  }, [runId]);
 
   const disconnect = useCallback(() => {
     // 4000 (application range) keeps 1000 reserved for the server's terminal signal.
@@ -73,16 +99,7 @@ export default function RunPage() {
       <h1 style={{ fontSize: 20 }}>Run {runId}</h1>
 
       <p style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <label>
-          WS token{" "}
-          <input
-            type="text"
-            value={token}
-            placeholder="service token"
-            onChange={(event) => setToken(event.target.value)}
-          />
-        </label>
-        <button type="button" onClick={connect}>Connect</button>
+        <button type="button" onClick={() => void connect()}>Connect</button>
         <button
           type="button"
           onClick={disconnect}

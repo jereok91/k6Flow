@@ -14,6 +14,54 @@ aggregation, broadcast or replay logic. The REST side is [runs.md](runs.md).
 
 Routing is documentation only: no proxy, upgrade or socket code ships in this unit.
 
+## Handshake authentication
+
+The orchestrator rejects an unauthenticated handshake with HTTP 401 before the upgrade and
+before looking up the run, so unauthenticated clients cannot probe which runs exist.
+
+| Client | Credential | Rules |
+|--------|------------|-------|
+| Browser | `?ticket=<ticket>` on `/api/ws/runs/{runId}` | Short-lived signed ticket from the web app; the service token never reaches the browser |
+| Server-side / non-browser | Subprotocols `["k6flow.bearer", "<service token>"]` | Constant-time compare; server echoes `k6flow.bearer` |
+
+The raw service token is **not** accepted as a `?token=` query parameter. A token in a URL
+leaks through browser history, proxy logs and client bundles.
+
+### Browser tickets
+
+1. Right before each connect or reconnect, the browser calls
+   `GET /api/orchestrator/ws-ticket?runId={runId}`. The web route answers 401 without a session
+   and 403 unless the caller owns the run. On success it returns `{ ticket, expiresAt }`, with
+   `expiresAt` in epoch milliseconds.
+2. The browser opens `ws(s)://<web host>/api/ws/runs/{runId}?ticket=<urlencoded ticket>`.
+   It offers no subprotocol.
+3. The orchestrator verifies the ticket against the scope `run:{runId}` taken from the path.
+
+| Part | Value |
+|------|-------|
+| Format | `v1.<scope>.<expUnixSeconds>.<nonce>.<sig>` |
+| Scope | `run:<runId>`. Matched exactly, so a ticket for one run never opens another |
+| Expiry | 60 s TTL; the verifier allows 5 s of clock skew |
+| Nonce | 16 random bytes, base64url |
+| Signature | Unpadded base64url HMAC-SHA256 of `v1.<scope>.<exp>.<nonce>`, keyed with the shared service token |
+| Failure | Malformed, bad signature, expired, wrong scope or empty configured secret → 401 |
+
+The ticket only gates the handshake. An established socket is not closed when its ticket
+expires. Minting: `apps/web/lib/orchestrator/ws-ticket.ts`. Verification:
+`apps/orchestrator/internal/live/ticket.go`.
+
+## Live message envelope
+
+The orchestrator stream wraps each frame below in an envelope and adds lifecycle messages
+(`apps/orchestrator/internal/live/messages.go`):
+
+| `type` | Fields |
+|--------|--------|
+| `hello` | `status`, `lastSeq`, `startedAt` (epoch ms or null), `elapsedMs`; sent once on connect |
+| `tick` | `seq`, `frame`; `frame` is the metrics frame contract below |
+| `state` | `fromState`, `toState`, `at` (epoch ms), optional `actor`, `cause` |
+| `end` | `status`, `result`, `exitCode`, optional `summary`, `finishedAt` (epoch ms) |
+
 ## Frame contract
 
 Exactly one message type exists here; the discriminated union is closed to `type: "metrics"`.
