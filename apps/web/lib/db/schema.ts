@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
 
 export const users = pgTable(
   "users",
@@ -261,3 +261,59 @@ export const runOwnership = pgTable(
 
 export type RunOwnership = typeof runOwnership.$inferSelect;
 export type NewRunOwnership = typeof runOwnership.$inferInsert;
+
+// k6flow-variables V-T2: per-user environments (dev/staging/prod) with
+// variables, plus scenario variables that override them by name. Secret values
+// are stored here but never returned to the browser (see lib/variables/store).
+export const environments = pgTable(
+  "environments",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [unique("environments_owner_id_name_unique").on(t.ownerId, t.name)],
+);
+
+export const environmentVariables = pgTable(
+  "environment_variables",
+  {
+    id: text("id").primaryKey(),
+    environmentId: text("environment_id")
+      .notNull()
+      .references(() => environments.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    value: text("value").notNull(),
+    secret: boolean("secret").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [unique("environment_variables_environment_id_name_unique").on(t.environmentId, t.name)],
+);
+
+export const scenarioVariables = pgTable(
+  "scenario_variables",
+  {
+    id: text("id").primaryKey(),
+    scenarioId: text("scenario_id")
+      .notNull()
+      .references(() => scenarios.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    value: text("value").notNull(),
+    secret: boolean("secret").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [unique("scenario_variables_scenario_id_name_unique").on(t.scenarioId, t.name)],
+);
+
+export type Environment = typeof environments.$inferSelect;
+export type NewEnvironment = typeof environments.$inferInsert;
+export type EnvironmentVariable = typeof environmentVariables.$inferSelect;
+export type NewEnvironmentVariable = typeof environmentVariables.$inferInsert;
+export type ScenarioVariable = typeof scenarioVariables.$inferSelect;
+export type NewScenarioVariable = typeof scenarioVariables.$inferInsert;

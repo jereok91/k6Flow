@@ -8,6 +8,7 @@ import { scenarios } from "../../../../../lib/db/schema";
 import { requireUser } from "../../../../../lib/auth/require-user";
 import { jsonError } from "../../../../../lib/auth/http";
 import { canAccessScenario } from "../../logic";
+import { getScenarioVariablesForExport, storeFailureResponse } from "../../../../../lib/variables/store";
 import { translateToK6 } from "@k6flow/shared";
 
 interface RouteContext {
@@ -49,7 +50,12 @@ export async function GET(
 
     switch (format) {
       case "json": {
-        // K6Flow JSON format
+        // K6Flow JSON format. Variable definitions are included, but secret
+        // values never are: secrets export as { name, secret: true } only.
+        const variables = await getScenarioVariablesForExport(user, id);
+        if (!variables.ok) {
+          return storeFailureResponse(variables, "Scenario");
+        }
         const exportData = {
           version: "1.0",
           exportedAt: new Date().toISOString(),
@@ -57,6 +63,7 @@ export async function GET(
             id: scenario.id,
             name: scenario.name,
             graph: scenario.graph,
+            variables: variables.value,
             createdAt: scenario.createdAt.toISOString(),
             updatedAt: scenario.updatedAt.toISOString(),
           },

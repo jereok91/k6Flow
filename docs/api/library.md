@@ -225,6 +225,119 @@ Content-Type: application/json
 }
 ```
 
+## Environments and Variables
+
+Postman-style `{{name}}` variables. Environments (dev/staging/prod) belong to
+one user; only that user can read or change them (admins included). Scenario
+variables follow the scenario access rule (owner or admin) and override
+environment variables with the same name at run time.
+
+**Secrets.** A variable with `secret: true` is never returned in plaintext
+after it is saved. Reads return `{ "name", "secret": true, "hasValue" }` with
+no `value` field.
+
+### List Environments
+```
+GET /api/environments
+```
+
+Response:
+```json
+{
+  "environments": [
+    { "id": "uuid", "name": "staging", "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+### Create Environment
+```
+POST /api/environments
+Content-Type: application/json
+
+{ "name": "staging" }
+```
+
+Returns `201` with the environment. The name is trimmed, 1–100 characters, and
+unique per user (`409` on a duplicate).
+
+### Rename Environment
+```
+PATCH /api/environments/:id
+Content-Type: application/json
+
+{ "name": "production" }
+```
+
+### Delete Environment
+```
+DELETE /api/environments/:id
+```
+
+Deletes the environment and its variables.
+
+### Get Variables
+```
+GET /api/environments/:id/variables
+GET /api/scenarios/:id/variables
+```
+
+Response (sorted by name):
+```json
+{
+  "variables": [
+    { "name": "baseUrl", "value": "https://api.example.com", "secret": false },
+    { "name": "token", "secret": true, "hasValue": true }
+  ]
+}
+```
+
+### Replace Variables
+```
+PUT /api/environments/:id/variables
+PUT /api/scenarios/:id/variables
+Content-Type: application/json
+
+{
+  "variables": [
+    { "name": "baseUrl", "value": "https://api.example.com", "secret": false },
+    { "name": "token", "value": null, "secret": true }
+  ]
+}
+```
+
+The body is the **full set**; any variable left out is deleted. `secret`
+defaults to `false`. For a secret, a `null` or missing `value` keeps the stored
+value of the variable with the same name, so the client never has to resend a
+secret. A non-secret, or a new secret, must send a value. The response has the
+same shape as Get Variables.
+
+Rules (`422` on failure):
+- name matches `[A-Za-z_][A-Za-z0-9_.-]{0,63}` and is unique in the set (case-sensitive);
+- value is at most 8 KiB (UTF-8 bytes);
+- at most 200 variables per set;
+- no two secrets map to the same k6 env name (`api.key` and `API_KEY` both map to `K6FLOW_VAR_API_KEY`).
+
+`422` body:
+```json
+{
+  "error": "Invalid variables",
+  "errors": [
+    { "index": 1, "field": "name", "code": "invalid-name", "message": "..." },
+    { "index": null, "field": "name", "code": "secret-env-collision", "message": "..." }
+  ]
+}
+```
+
+`index` is the position in the submitted list (`null` for whole-set errors).
+Codes: `invalid-shape`, `invalid-name`, `duplicate-name`, `value-too-large`,
+`too-many`, `secret-env-collision`, `missing-value`.
+
+### Export and Version History
+- `GET /api/scenarios/:id/export?format=json` includes `scenario.variables`.
+  Secrets appear as `{ "name", "secret": true }` only, with no value.
+- Version snapshots store only the graph, so they hold no variables or secret values.
+
 ## Error Responses
 
 All errors return JSON:
@@ -240,4 +353,5 @@ Common status codes:
 - 403: Forbidden (not owner)
 - 404: Not found
 - 409: Conflict (duplicate)
+- 422: Unprocessable (graph or variable validation; variable errors include `errors`)
 - 500: Internal server error
