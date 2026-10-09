@@ -1,23 +1,27 @@
-import { NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { requireUser } from "../../../../../lib/auth/require-user";
+import { orchestratorAuthHeaders, orchestratorBaseUrl } from "../../../../../lib/orchestrator/proxy";
 
-const ORCHESTRATOR_URL =
-  process.env.ORCHESTRATOR_URL || "http://localhost:8080";
-const ORCHESTRATOR_TOKEN = process.env.ORCHESTRATOR_TOKEN || "";
-
-export async function GET() {
-  try {
-    const res = await fetch(`${ORCHESTRATOR_URL}/api/runs/active`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${ORCHESTRATOR_TOKEN}`,
-      },
-    });
-    const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
-  } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to connect to orchestrator" },
-      { status: 502 }
-    );
+export async function GET(request: NextRequest) {
+  const user = await requireUser(request.headers.get("cookie"));
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  let res: Response;
+  try {
+    res = await fetch(`${orchestratorBaseUrl()}/api/runs/active`, {
+      method: "GET",
+      headers: orchestratorAuthHeaders(),
+    });
+  } catch {
+    return Response.json({ error: "Failed to connect to orchestrator" }, { status: 502 });
+  }
+
+  // Pass the orchestrator status and body through unchanged.
+  const data = await res.text();
+  return new Response(data, {
+    status: res.status,
+    headers: { "Content-Type": res.headers.get("Content-Type") ?? "application/json" },
+  });
 }
