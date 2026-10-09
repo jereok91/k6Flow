@@ -11,7 +11,7 @@ function ToastItem({ toast, close }: { toast: Toast; close: (id: string) => void
     const timer = setTimeout(() => close(toast.id), toast.type === "error" ? 8000 : 5000);
     return () => clearTimeout(timer);
   }, [toast.id, toast.type, close]);
-  const color = toast.type === "error" ? "text-error" : toast.type === "success" ? "text-secondary" : "text-primary";
+  const color = toast.type === "error" ? "text-danger" : toast.type === "success" ? "text-success" : toast.type === "warning" ? "text-warning" : "text-primary";
   return <li className="flex items-center gap-3 rounded-xl border border-outline-variant bg-surface-container-high p-4 text-on-surface shadow-lg">
     <span className={`material-symbols-outlined ${color}`} aria-hidden="true">{toast.type === "error" ? "error" : toast.type === "success" ? "check_circle" : toast.type === "warning" ? "warning" : "info"}</span>
     <span className="flex-1 text-sm">{toast.message}</span>

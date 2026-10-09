@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ThemeProvider } from "../lib/theme";
+import { THEME_BOOTSTRAP } from "../lib/theme/theme-preference";
 import { ToastProvider } from "../lib/notifications/ToastProvider";
 import "./globals.css";
 
@@ -32,15 +33,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {/* Prevent flash of wrong theme */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                const theme = localStorage.getItem('k6flow-theme');
-                if (theme === 'light') {
-                  document.documentElement.classList.remove('dark');
-                  document.documentElement.classList.add('light');
-                }
-              })();
-            `,
+            __html: THEME_BOOTSTRAP,
           }}
         />
       </head>

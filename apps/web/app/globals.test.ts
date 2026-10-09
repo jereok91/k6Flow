@@ -24,6 +24,10 @@ const CANDIDATES = [
   "font-mono",
   "rounded-lg",
   "shadow-glow",
+  "text-success",
+  "text-warning",
+  "text-danger",
+  "text-inactive",
 ];
 
 let css = "";
@@ -105,5 +109,47 @@ describe("globals.css — Tailwind v4 @theme tokens", () => {
     const themeIndex = css.indexOf("@layer theme");
     expect(themeIndex).toBeGreaterThanOrEqual(0);
     expect(themeIndex).toBeLessThan(lightIndex);
+  });
+
+  it("generates semantic foreground utilities using runtime variables", () => {
+    for (const name of ["success", "warning", "danger", "inactive"]) {
+      expect(ruleBody(`text-${name}`)).toContain(`var(--color-${name})`);
+    }
+  });
+});
+
+const rawCss = readFileSync(globalsPath, "utf8");
+const theme = rawCss.match(/@theme\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+const dark = rawCss.match(/:root,\s*\.dark\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+const light = rawCss.match(/\.light\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+describe("runtime theme token structure", () => {
+  it("registers semantic utilities with unlayered dark/light overrides", () => {
+    for (const token of ["success", "warning", "danger", "inactive"]) {
+      for (const block of [theme, dark, light]) expect(block).toMatch(new RegExp(`--color-${token}:\\s*#[0-9a-f]{6};`));
+    }
+    expect(rawCss.indexOf(":root,")).toBeLessThan(rawCss.indexOf("@layer base"));
+    expect(rawCss.indexOf(".light {")).toBeLessThan(rawCss.indexOf("@layer base"));
+  });
+  it("preserves theme-independent fixed tokens and existing fonts", () => {
+    expect(theme).toContain("--color-primary-fixed:");
+    expect(light).not.toMatch(/--color-\S*fixed/);
+    expect(theme).toContain("--font-sans: Geist");
+    expect(theme).toContain("--font-mono: JetBrains Mono");
+  });
+  it("provides reduced motion and visible theme-control focus", () => {
+    expect(rawCss).toContain("prefers-reduced-motion: reduce");
+    expect(rawCss).toContain(".theme-control:focus-visible");
+    expect(rawCss).toContain("min-height: 44px");
+  });
+  it("uses readable semantic foregrounds in light mode", () => {
+    const luminance = (hex: string) => {
+      const rgb = hex.match(/\w\w/g)!.map(v => parseInt(v, 16) / 255).map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+      return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+    };
+    const background = luminance(light.match(/--color-surface-container-high:\s*#([0-9a-f]{6})/)![1]);
+    for (const name of ["success", "warning", "danger", "inactive"]) {
+      const foreground = luminance(light.match(new RegExp(`--color-${name}:\\s*#([0-9a-f]{6})`))![1]);
+      expect((background + 0.05) / (foreground + 0.05)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

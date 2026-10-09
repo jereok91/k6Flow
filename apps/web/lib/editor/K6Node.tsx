@@ -10,7 +10,7 @@ import type { K6NodeData, NodeKind } from "./mapping";
 const KIND_COLORS: Record<NodeKind, string> = {
   "authentication": "var(--color-primary)",
   "http-request": "var(--color-secondary)",
-  "response-validation": "#f59e0b",
+  "response-validation": "var(--color-warning)",
   "user-pool": "var(--color-tertiary)",
 };
 
@@ -27,7 +27,7 @@ interface K6NodeProps {
 }
 
 function K6NodeComponent({ data, selected }: K6NodeProps) {
-  const color = KIND_COLORS[data.kind];
+  const color = data.disabled ? "var(--color-inactive)" : KIND_COLORS[data.kind];
   const icon = KIND_ICONS[data.kind];
 
   return (
@@ -42,7 +42,7 @@ function K6NodeComponent({ data, selected }: K6NodeProps) {
           : "0 1px 3px rgba(0,0,0,0.3)",
         minWidth: "150px",
         fontFamily: "var(--font-sans)",
-        opacity: data.disabled ? 0.6 : 1,
+        borderStyle: data.disabled ? "dashed" : "solid",
       }}
     >
       {/* Input handle */}
@@ -87,7 +87,7 @@ function K6NodeComponent({ data, selected }: K6NodeProps) {
           }}>
             {data.label}
           </div>
-          {data.disabled && <span style={{ fontSize: 11, color: "var(--color-on-surface-variant)" }}>Desactivado</span>}
+          {data.disabled && <span style={{ fontSize: 11, color: "var(--color-inactive)" }}>Desactivado</span>}
         </div>
       </div>
 

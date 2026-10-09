@@ -9,7 +9,7 @@ import type { NodeKind } from "./mapping";
 const KIND_COLORS: Record<NodeKind, string> = {
   "authentication": "var(--color-primary)",
   "http-request": "var(--color-secondary)",
-  "response-validation": "#f59e0b",
+  "response-validation": "var(--color-warning)",
   "user-pool": "var(--color-tertiary)",
 };
 

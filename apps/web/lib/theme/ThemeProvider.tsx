@@ -1,8 +1,7 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-
-type Theme = "dark" | "light";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { reconcileThemePreference, type Theme } from "./theme-preference";
 
 interface ThemeContextType {
   theme: Theme;
@@ -13,56 +12,39 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  // Identical server/first-client render; CSS already follows the pre-paint root.
   const [theme, setThemeState] = useState<Theme>("dark");
-  const [mounted, setMounted] = useState(false);
+  const currentTheme = useRef<Theme>("dark");
 
-  // Load theme from localStorage on mount
   useEffect(() => {
-    const stored = localStorage.getItem("k6flow-theme") as Theme | null;
-    if (stored === "light" || stored === "dark") {
-      setThemeState(stored);
-    } else {
-      // Check system preference
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      setThemeState(prefersDark ? "dark" : "light");
-    }
-    setMounted(true);
+    const root = document.documentElement;
+    const resolved = reconcileThemePreference(window, root);
+    currentTheme.current = resolved;
+    setThemeState(resolved);
+    // Reading/reconciling must not persist the initial default over a preference.
   }, []);
 
-  // Apply theme to document
-  useEffect(() => {
-    if (!mounted) return;
-    
+  const setTheme = useCallback((next: Theme) => {
+    currentTheme.current = next;
     const root = document.documentElement;
     root.classList.remove("dark", "light");
-    root.classList.add(theme);
-    localStorage.setItem("k6flow-theme", theme);
-  }, [theme, mounted]);
+    root.classList.add(next);
+    root.style.colorScheme = next;
+    setThemeState(next);
+    try { window.localStorage.setItem("k6flow-theme", next); }
+    catch { /* Theme still works for this session when storage is unavailable. */ }
+  }, []);
 
-  const setTheme = (newTheme: Theme) => {
-    setThemeState(newTheme);
-  };
+  const toggleTheme = useCallback(() => {
+    setTheme(currentTheme.current === "dark" ? "light" : "dark");
+  }, [setTheme]);
+  const value = useMemo(() => ({ theme, setTheme, toggleTheme }), [theme, setTheme, toggleTheme]);
 
-  const toggleTheme = () => {
-    setThemeState((prev) => (prev === "dark" ? "light" : "dark"));
-  };
-
-  // Prevent flash of wrong theme
-  if (!mounted) {
-    return null;
-  }
-
-  return (
-    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {
   const context = useContext(ThemeContext);
-  if (context === undefined) {
-    throw new Error("useTheme must be used within a ThemeProvider");
-  }
+  if (context === undefined) throw new Error("useTheme must be used within a ThemeProvider");
   return context;
 }

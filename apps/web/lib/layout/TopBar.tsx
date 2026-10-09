@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useSidebar } from "./SidebarContext";
+import { useTheme } from "../theme";
 
 export function TopBar() {
   const { collapsed, ready } = useSidebar();
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <header
@@ -34,6 +36,18 @@ export function TopBar() {
 
       {/* Actions */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <button
+          type="button"
+          className="btn-secondary theme-control"
+          aria-label="Tema oscuro"
+          aria-pressed={theme === "dark"}
+          title={theme === "dark" ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
+          onClick={toggleTheme}
+        >
+          <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: "20px" }}>
+            {theme === "dark" ? "dark_mode" : "light_mode"}
+          </span>
+        </button>
         <Link href="/recorder" className="btn-primary">
           <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>videocam</span>
           <span>Grabar</span>

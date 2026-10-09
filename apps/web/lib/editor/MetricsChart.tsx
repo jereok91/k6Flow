@@ -3,6 +3,23 @@
 import { useEffect, useRef, memo } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { useTheme } from "../theme";
+
+// Canvas does not resolve CSS variables like DOM styles do.
+function resolveCanvasColor(color: string): string {
+  const token = /^var\((--[\w-]+)\)$/.exec(color);
+  if (!token) return color;
+  return getComputedStyle(document.documentElement).getPropertyValue(token[1]).trim() || "#475569";
+}
+
+function resolveCanvasSeries(series: uPlot.Series): uPlot.Series {
+  const fill = typeof series.fill === "string" ? resolveCanvasColor(series.fill) : series.fill;
+  return {
+    ...series,
+    stroke: typeof series.stroke === "string" ? resolveCanvasColor(series.stroke) : series.stroke,
+    fill: typeof fill === "string" && /^#[\da-f]{6}$/i.test(fill) ? `${fill}1a` : fill,
+  };
+}
 
 interface MetricsChartProps {
   title: string;
@@ -22,14 +39,14 @@ export const MetricsChart = memo(function MetricsChart({
   height = 200,
   mode = "follow",
 }: MetricsChartProps) {
+  const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
+  const viewportRef = useRef<{ min: number; max: number } | null>(null);
   const dataRef = useRef(data);
-
-  // Update data ref when data changes
-  useEffect(() => {
-    dataRef.current = data;
-  }, [data]);
+  const seriesRef = useRef(series);
+  dataRef.current = data;
+  seriesRef.current = series;
 
   // Initialize chart
   useEffect(() => {
@@ -52,12 +69,12 @@ export const MetricsChart = memo(function MetricsChart({
       },
       axes: [
         {
-          stroke: "var(--color-on-surface-variant)",
+          stroke: resolveCanvasColor("var(--color-on-surface-variant)"),
           grid: {
-            stroke: "var(--color-surface-container-high)",
+            stroke: resolveCanvasColor("var(--color-surface-container-high)"),
           },
           ticks: {
-            stroke: "var(--color-surface-container-high)",
+            stroke: resolveCanvasColor("var(--color-surface-container-high)"),
           },
           values: (u, vals) => vals.map((v) => {
             const mins = Math.floor(v / 60);
@@ -66,33 +83,42 @@ export const MetricsChart = memo(function MetricsChart({
           }),
         },
         {
-          stroke: "var(--color-on-surface-variant)",
+          stroke: resolveCanvasColor("var(--color-on-surface-variant)"),
           grid: {
-            stroke: "var(--color-surface-container-high)",
+            stroke: resolveCanvasColor("var(--color-surface-container-high)"),
           },
           ticks: {
-            stroke: "var(--color-surface-container-high)",
+            stroke: resolveCanvasColor("var(--color-surface-container-high)"),
           },
         },
       ],
       series: [
         { label: "Time" }, // x-axis
-        ...series,
+        ...seriesRef.current.map(resolveCanvasSeries),
       ],
     };
 
-    uplotRef.current = new uPlot(opts, data, containerRef.current);
+    const previousScale = viewportRef.current;
+    const chart = new uPlot(opts, dataRef.current, containerRef.current);
+    uplotRef.current = chart;
+    if (mode === "explore" && previousScale?.min != null && previousScale?.max != null) {
+      chart.setScale("x", { min: previousScale.min, max: previousScale.max });
+    }
 
     return () => {
-      uplotRef.current?.destroy();
+      const { min, max } = chart.scales.x;
+      viewportRef.current = min != null && max != null ? { min, max } : null;
+      chart.destroy();
       uplotRef.current = null;
     };
-  }, [width, height, title, mode]); // Don't include series/data to avoid recreation
+  }, [width, height, title, mode, theme]); // Resolve fresh canvas colors on theme changes.
 
   // Update data without recreating chart
   useEffect(() => {
     if (uplotRef.current && data.length > 0) {
-      uplotRef.current.setData(data);
+      // Explore retains its restored/user-selected viewport on recolor and updates.
+      // Follow still resets scales before applying the live trailing window below.
+      uplotRef.current.setData(data, mode === "follow");
 
       // Auto-scroll in follow mode
       if (mode === "follow" && data[0].length > 10) {
@@ -101,7 +127,7 @@ export const MetricsChart = memo(function MetricsChart({
         uplotRef.current.setScale("x", { min: xMin, max: xMax });
       }
     }
-  }, [data, mode]);
+  }, [data, mode, theme]);
 
   return (
     <div 
@@ -128,8 +154,8 @@ export function RpsChart({ data, width, height }: { data: number[][]; width?: nu
       series={[
         {
           label: "RPS",
-          stroke: "#8b5cf6", // violet
-          fill: "rgba(139, 92, 246, 0.1)",
+          stroke: "var(--color-primary)",
+          fill: "var(--color-primary)",
           width: 2,
         },
       ]}
@@ -152,18 +178,18 @@ export function LatencyChart({ data, width, height }: { data: number[][]; width?
       series={[
         {
           label: "Avg",
-          stroke: "#06b6d4", // cyan
+          stroke: "var(--color-secondary)",
           width: 2,
         },
         {
           label: "P95",
-          stroke: "#f59e0b", // amber
+          stroke: "var(--color-warning)",
           width: 1,
           dash: [5, 5],
         },
         {
           label: "P99",
-          stroke: "#ef4444", // red
+          stroke: "var(--color-danger)",
           width: 1,
           dash: [3, 3],
         },
@@ -187,8 +213,8 @@ export function VUsChart({ data, width, height }: { data: number[][]; width?: nu
       series={[
         {
           label: "VUs",
-          stroke: "#10b981", // emerald
-          fill: "rgba(16, 185, 129, 0.1)",
+          stroke: "var(--color-success)",
+          fill: "var(--color-success)",
           width: 2,
         },
       ]}
@@ -206,7 +232,8 @@ interface SparklineProps {
   color?: string;
 }
 
-export function Sparkline({ data, width = 100, height = 24, color = "#8b5cf6" }: SparklineProps) {
+export function Sparkline({ data, width = 100, height = 24, color = "var(--color-primary)" }: SparklineProps) {
+  const { theme } = useTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -231,7 +258,7 @@ export function Sparkline({ data, width = 100, height = 24, color = "#8b5cf6" }:
     const padding = 2;
 
     ctx.beginPath();
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = resolveCanvasColor(color);
     ctx.lineWidth = 1.5;
     ctx.lineJoin = "round";
 
@@ -246,7 +273,7 @@ export function Sparkline({ data, width = 100, height = 24, color = "#8b5cf6" }:
     });
 
     ctx.stroke();
-  }, [data, width, height, color]);
+  }, [data, width, height, color, theme]);
 
   return (
     <canvas

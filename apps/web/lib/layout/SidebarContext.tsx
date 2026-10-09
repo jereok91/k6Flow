@@ -1,8 +1,7 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
-
-const STORAGE_KEY = "k6flow-sidebar-collapsed";
+import { createContext, useCallback, useContext, useRef, useState, useEffect, type ReactNode } from "react";
+import { readSidebarPreference, writeSidebarPreference } from "./sidebar-preference";
 
 interface SidebarContextType {
   collapsed: boolean;
@@ -12,27 +11,27 @@ interface SidebarContextType {
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
-// Read initial value synchronously on client
-function getInitialCollapsed(): boolean {
-  if (typeof window === "undefined") return false;
-  return localStorage.getItem(STORAGE_KEY) === "true";
-}
-
 export function SidebarProvider({ children }: { children: ReactNode }) {
-  const [collapsed, setCollapsed] = useState(getInitialCollapsed);
+  // Match SSR on the first client render; read preferences only after hydration.
+  const [collapsed, setCollapsed] = useState(false);
   const [ready, setReady] = useState(false);
+  const currentCollapsed = useRef(false);
 
-  // Mark as ready after hydration
   useEffect(() => {
+    const resolved = readSidebarPreference(window);
+    currentCollapsed.current = resolved;
+    setCollapsed(resolved);
     setReady(true);
+    // Do not overwrite a stored preference with the initial SSR default.
   }, []);
 
-  // Save to localStorage on change
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, String(collapsed));
-  }, [collapsed]);
-
-  const toggleCollapsed = () => setCollapsed((prev) => !prev);
+  const toggleCollapsed = useCallback(() => {
+    const next = !currentCollapsed.current;
+    currentCollapsed.current = next;
+    setCollapsed(next);
+    // Keep side effects out of state updaters, which StrictMode may replay.
+    writeSidebarPreference(window, next);
+  }, []);
 
   return (
     <SidebarContext.Provider value={{ collapsed, ready, toggleCollapsed }}>

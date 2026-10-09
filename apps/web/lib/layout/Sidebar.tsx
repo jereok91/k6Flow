@@ -227,77 +227,27 @@ export function Sidebar() {
 
       {/* Footer */}
       <div style={{ padding: collapsed ? "8px" : "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-        {/* Theme toggle */}
-        {collapsed ? (
-          <button
-            type="button"
-            onClick={toggleTheme}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "10px",
-              backgroundColor: "var(--color-surface-container-low)",
-              borderRadius: "8px",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--color-on-surface-variant)",
-            }}
-            title={theme === "dark" ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>
-              {theme === "dark" ? "dark_mode" : "light_mode"}
-            </span>
-          </button>
-        ) : (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "4px 8px",
-              backgroundColor: "var(--color-surface-container-low)",
-              borderRadius: "8px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-on-surface-variant)" }}>
-              <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>
-                {theme === "dark" ? "dark_mode" : "light_mode"}
-              </span>
-              <span style={{ fontSize: "12px" }}>
-                {theme === "dark" ? "Tema oscuro" : "Tema claro"}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              style={{
-                width: "36px",
-                height: "20px",
-                backgroundColor: theme === "dark" ? "var(--color-primary-container)" : "var(--color-surface-container-high)",
-                borderRadius: "10px",
-                border: "none",
-                cursor: "pointer",
-                position: "relative",
-                transition: "background-color 0.2s",
-              }}
-            >
-              <span
-                style={{
-                  position: "absolute",
-                  top: "3px",
-                  left: theme === "dark" ? "19px" : "3px",
-                  width: "14px",
-                  height: "14px",
-                  backgroundColor: theme === "dark" ? "var(--color-on-primary-container)" : "var(--color-on-surface)",
-                  borderRadius: "50%",
-                  transition: "left 0.2s",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
-                }}
-              />
-            </button>
-          </div>
-        )}
+        {/* Same keyboard/touch target in both sidebar modes. */}
+        <button
+          type="button"
+          className="theme-control"
+          onClick={toggleTheme}
+          aria-label="Tema oscuro"
+          aria-pressed={theme === "dark"}
+          title={theme === "dark" ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
+          style={{
+            display: "flex", alignItems: "center", gap: "8px",
+            justifyContent: collapsed ? "center" : "flex-start",
+            padding: "10px", backgroundColor: "var(--color-surface-container-low)",
+            borderRadius: "8px", border: "none", cursor: "pointer",
+            color: "var(--color-on-surface-variant)",
+          }}
+        >
+          <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: "20px" }}>
+            {theme === "dark" ? "dark_mode" : "light_mode"}
+          </span>
+          {!collapsed && <span style={{ fontSize: "12px" }}>{theme === "dark" ? "Tema oscuro" : "Tema claro"}</span>}
+        </button>
 
         {/* User */}
         <div

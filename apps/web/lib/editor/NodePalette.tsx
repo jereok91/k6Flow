@@ -15,7 +15,7 @@ const KIND_ICONS: Record<NodeKind, string> = {
 const KIND_COLORS: Record<NodeKind, string> = {
   "authentication": "var(--color-primary)",
   "http-request": "var(--color-secondary)",
-  "response-validation": "#f59e0b",
+  "response-validation": "var(--color-warning)",
   "user-pool": "var(--color-tertiary)",
 };
 
@@ -64,12 +64,11 @@ export function NodePalette({ disabled }: NodePaletteProps) {
               border: "1px solid var(--color-surface-container-high)",
               borderRadius: "8px",
               cursor: disabled ? "not-allowed" : "grab",
-              opacity: disabled ? 0.5 : 1,
               display: "flex",
               alignItems: "center",
               gap: "8px",
               fontSize: "13px",
-              color: "var(--color-on-surface)",
+              color: disabled ? "var(--color-inactive)" : "var(--color-on-surface)",
               transition: "all 0.15s",
             }}
             onMouseEnter={(e) => {
@@ -85,7 +84,7 @@ export function NodePalette({ disabled }: NodePaletteProps) {
           >
             <span
               className="material-symbols-outlined"
-              style={{ fontSize: "18px", color: KIND_COLORS[kind] }}
+              style={{ fontSize: "18px", color: disabled ? "var(--color-inactive)" : KIND_COLORS[kind] }}
             >
               {KIND_ICONS[kind]}
             </span>

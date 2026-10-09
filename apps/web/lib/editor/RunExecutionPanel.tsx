@@ -460,13 +460,13 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
 
   const getStatusColor = (s: RunStatus) => {
     switch (s) {
-      case "pending": return "#f59e0b";
-      case "running": return "#10b981";
+      case "pending": return "var(--color-warning)";
+      case "running": return "var(--color-success)";
       case "finished":
-      case "completed": return "#10b981";
-      case "failed": return "#ef4444";
-      case "stopped": return "#6b7280";
-      default: return "#6b7280";
+      case "completed": return "var(--color-success)";
+      case "failed": return "var(--color-danger)";
+      case "stopped": return "var(--color-inactive)";
+      default: return "var(--color-inactive)";
     }
   };
 
@@ -506,12 +506,12 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
           {wsConnected && (
             <span style={{ 
               fontSize: "10px", 
-              color: "#10b981",
+              color: "var(--color-success)",
               display: "flex",
               alignItems: "center",
               gap: "4px",
             }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981" }} />
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-success)" }} />
               LIVE
             </span>
           )}
@@ -548,25 +548,25 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
           label="VUs Activos" 
           value={metrics.vus.toString()} 
           sparkData={chartData.vus.slice(-30)}
-          color="#10b981"
+          color="var(--color-success)"
         />
         <KpiCard 
           label="Req/s" 
           value={metrics.requestRate.toFixed(1)} 
           sparkData={chartData.rps.slice(-30)}
-          color="#8b5cf6"
+          color="var(--color-primary)"
         />
         <KpiCard 
           label="Avg Latency" 
           value={formatDuration(metrics.avgDuration)} 
           sparkData={chartData.avgLatency.slice(-30)}
-          color="#06b6d4"
+          color="var(--color-secondary)"
         />
         <KpiCard 
           label="Error Rate" 
           value={`${(metrics.errorRate * 100).toFixed(1)}%`} 
           sparkData={chartData.errorRate.slice(-30)}
-          color="#ef4444"
+          color="var(--color-danger)"
           highlight={metrics.errorRate > 0.01}
         />
       </div>
@@ -669,7 +669,7 @@ function KpiCard({ label, value, sparkData, color, highlight }: {
             fontSize: "20px", 
             fontWeight: 600,
             fontFamily: "var(--font-mono)",
-            color: highlight ? "#ef4444" : "var(--color-on-surface)",
+            color: highlight ? "var(--color-danger)" : "var(--color-on-surface)",
           }}>
             {value}
           </div>
@@ -702,7 +702,7 @@ function MetricCard({ label, value, highlight }: { label: string; value: string;
         fontSize: "18px", 
         fontWeight: 600,
         fontFamily: "var(--font-mono)",
-        color: highlight ? "#ef4444" : "var(--color-on-surface)",
+        color: highlight ? "var(--color-danger)" : "var(--color-on-surface)",
       }}>
         {value}
       </div>
@@ -740,7 +740,7 @@ const pulseStyle: React.CSSProperties = {
   width: "8px",
   height: "8px",
   borderRadius: "50%",
-  background: "#10b981",
+  background: "var(--color-success)",
   animation: "pulse 1.5s ease-in-out infinite",
 };
 
@@ -748,8 +748,8 @@ const stopButtonStyle: React.CSSProperties = {
   padding: "6px 12px",
   fontSize: "12px",
   fontWeight: 500,
-  background: "#ef4444",
-  color: "white",
+  background: "var(--color-error-container)",
+  color: "var(--color-on-error-container)",
   border: "none",
   borderRadius: "6px",
   cursor: "pointer",
@@ -779,11 +779,11 @@ const fullPageButtonStyle: React.CSSProperties = {
 
 const errorStyle: React.CSSProperties = {
   padding: "8px 16px",
-  background: "rgba(239, 68, 68, 0.1)",
-  color: "#ef4444",
+  background: "color-mix(in srgb, var(--color-danger) 10%, transparent)",
+  color: "var(--color-danger)",
   fontSize: "12px",
   whiteSpace: "pre-line",
-  borderBottom: "1px solid rgba(239, 68, 68, 0.3)",
+  borderBottom: "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
 };
 
 const kpiGridStyle: React.CSSProperties = {
