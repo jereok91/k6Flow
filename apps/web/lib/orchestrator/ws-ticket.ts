@@ -41,10 +41,11 @@ export function runTicketScope(runId: string): string {
 
 /**
  * HMAC key for tickets: the orchestrator service token, read at call time.
- * Same source and default as `orchestratorAuthHeaders()` in ./proxy.ts.
+ * Fails closed: there is deliberately no default, because a publicly known
+ * fallback key would let anyone forge tickets. Unset -> "" -> minting throws.
  */
 export function wsTicketSecret(): string {
-  return process.env.ORCHESTRATOR_SERVICE_TOKEN ?? "k6flow-internal-token";
+  return process.env.ORCHESTRATOR_SERVICE_TOKEN ?? "";
 }
 
 export function mintWsTicket(scope: string, options: MintWsTicketOptions): WsTicket {

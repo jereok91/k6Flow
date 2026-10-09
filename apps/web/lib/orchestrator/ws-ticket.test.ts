@@ -85,4 +85,10 @@ describe("wsTicketSecret", () => {
     vi.stubEnv("ORCHESTRATOR_SERVICE_TOKEN", "from-env");
     expect(wsTicketSecret()).toBe("from-env");
   });
+
+  it("fails closed with an empty secret when the env var is unset", () => {
+    vi.stubEnv("ORCHESTRATOR_SERVICE_TOKEN", undefined);
+    expect(wsTicketSecret()).toBe("");
+    expect(() => mintWsTicket("run:x", { secret: wsTicketSecret() })).toThrow();
+  });
 });
