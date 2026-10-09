@@ -1,3 +1,8 @@
+// NOT LOADED: Tailwind CSS v4 does not read this file (globals.css has no
+// `@config`, intentionally). The design tokens are defined in the `@theme`
+// block of app/globals.css, and the runtime light/dark values live in its
+// `:root, .dark` and `.light` blocks. Edit tokens there; this file is kept
+// only as a reference and may be removed.
 import type { Config } from "tailwindcss";
 
 const config: Config = {
