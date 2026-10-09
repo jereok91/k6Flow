@@ -32,6 +32,10 @@ services:
       ORCHESTRATOR_NETWORK: ${ORCHESTRATOR_NETWORK:-deploy_k6runner}
       # Service token for API authentication
       SERVICE_TOKEN: ${ORCHESTRATOR_SERVICE_TOKEN:-k6flow-internal-token}
+      # Per-run ceilings: larger start/preflight requests are rejected with 422.
+      MAX_VUS_PER_RUN: ${MAX_VUS_PER_RUN:-500}
+      MAX_MEMORY_MIB_PER_RUN: ${MAX_MEMORY_MIB_PER_RUN:-4096}
+      MAX_CPU_MILLIS_PER_RUN: ${MAX_CPU_MILLIS_PER_RUN:-4000}
     networks: [backend, k6runner]
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]

@@ -132,6 +132,13 @@ func (h *handler) startRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, msgInvalidRequest)
 		return
 	}
+	// Ceilings are checked before idempotency lookup and store creation so a
+	// rejected start never creates a run nor launches a container.
+	if limErr := h.limits.check(req); limErr != nil {
+		h.logger.Warn("rejected run start over limit", "path", r.URL.Path, "code", limErr.code)
+		writeError(w, http.StatusUnprocessableEntity, limErr.code, limErr.message)
+		return
+	}
 	sum := sha256.Sum256(raw)
 	hash := hex.EncodeToString(sum[:])
 	key := r.Header.Get("Idempotency-Key")
@@ -316,6 +323,10 @@ func (h *handler) preflight(w http.ResponseWriter, r *http.Request) {
 			Valid:   false,
 			Errors:  []string{err.Error()},
 		})
+		return
+	}
+	if limErr := h.limits.check(req); limErr != nil {
+		writeError(w, http.StatusUnprocessableEntity, limErr.code, limErr.message)
 		return
 	}
 	// Check capacity: count active runs

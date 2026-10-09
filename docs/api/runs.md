@@ -6,7 +6,8 @@ parsing or threshold evaluation. [openapi.yaml](openapi.yaml) mirrors it for too
 
 | Method | Path | Success | Declared errors |
 |--------|------|---------|-----------------|
-| POST | `/api/runs` | `202` new run, `200` idempotent replay | `401` |
+| POST | `/api/runs` | `202` new run, `200` idempotent replay | `400`, `401`, `422` |
+| POST | `/api/runs/preflight` | `200` validation result | `400`, `401`, `422` |
 | GET | `/api/runs/{runId}` | `200` run state | `401`, `404` |
 | POST | `/api/runs/{runId}/stop` | `202` stop accepted | `401`, `404` |
 | GET | `/api/runs/{runId}/summary` | `200` cumulative summary | `401`, `404`, `409` |
@@ -32,3 +33,19 @@ The final summary is cumulative — `totals` (`requests`, `errors`, `failedCheck
 separate from the windowed WebSocket topic (K6F1-05). Error bodies are `{ version, code,
 message }` with catalog `unauthorized` → 401, `run-not-found` → 404, `summary-not-terminal`
 → 409, mirrored by `runErrorCatalogSchema` and OpenAPI. Boundary: declarations only.
+
+## Per-run resource limits
+
+`POST /api/runs` and `POST /api/runs/preflight` check per-run ceilings after body validation
+(a malformed body stays `400 invalid-request`). Limits are inclusive; an over-limit start
+creates no run, launches no container and does not consume its `Idempotency-Key`.
+
+| Code | Status | Trigger | Orchestrator variable (default) |
+|------|--------|---------|---------------------------------|
+| `vus-limit-exceeded` | `422` | `vus` above the limit | `MAX_VUS_PER_RUN` (500) |
+| `memory-limit-exceeded` | `422` | `memoryMiB` above the limit | `MAX_MEMORY_MIB_PER_RUN` (4096) |
+| `cpu-limit-exceeded` | `422` | `cpuMillis` above the limit | `MAX_CPU_MILLIS_PER_RUN` (4000) |
+
+The `message` names the requested value, the limit and the variable, e.g.
+`requested 1900 VUs exceeds the per-run limit of 500 (MAX_VUS_PER_RUN)`. When several
+ceilings are exceeded, only the first in the order VUs → memory → CPU is reported.

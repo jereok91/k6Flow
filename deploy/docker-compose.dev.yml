@@ -29,3 +29,5 @@ services:
       ORCHESTRATOR_ALLOWED_ORIGINS: ${WEB_ORIGIN:-http://127.0.0.1:3000}
       ORCHESTRATOR_NETWORK: deploy_k6runner
       SERVICE_TOKEN: ${ORCHESTRATOR_SERVICE_TOKEN:-k6flow-internal-token}
+      # Dev host has 12 CPU / 64 GB: allow larger runs than the base default (500).
+      MAX_VUS_PER_RUN: 2000

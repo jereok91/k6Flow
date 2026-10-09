@@ -165,6 +165,11 @@ func newAPIHandler(cfg config.Config, store *runs.Store, launcher httpapi.RunLau
 		Store:    store,
 		Launcher: launcher,
 		Logger:   logger,
+		Limits: httpapi.RunLimits{
+			MaxVUs:       cfg.MaxVUsPerRun,
+			MaxMemoryMiB: cfg.MaxMemoryMiBPerRun,
+			MaxCPUMillis: cfg.MaxCPUMillisPerRun,
+		},
 	})
 }
 

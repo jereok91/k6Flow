@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -23,6 +24,10 @@ const (
 	codeSummaryNotTerminal = "summary-not-terminal"
 	codeInvalidRequest     = "invalid-request"
 	codeInternal           = "internal"
+	// Per-run resource ceilings (422, see RunLimits).
+	codeVUsLimitExceeded    = "vus-limit-exceeded"
+	codeMemoryLimitExceeded = "memory-limit-exceeded"
+	codeCPULimitExceeded    = "cpu-limit-exceeded"
 )
 
 const (
@@ -52,6 +57,35 @@ type Deps struct {
 	Store    *runs.Store
 	Launcher RunLauncher
 	Logger   *slog.Logger
+	Limits   RunLimits
+}
+
+// RunLimits are the per-run ceilings checked by start and preflight after
+// body validation. Each limit is inclusive; a non-positive value disables
+// that check (config.Load always supplies positive values in production).
+type RunLimits struct {
+	MaxVUs, MaxMemoryMiB, MaxCPUMillis int
+}
+
+// limitError is a rejected-ceiling outcome mapped to 422 by the handlers.
+type limitError struct {
+	code, message string
+}
+
+// check returns the first exceeded ceiling for req, or nil when within limits.
+func (l RunLimits) check(req startRequest) *limitError {
+	switch {
+	case l.MaxVUs > 0 && req.VUs > l.MaxVUs:
+		return &limitError{codeVUsLimitExceeded, fmt.Sprintf(
+			"requested %d VUs exceeds the per-run limit of %d (MAX_VUS_PER_RUN)", req.VUs, l.MaxVUs)}
+	case l.MaxMemoryMiB > 0 && req.MemoryMiB > l.MaxMemoryMiB:
+		return &limitError{codeMemoryLimitExceeded, fmt.Sprintf(
+			"requested %d MiB memory exceeds the per-run limit of %d MiB (MAX_MEMORY_MIB_PER_RUN)", req.MemoryMiB, l.MaxMemoryMiB)}
+	case l.MaxCPUMillis > 0 && req.CPUMillis > l.MaxCPUMillis:
+		return &limitError{codeCPULimitExceeded, fmt.Sprintf(
+			"requested %d mCPU exceeds the per-run limit of %d mCPU (MAX_CPU_MILLIS_PER_RUN)", req.CPUMillis, l.MaxCPUMillis)}
+	}
+	return nil
 }
 
 type handler struct {
@@ -59,6 +93,7 @@ type handler struct {
 	launcher RunLauncher
 	token    string
 	logger   *slog.Logger
+	limits   RunLimits
 }
 
 // NewHandler wires contract 04: static Bearer auth on every /api/* route, the
@@ -70,7 +105,7 @@ func NewHandler(deps Deps) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	h := &handler{store: deps.Store, launcher: deps.Launcher, token: deps.Token, logger: logger}
+	h := &handler{store: deps.Store, launcher: deps.Launcher, token: deps.Token, logger: logger, limits: deps.Limits}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("POST /api/runs/preflight", h.preflight)

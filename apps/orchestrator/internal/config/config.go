@@ -13,19 +13,23 @@ import (
 type Config struct {
 	Addr, K6Image, ServiceToken, LogLevel, Network string
 	MaxConcurrentRuns, MaxVUsPerRun, RunTimeoutMS  int
+	// Per-run resource ceilings enforced by the runs API before any launch.
+	MaxMemoryMiBPerRun, MaxCPUMillisPerRun int
 	// K6F9-01: Allowed target hosts/patterns for K6 tests (security)
 	AllowedTargets []string
 }
 
 // Defaults are applied only when a variable is absent from the environment.
 const (
-	DefaultAddr              = ":8080"
-	DefaultK6Image           = "grafana/k6"
-	DefaultNetwork           = "bridge"
-	DefaultMaxConcurrentRuns = 3
-	DefaultMaxVUsPerRun      = 500
-	DefaultRunTimeoutMS      = 3600000
-	DefaultLogLevel          = "info"
+	DefaultAddr               = ":8080"
+	DefaultK6Image            = "grafana/k6"
+	DefaultNetwork            = "bridge"
+	DefaultMaxConcurrentRuns  = 3
+	DefaultMaxVUsPerRun       = 500
+	DefaultMaxMemoryMiBPerRun = 4096
+	DefaultMaxCPUMillisPerRun = 4000
+	DefaultRunTimeoutMS       = 3600000
+	DefaultLogLevel           = "info"
 )
 
 // logLevels is the closed set accepted for LOG_LEVEL.
@@ -51,6 +55,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.MaxVUsPerRun, err = intEnv("MAX_VUS_PER_RUN", DefaultMaxVUsPerRun); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxMemoryMiBPerRun, err = intEnv("MAX_MEMORY_MIB_PER_RUN", DefaultMaxMemoryMiBPerRun); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxCPUMillisPerRun, err = intEnv("MAX_CPU_MILLIS_PER_RUN", DefaultMaxCPUMillisPerRun); err != nil {
 		return Config{}, err
 	}
 	if cfg.RunTimeoutMS, err = intEnv("RUN_TIMEOUT_MS", DefaultRunTimeoutMS); err != nil {

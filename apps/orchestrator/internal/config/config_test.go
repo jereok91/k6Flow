@@ -7,7 +7,7 @@ import (
 )
 
 // configEnv lists every environment variable Load reads.
-var configEnv = []string{"ORCHESTRATOR_ADDR", "K6_IMAGE", "MAX_CONCURRENT_RUNS", "MAX_VUS_PER_RUN", "RUN_TIMEOUT_MS", "SERVICE_TOKEN", "LOG_LEVEL", "ALLOWED_TARGETS"}
+var configEnv = []string{"ORCHESTRATOR_ADDR", "K6_IMAGE", "MAX_CONCURRENT_RUNS", "MAX_VUS_PER_RUN", "RUN_TIMEOUT_MS", "SERVICE_TOKEN", "LOG_LEVEL", "ALLOWED_TARGETS", "MAX_MEMORY_MIB_PER_RUN", "MAX_CPU_MILLIS_PER_RUN"}
 
 // clearEnv makes every config variable absent so defaults apply.
 func clearEnv(t *testing.T) {
@@ -52,6 +52,28 @@ func TestLoadAppliesOverrides(t *testing.T) {
 	}
 }
 
+// TestLoadResourceLimits checks the per-run memory/CPU ceilings: documented
+// defaults when absent and explicit positive overrides otherwise.
+func TestLoadResourceLimits(t *testing.T) {
+	clearEnv(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.MaxMemoryMiBPerRun != 4096 || cfg.MaxCPUMillisPerRun != 4000 {
+		t.Errorf("resource limit defaults = memory %d, cpu %d; want 4096, 4000", cfg.MaxMemoryMiBPerRun, cfg.MaxCPUMillisPerRun)
+	}
+	t.Setenv("MAX_MEMORY_MIB_PER_RUN", "8192")
+	t.Setenv("MAX_CPU_MILLIS_PER_RUN", "6000")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.MaxMemoryMiBPerRun != 8192 || cfg.MaxCPUMillisPerRun != 6000 {
+		t.Errorf("resource limit overrides = memory %d, cpu %d; want 8192, 6000", cfg.MaxMemoryMiBPerRun, cfg.MaxCPUMillisPerRun)
+	}
+}
+
 // TestLoadRejectsInvalidValuesWithoutCoercion checks the Phase 1 no-coercion
 // policy: explicit invalid input is a descriptive error naming the variable.
 func TestLoadRejectsInvalidValuesWithoutCoercion(t *testing.T) {
@@ -65,6 +87,10 @@ func TestLoadRejectsInvalidValuesWithoutCoercion(t *testing.T) {
 		{"empty log level", "LOG_LEVEL", ""},
 		{"empty address", "ORCHESTRATOR_ADDR", ""},
 		{"empty image", "K6_IMAGE", ""},
+		{"non-numeric memory limit", "MAX_MEMORY_MIB_PER_RUN", "4GiB"},
+		{"zero memory limit", "MAX_MEMORY_MIB_PER_RUN", "0"},
+		{"negative cpu limit", "MAX_CPU_MILLIS_PER_RUN", "-1"},
+		{"non-numeric cpu limit", "MAX_CPU_MILLIS_PER_RUN", "4cpu"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
