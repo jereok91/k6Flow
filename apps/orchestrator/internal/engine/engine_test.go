@@ -208,6 +208,50 @@ func TestDiagnosticBlockedFinisherDoesNotHoldCapacity(t *testing.T) {
 	}
 }
 
+type diagnosticPanicSink struct {
+	calls int
+	finished chan int
+}
+
+func (s *diagnosticPanicSink) OnFrame(metrics.MetricsFrame) {
+	s.calls++
+	if s.calls == 1 {
+		panic("PRIVATE_NODE_PANIC_URL_EXCEPTION")
+	}
+}
+func (s *diagnosticPanicSink) OnRunFinished(string) { s.finished <- s.calls }
+
+func TestDiagnosticFramePanicContainedAndSanitized(t *testing.T) {
+	sink := &diagnosticPanicSink{finished: make(chan int, 1)}
+	h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time { return tapClock })
+	run, err := h.st.Create(runs.Run{Mode: "diagnostic", Diagnostic: &diagnostic.Metadata{NodeIDs: []string{"a"}}, Script: script})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One native line rolls three windows. Recovery outside delivery aborts
+	// that aggregator invocation; recovery inside it must preserve all three.
+	h.rt.SetOutput("fake-1", pointAt(100, "http_reqs", "1")+"\n"+pointAt(3100, "http_reqs", "1")+"\n"+diagnosticOutput("success"))
+	if err := h.eng.Launch(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case calls := <-sink.finished:
+		if calls != 3 {
+			t.Errorf("panic escaped delivery or finish overtook frames: calls=%d", calls)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("panic prevented ordered finish")
+	}
+	got, _ := h.st.Get(run.ID)
+	if got.Status != runs.StatusFinished || got.Trace.State != "complete" || len(got.Trace.Events) != 3 {
+		t.Errorf("pump failed to flush authoritative trace: %+v", got.Trace)
+	}
+	if strings.Contains(h.log.String(), "PRIVATE_NODE_PANIC") || !strings.Contains(h.log.String(), "diagnostic frame callback panic recovered") {
+		t.Error("panic payload leaked or sanitized warning missing")
+	}
+	assertSemFree(t, h.sem)
+}
+
 func diagnosticOutput(outcome string) string {
 	reason := "none"
 	if outcome == "failure" {

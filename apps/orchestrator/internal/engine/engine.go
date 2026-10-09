@@ -574,6 +574,7 @@ func (e *Engine) decide(runID string, exit int, waitErr error, stopped bool, sum
 // seal reaches the sink, and the drained channel orders finish after all those
 // admitted earlier (including callbacks that panic).
 type frameDelivery struct {
+	log *slog.Logger
 	sink metrics.FrameSink
 	mu sync.Mutex
 	sealed bool
@@ -596,6 +597,16 @@ func (d *frameDelivery) OnFrame(frame metrics.MetricsFrame) {
 			close(d.drained)
 		}
 		d.mu.Unlock()
+	}()
+	// Contain at invocation, preserving aggregator progress and hiding payloads.
+	defer func() {
+		if recover() != nil {
+			logger := d.log
+			if logger == nil {
+				logger = slog.Default()
+			}
+			logger.Warn("diagnostic frame callback panic recovered; run unaffected")
+		}
 	}()
 	d.sink.OnFrame(frame)
 }
@@ -655,7 +666,7 @@ func (e *Engine) startTap(ctx context.Context, runID, containerID string) *tap {
 	t := &tap{}
 	sink := e.sink
 	if _, diagnostic := ctx.Deadline(); diagnostic && sink != nil {
-		t.delivery = &frameDelivery{sink: sink, drained: make(chan struct{})}
+		t.delivery = &frameDelivery{log: e.log, sink: sink, drained: make(chan struct{})}
 		sink = t.delivery
 	}
 	reader, err := e.output(ctx, containerID)
