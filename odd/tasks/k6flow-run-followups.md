@@ -9,15 +9,26 @@
 5. Executions page fetches `/summary` while the run is live (409 until terminal).
 6. Sidebar polls `/api/orchestrator/runs/active`; user decision: replace with a global runs WebSocket (`/ws/runs`) pushing run lifecycle events.
 
+7. Security: `RunExecutionPanel.tsx` ships `ORCHESTRATOR_SERVICE_TOKEN` default ("k6flow-internal-token") in the client bundle and connects straight to `127.0.0.1:8080` in dev; prod path sends no token (auth fails).
+8. Executions page opens `/api/orchestrator/ws/metrics/{id}` (nonexistent); the rewrite is `/api/ws/:path*` -> orchestrator `/ws/:path*`.
+
 ## Tasks
 - [x] T1 Fix orchestrator proxies (active, preflight, emergency-stop): shared config, auth, status passthrough — `59b7e62` (emergency-stop admin-only)
 - [x] T2 History metrics: errorRate basis points round-trip (tested), keep avgDurationMs 0 — `59cb567`
 - [x] T3 Completion summary on polling / already-finished paths — `d6afc99`
 - [x] T4 Orchestrator endpoints/failures contract: flat fields, unified key, error tags, error rate (Go tests) — `0d0174d`
 - [x] T5 Executions page: fetch summary only when terminal; refresh endpoints/failures while live — `75c96e9`
-- [ ] T6 Global runs WebSocket (/ws/runs) in orchestrator + web proxy; Sidebar subscribes instead of polling
+- [x] T6a Browser WebSocket auth via short-lived signed tickets (web mints after requireUser + ownership; orchestrator verifies); remove hardcoded service token from RunExecutionPanel; fix executions page WS URL (/api/ws/runs/{id}) — `0394bac`
+- [ ] T6b Global runs WebSocket (lifecycle events) in orchestrator; Sidebar subscribes instead of polling /active
 
 ## Evidence
+- T6a: ticket tests Go+web (cross-language vector; RED compile/behavior -> GREEN); go test ./... ok; apps/web 23 files / 288 tests; tsc clean; no service token in client code
+- T4/T5 review review-cb0db9a57b9edef1 approved + acknowledged (advisory endpoints.go:72, :166)
 - T4/T5: metrics tests (RED build failure -> GREEN 9 tests); go test ./... ok, vet clean; apps/web 278 tests; tsc clean
 - T1-T3 review review-165621585e8f79ff approved + acknowledged (advisory proxy.ts:9)
 - T1-T3: proxy 5 + metrics 12 tests (RED missing module -> GREEN); apps/web 22 files / 278 tests; tsc clean
+
+## Follow-ups
+- Recorder still passes its token in the WS URL (?token=) — same class of leak
+- docs/DECISIONES.md K6F3-02 still describes subprotocol-only auth
+- lib/live-metrics.ts wsProtocols now unused by browser code
