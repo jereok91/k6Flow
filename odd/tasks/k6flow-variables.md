@@ -16,7 +16,7 @@ Let users define variables (baseUrl, token, ...) and reference them as `{{name}}
 ## Tasks
 - [x] T1 Shared: `{{var}}` parser/validator + translator interpolation (literal vs `__ENV`), tests — `5b49dd5`
 - [x] T2 DB + API: environments, environment variables, scenario variables (secret masking, export/version exclusion), tests — `f60c7aa`
-- [ ] T3 Run integration: environment selection, merge rules, secret env injection through web proxy + orchestrator run env (validated), tests
+- [x] T3 Run integration: environment selection, merge rules, secret env injection through web proxy + orchestrator run env (validated), tests — `b418cda`
 - [ ] T4 Editor UI: environments manager, scenario variables panel, environment selector by Ejecutar, `{{var}}` highlight/autocomplete + unresolved warnings
 
 ## Evidence
@@ -25,3 +25,5 @@ Let users define variables (baseUrl, token, ...) and reference them as `{{name}}
 - T1 review review-ac233ac39f0f0166 approved + acknowledged (no findings).
 - T2: RED (missing modules + 4 schema tests) -> GREEN; apps/web 26 files / 344 tests; tsc clean. Migration 0007 applied manually (no migrate-on-start).
 - T3 notes: call resolveVariablesForRun(actor, scenarioId, environmentId|null) server-side; run findSecretEnvCollisions on the merged set; version snapshots hold only the graph (no variables); variables returned sorted by name.
+- T3: RED (Go unknown field env, LaunchWithEnv undefined, shared strict env, missing web modules) -> GREEN; go test ./... ok + vet; vitest apps/web+shared 47 files / 1189 tests; tsc clean.
+- T3 behavior notes: literal `{{x}}` with no matching variable now fails translation (unknown-variable); runs with scenarioId need DB for ownership; preflight proxy untouched.
