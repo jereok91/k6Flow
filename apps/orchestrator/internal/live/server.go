@@ -116,6 +116,10 @@ type Deps struct {
 	Lookup         RunLookup
 	Logger         *slog.Logger
 	AllowedOrigins []string
+	// Runs feeds the global /ws/runs snapshot (nil ⇒ empty snapshot).
+	Runs RunLister
+	// MaxRunsSubscribers caps /ws/runs subscribers (<= 0 ⇒ 256).
+	MaxRunsSubscribers int
 }
 
 // Server hosts the metrics WebSocket endpoint and the per-run hub. It
@@ -127,6 +131,8 @@ type Server struct {
 	allowedOrigins []string
 	upgrader       websocket.Upgrader
 	hub            *hub
+	lister         RunLister
+	feed           *runsFeed
 }
 
 var (
@@ -146,6 +152,8 @@ func New(deps Deps) *Server {
 		logger:         logger,
 		allowedOrigins: append([]string(nil), deps.AllowedOrigins...),
 		hub:            newHub(logger),
+		lister:         deps.Runs,
+		feed:           newRunsFeed(deps.MaxRunsSubscribers),
 	}
 	s.upgrader = websocket.Upgrader{
 		Subprotocols:     []string{subprotocol},
@@ -157,10 +165,12 @@ func New(deps Deps) *Server {
 
 // Handler mounts `GET /ws/runs/{runId}` on a ServeMux (Go 1.22 pattern): a
 // blank or nested runId falls through to the mux 404, non-GET methods get 405,
-// and both rejections happen before any upgrade.
+// and both rejections happen before any upgrade. The exact path `GET /ws/runs`
+// serves the global runs feed (runs_feed.go).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ws/runs/{runId}", s.handleUpgrade)
+	mux.HandleFunc("GET /ws/runs", s.handleRunsFeed)
 	return mux
 }
 
@@ -202,11 +212,15 @@ func (s *Server) CloseRun(runID string, code int) {
 	s.logger.Info("closed run subscribers", "runId", runID, "count", len(subs), "code", code)
 }
 
-// CloseAll closes every subscriber of every run (server shutdown, K6F3-03).
+// CloseAll closes every subscriber of every run (server shutdown, K6F3-03),
+// including the global runs feed subscribers.
 func (s *Server) CloseAll(code int) {
 	subs := s.hub.detachAll()
 	for _, sub := range subs {
 		sub.closeWithCode(code)
+	}
+	for _, sub := range s.feed.detachAll() {
+		sub.close(code)
 	}
 	s.logger.Info("closed all websocket subscribers", "count", len(subs), "code", code)
 }
@@ -277,11 +291,17 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 // are ignored. The raw service token is never accepted in the query string.
 // An empty configured token fails closed on both paths.
 func (s *Server) authorized(r *http.Request, runID string) bool {
+	return s.authorizedScope(r, RunTicketScope(runID))
+}
+
+// authorizedScope is authorized with an explicit ticket scope (`run:<id>`
+// for the per-run endpoint, `runs` for the global feed).
+func (s *Server) authorizedScope(r *http.Request, scope string) bool {
 	if s.token == "" {
 		return false
 	}
 	if ticket := r.URL.Query().Get("ticket"); ticket != "" {
-		return VerifyTicket(ticket, s.token, RunTicketScope(runID), time.Now()) == nil
+		return VerifyTicket(ticket, s.token, scope, time.Now()) == nil
 	}
 	// Server-side / non-browser clients: subprotocol bearer auth.
 	hasScheme := false

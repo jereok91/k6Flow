@@ -400,7 +400,8 @@ func TestSinkAdapterForwardsFramesAndClosesRun(t *testing.T) {
 // one root mux keeps /healthz and /api/* on the contract-04 handler and
 // hands /ws/runs/* to the live endpoint with its documented gate order
 // (401 auth before 404 lookup), 405 for non-GET, and a plain 404 for the
-// blank run id (the bare /ws/runs path is an API-side unknown route).
+// blank run id. The exact /ws/runs path is the global runs feed, so an
+// unauthenticated request is rejected 401 before any upgrade.
 func TestRootHandlerMountsWebSocketAlongsideAPI(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store := runs.NewStore()
@@ -421,7 +422,7 @@ func TestRootHandlerMountsWebSocketAlongsideAPI(t *testing.T) {
 		{"ws wrong token rejected 401 pre-upgrade", http.MethodGet, "/ws/runs/run-x", "k6flow.bearer, wrong", http.StatusUnauthorized, `"code":"unauthorized"`},
 		{"ws scheme-only offer rejected 401", http.MethodGet, "/ws/runs/run-x", "k6flow.bearer", http.StatusUnauthorized, `"code":"unauthorized"`},
 		{"ws unknown run rejected 404", http.MethodGet, "/ws/runs/run-x", "k6flow.bearer, " + testToken, http.StatusNotFound, `"code":"run-not-found"`},
-		{"ws bare path canonical-redirects to the subtree", http.MethodGet, "/ws/runs", "", http.StatusTemporaryRedirect, ""},
+		{"ws runs feed rejects unauthenticated 401 pre-upgrade", http.MethodGet, "/ws/runs", "", http.StatusUnauthorized, `"code":"unauthorized"`},
 		{"ws blank run id is 404 pre-upgrade", http.MethodGet, "/ws/runs/", "", http.StatusNotFound, ""},
 		{"ws nested run id is 404", http.MethodGet, "/ws/runs/a/b", "", http.StatusNotFound, ""},
 		{"ws non-GET rejected 405 by the live mux", http.MethodPost, "/ws/runs/run-x", "", http.StatusMethodNotAllowed, ""},

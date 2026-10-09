@@ -8,7 +8,7 @@ aggregation, broadcast or replay logic. The REST side is [runs.md](runs.md).
 
 | Item | Contract |
 |------|----------|
-| Topic | `/ws/runs/{runId}` — one run-scoped stream of metrics frames |
+| Topic | `/ws/runs/{runId}` — one run-scoped stream of metrics frames (the global lifecycle feed `/ws/runs` is described [below](#global-runs-feed-wsruns)) |
 | Browser path | Same-origin `/api/ws/runs/{runId}` through a Next proxy rewrite to the orchestrator internal port |
 | Exposure | The orchestrator port is not exposed; the browser never connects to it directly |
 
@@ -61,6 +61,60 @@ The orchestrator stream wraps each frame below in an envelope and adds lifecycle
 | `tick` | `seq`, `frame`; `frame` is the metrics frame contract below |
 | `state` | `fromState`, `toState`, `at` (epoch ms), optional `actor`, `cause` |
 | `end` | `status`, `result`, `exitCode`, optional `summary`, `finishedAt` (epoch ms) |
+
+## Global runs feed (`/ws/runs`)
+
+One socket per tab streams run lifecycle events for every run the orchestrator knows about.
+It replaces polling `GET /api/orchestrator/runs/active` (sidebar counter, executions page).
+Server: `apps/orchestrator/internal/live/runs_feed.go`. Client:
+`apps/web/lib/orchestrator/use-active-runs.ts` with the pure reducer `active-runs.ts`.
+
+| Item | Contract |
+|------|----------|
+| Topic | `GET /ws/runs` (exact path, no runId) |
+| Browser path | Same-origin `/api/ws/runs?ticket=<urlencoded ticket>` through the `/api/ws/:path*` rewrite |
+| Ticket | `GET /api/orchestrator/ws-ticket?scope=runs`: session required (401 otherwise), no ownership check |
+| Scope | Exactly `runs`. A `run:<runId>` ticket is rejected here, and a `runs` ticket never opens `/ws/runs/{runId}` |
+| Server clients | Same `k6flow.bearer` subprotocol as the per-run topic |
+| Origin | Same policy as the per-run topic (same-origin default or `ORCHESTRATOR_ALLOWED_ORIGINS`) |
+| Visibility | Every non-terminal run, unfiltered. This is the same data the session-only REST route `GET /api/orchestrator/runs/active` already returns |
+
+The ticket route rejects `scope` values other than `runs`. It also rejects `scope=runs`
+combined with `runId`. In both cases it answers 400.
+
+### Messages
+
+Every message carries `version: 1`. `run` items use the `GET /api/runs/active` item shape:
+`{ id, status, scenarioId?, scenarioName?, vus, durationMs, createdAt, startedAt?, finishedAt? }`.
+Times are epoch milliseconds. `finishedAt` appears only on terminal runs.
+
+| `type` | Fields | When |
+|--------|--------|------|
+| `runs.snapshot` | `active: Run[]`, `queued: Run[]` (always arrays) | Once, first message after connect; same split as `/api/runs/active` |
+| `runs.state` | `run`, `fromState`, `toState`, `at` | Every transition the engine applies. Creation is `fromState: ""`, emitted when the engine takes the run |
+| `runs.end` | `run`, `status`, `exitCode` | The run reached a terminal state |
+
+Ordering: the snapshot is enqueued before any event published after it was taken. An event
+already reflected in the snapshot may still follow it. Consumers apply events idempotently:
+an upsert by `id`, and removal on a terminal state or `runs.end`.
+
+### Limits and close codes
+
+| Rule | Value |
+|------|-------|
+| Per-subscriber buffer | 64 messages |
+| Slow subscriber | Buffer full: the server closes it with **1013** (try again later). The client reconnects and resyncs from a fresh snapshot. Lifecycle events are never silently dropped. The close happens off the publish path, so the engine never blocks |
+| Subscriber cap | 256 concurrent. Extras are upgraded, then closed with **1008** (policy violation) |
+| Inbound | Receive-only. Client messages are discarded (1 KiB limit) |
+| Shutdown | `CloseAll(1000)` closes feed subscribers too |
+
+### Browser client behaviour
+
+- Each connect mints a fresh ticket.
+- Reconnects back off from 1 s, doubling up to 30 s. The backoff resets once a message arrives.
+- If the ticket or the socket is unavailable, the client makes a single REST fetch of
+  `/api/orchestrator/runs/active` before the next socket attempt. There is no polling loop.
+- A hidden tab closes the socket. The client reconnects as soon as the tab is visible again.
 
 ## Frame contract
 

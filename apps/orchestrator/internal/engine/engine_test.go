@@ -1158,3 +1158,145 @@ func TestRunFinishedPanicDoesNotFailCompletion(t *testing.T) {
 	}
 	assertSemFree(t, h.sem)
 }
+
+// --- Global runs feed: run lifecycle events (RunEventSink) ----------------
+
+type runEvent struct {
+	kind     string // "state" | "end"
+	runID    string
+	from, to runs.Status
+	status   runs.Status
+}
+
+// eventSink records lifecycle events (and ignores frames).
+type eventSink struct {
+	mu     sync.Mutex
+	events []runEvent
+}
+
+func (s *eventSink) OnFrame(metrics.MetricsFrame) {}
+
+func (s *eventSink) OnRunState(run runs.Run, from, to runs.Status, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if run.Status != to {
+		panic(fmt.Sprintf("OnRunState run.Status = %s, want %s", run.Status, to))
+	}
+	s.events = append(s.events, runEvent{kind: "state", runID: run.ID, from: from, to: to})
+}
+
+func (s *eventSink) OnRunEnd(run runs.Run) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, runEvent{kind: "end", runID: run.ID, status: run.Status})
+}
+
+func (s *eventSink) snapshot() []runEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]runEvent(nil), s.events...)
+}
+
+func waitForEnd(t *testing.T, sink *eventSink) []runEvent {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		evs := sink.snapshot()
+		for _, e := range evs {
+			if e.kind == "end" {
+				return evs
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("no end event; events = %+v", sink.snapshot())
+	return nil
+}
+
+var _ engine.RunEventSink = (*eventSink)(nil)
+
+func TestRunEventsEmittedAcrossLifecycle(t *testing.T) {
+	sink := &eventSink{}
+	h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time { return tapClock })
+	id := h.createRun(t)
+	h.rt.SetExitCode("fake-1", 0)
+	h.rt.SetOutput("fake-1", k6Output)
+	if err := h.eng.Launch(context.Background(), id); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	got := waitForEnd(t, sink)
+	want := []runEvent{
+		{kind: "state", runID: id, from: "", to: runs.StatusPending},
+		{kind: "state", runID: id, from: runs.StatusPending, to: runs.StatusRunning},
+		{kind: "state", runID: id, from: runs.StatusRunning, to: runs.StatusFinished},
+		{kind: "end", runID: id, status: runs.StatusFinished},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("events = %+v\nwant     %+v", got, want)
+	}
+}
+
+func TestRunEventsEmittedOnLaunchFailure(t *testing.T) {
+	sink := &eventSink{}
+	h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time { return tapClock })
+	id := h.createRun(t)
+	h.rt.SetError("Create", errors.New("create exploded"))
+	if err := h.eng.Launch(context.Background(), id); err == nil {
+		t.Fatal("Launch error = nil")
+	}
+	got := waitForEnd(t, sink)
+	want := []runEvent{
+		{kind: "state", runID: id, from: "", to: runs.StatusPending},
+		{kind: "state", runID: id, from: runs.StatusPending, to: runs.StatusRunning},
+		{kind: "state", runID: id, from: runs.StatusRunning, to: runs.StatusFailed},
+		{kind: "end", runID: id, status: runs.StatusFailed},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("events = %+v\nwant     %+v", got, want)
+	}
+}
+
+// A run terminalized outside the engine before Launch observed it (the
+// httpapi pending-stop path) still produces an end event, so feed clients
+// drop it.
+func TestRunEventsEndForRunTerminalizedBeforeLaunch(t *testing.T) {
+	sink := &eventSink{}
+	h := newHarnessDeps(runtime.NewFakeRuntime(), sink, func() time.Time { return tapClock })
+	id := h.createRun(t)
+	if err := h.st.SetStatus(id, runs.StatusRunning); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.SetStatus(id, runs.StatusStopped); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.eng.Launch(context.Background(), id); err == nil {
+		t.Fatal("Launch(terminal) error = nil")
+	}
+	got := sink.snapshot()
+	want := []runEvent{{kind: "end", runID: id, status: runs.StatusStopped}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("events = %+v, want %+v", got, want)
+	}
+}
+
+// panickingEventSink proves event delivery is isolated like OnRunFinished.
+type panickingEventSink struct{}
+
+func (panickingEventSink) OnFrame(metrics.MetricsFrame) {}
+func (panickingEventSink) OnRunState(runs.Run, runs.Status, runs.Status, time.Time) {
+	panic("state boom")
+}
+func (panickingEventSink) OnRunEnd(runs.Run) { panic("end boom") }
+
+func TestRunEventPanicDoesNotFailRun(t *testing.T) {
+	h := newHarnessDeps(runtime.NewFakeRuntime(), panickingEventSink{}, func() time.Time { return tapClock })
+	id := h.createRun(t)
+	h.rt.SetExitCode("fake-1", 0)
+	h.rt.SetOutput("fake-1", k6Output)
+	if err := h.eng.Launch(context.Background(), id); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	h.waitForStatus(t, id, runs.StatusFinished)
+	waitCallsContain(t, h, "Remove:fake-1")
+	assertSemFree(t, h.sem)
+}

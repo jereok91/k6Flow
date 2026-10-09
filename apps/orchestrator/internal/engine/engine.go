@@ -58,6 +58,26 @@ type RunFinisher interface {
 	OnRunFinished(runID string)
 }
 
+// RunEventSink is a second optional extension of the injected sink: a sink
+// that implements it receives the run lifecycle events that feed the global
+// runs WebSocket (`GET /ws/runs`). The engine is the single producer:
+//
+//   - OnRunState(run, "", run.Status) when Launch first takes ownership of a
+//     run (creation: httpapi creates the run and immediately hands it to
+//     Launch, so this is the creation/queued signal);
+//   - OnRunState(run, pending, running) after the promotion;
+//   - OnRunState(run, from, terminal) + OnRunEnd(run) when the engine
+//     terminalizes a run; OnRunEnd alone when it observes a run that was
+//     terminalized elsewhere (httpapi stop paths) on a path it owns.
+//
+// run is a store snapshot taken after the transition. Calls are synchronous
+// and recover-isolated: implementations must not block (live's fan-out is
+// non-blocking) and a panic never affects the run.
+type RunEventSink interface {
+	OnRunState(run runs.Run, from, to runs.Status, at time.Time)
+	OnRunEnd(run runs.Run)
+}
+
 // Engine owns in-flight launches keyed by run id; the handle map is the
 // double-launch guard and the Stop rendezvous point.
 type Engine struct {
@@ -135,6 +155,9 @@ func (e *Engine) Launch(ctx context.Context, runID string) error {
 		return fmt.Errorf("engine: launch: unknown run %q", runID)
 	}
 	if isTerminal(run.Status) {
+		// Terminalized before Launch ran (httpapi pending stop): the feed
+		// must still learn the run ended.
+		e.emitEnd(run)
 		return fmt.Errorf("engine: launch: run %s is terminal (%s)", runID, run.Status)
 	}
 	h := &handle{}
@@ -145,6 +168,9 @@ func (e *Engine) Launch(ctx context.Context, runID string) error {
 	}
 	e.handles[runID] = h
 	e.mu.Unlock()
+	// Creation signal for the global runs feed (before any capacity wait so
+	// runs waiting for a slot are visible).
+	e.emitState(run, "", run.Status, run.CreatedAt)
 
 	if err := e.sem.Acquire(ctx); err != nil {
 		e.deregister(runID)
@@ -152,9 +178,21 @@ func (e *Engine) Launch(ctx context.Context, runID string) error {
 	}
 	if run.Status == runs.StatusPending {
 		if err := e.store.SetStatus(runID, runs.StatusRunning); err != nil {
+			// Typically a stop terminalized the pending run while Launch
+			// waited: surface it as ended so feed clients drop it.
+			if cur, ok := e.store.Get(runID); ok && isTerminal(cur.Status) {
+				e.emitEnd(cur)
+			}
 			e.sem.Release()
 			e.deregister(runID)
 			return fmt.Errorf("engine: launch %s: %w", runID, err)
+		}
+		if cur, ok := e.store.Get(runID); ok {
+			at := time.Now()
+			if cur.StartedAt != nil {
+				at = *cur.StartedAt
+			}
+			e.emitState(cur, runs.StatusPending, runs.StatusRunning, at)
 		}
 	}
 	e.log.Info("run launch requested", "runId", runID, "image", e.image)
@@ -236,6 +274,7 @@ func (e *Engine) complete(ctx context.Context, runID string, h *handle, t *tap) 
 	}
 	t.wait()
 	status, summary := e.decide(runID, exit, waitErr, h.stopRequested(), t.summary, t.parseErr)
+	from := e.currentStatus(runID)
 	if err := e.store.SetStatus(runID, status); err != nil {
 		// Terminal immutability: if the run already reached a terminal state
 		// (e.g. a stop landed first), the transition is rejected and no
@@ -243,6 +282,9 @@ func (e *Engine) complete(ctx context.Context, runID string, h *handle, t *tap) 
 		// IS terminal in the store, so the terminal notification still fires
 		// (exactly once: no other completion path exists for this launch).
 		e.log.Error("run final status rejected", "runId", runID, "status", string(status), "error", err)
+		if cur, ok := e.store.Get(runID); ok && isTerminal(cur.Status) {
+			e.emitEnd(cur)
+		}
 		e.notifyRunFinished(runID)
 		return
 	}
@@ -251,6 +293,7 @@ func (e *Engine) complete(ctx context.Context, runID string, h *handle, t *tap) 
 			e.log.Error("run summary persist failed", "runId", runID, "error", err)
 		}
 	}
+	e.emitTerminal(runID, from)
 	// Terminal notification, K6F3-03 — exact ordering: EVERY terminal path
 	// (finished, failed — crash, wait or parse error — and stopped) passes
 	// this point exactly once, AFTER the tap has been joined (t.wait() above
@@ -288,6 +331,66 @@ func (e *Engine) notifyRunFinished(runID string) {
 		}
 	}()
 	finisher.OnRunFinished(runID)
+}
+
+// currentStatus reads the stored status (empty for unknown runs).
+func (e *Engine) currentStatus(runID string) runs.Status {
+	if run, ok := e.store.Get(runID); ok {
+		return run.Status
+	}
+	return ""
+}
+
+// emitTerminal publishes the engine-applied terminal transition followed by
+// the end event, from a fresh store snapshot.
+func (e *Engine) emitTerminal(runID string, from runs.Status) {
+	cur, ok := e.store.Get(runID)
+	if !ok {
+		return
+	}
+	at := time.Now()
+	if cur.FinishedAt != nil {
+		at = *cur.FinishedAt
+	}
+	e.emitState(cur, from, cur.Status, at)
+	e.emitEnd(cur)
+}
+
+// eventSink returns the optional RunEventSink (nil when absent).
+func (e *Engine) eventSink() RunEventSink {
+	if e.sink == nil {
+		return nil
+	}
+	sink, _ := e.sink.(RunEventSink)
+	return sink
+}
+
+// emitState delivers OnRunState with the tap's recover-isolation policy.
+func (e *Engine) emitState(run runs.Run, from, to runs.Status, at time.Time) {
+	sink := e.eventSink()
+	if sink == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			e.log.Warn("run-state event panic recovered; run unaffected", "runId", run.ID, "panic", r)
+		}
+	}()
+	sink.OnRunState(run, from, to, at)
+}
+
+// emitEnd delivers OnRunEnd with the tap's recover-isolation policy.
+func (e *Engine) emitEnd(run runs.Run) {
+	sink := e.eventSink()
+	if sink == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			e.log.Warn("run-end event panic recovered; run unaffected", "runId", run.ID, "panic", r)
+		}
+	}()
+	sink.OnRunEnd(run)
 }
 
 // decide maps the wait result to the terminal status and its summary using
@@ -497,6 +600,7 @@ func (e *Engine) spec(run runs.Run) runtime.Spec {
 // can never be re-launched or leak a slot.
 func (e *Engine) failLaunch(runID, stage string, err error) {
 	e.log.Error("run launch failed", "runId", runID, "stage", stage, "error", err)
+	from := e.currentStatus(runID)
 	if statusErr := e.store.SetStatus(runID, runs.StatusFailed); statusErr != nil {
 		// A rejection means the run is already terminal (store immutability);
 		// either way the run ended while the engine held its handle, so the
@@ -504,6 +608,11 @@ func (e *Engine) failLaunch(runID, stage string, err error) {
 		// deregistration below (ordering mirrors complete(): after the
 		// terminal transition, before the path's cleanup duties).
 		e.log.Error("launch failure transition failed", "runId", runID, "error", statusErr)
+		if cur, ok := e.store.Get(runID); ok && isTerminal(cur.Status) {
+			e.emitEnd(cur)
+		}
+	} else {
+		e.emitTerminal(runID, from)
 	}
 	e.notifyRunFinished(runID)
 	e.sem.Release()

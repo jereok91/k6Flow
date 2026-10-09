@@ -1,6 +1,13 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mintWsTicket, runTicketScope, wsTicketSecret, WS_TICKET_TTL_SECONDS } from "./ws-ticket";
+import {
+  mintWsTicket,
+  resolveTicketRequest,
+  runTicketScope,
+  RUNS_TICKET_SCOPE,
+  wsTicketSecret,
+  WS_TICKET_TTL_SECONDS,
+} from "./ws-ticket";
 
 const NOW = 1_700_000_000_000; // ms
 
@@ -70,6 +77,37 @@ describe("mintWsTicket", () => {
 describe("runTicketScope", () => {
   it("scopes a ticket to one run", () => {
     expect(runTicketScope("abc")).toBe("run:abc");
+  });
+});
+
+describe("RUNS_TICKET_SCOPE", () => {
+  it("is the exact scope the orchestrator expects for /ws/runs", () => {
+    expect(RUNS_TICKET_SCOPE).toBe("runs");
+  });
+});
+
+describe("resolveTicketRequest", () => {
+  const q = (s: string) => new URLSearchParams(s);
+
+  it("accepts scope=runs for the global feed", () => {
+    expect(resolveTicketRequest(q("scope=runs"))).toEqual({ kind: "runs", scope: "runs" });
+  });
+
+  it("keeps runId for a per-run ticket", () => {
+    expect(resolveTicketRequest(q("runId=run-1"))).toEqual({ kind: "run", runId: "run-1", scope: "run:run-1" });
+  });
+
+  it("rejects requests without runId or scope", () => {
+    expect(resolveTicketRequest(q(""))).toMatchObject({ kind: "invalid" });
+  });
+
+  it("rejects unknown scopes", () => {
+    expect(resolveTicketRequest(q("scope=admin"))).toMatchObject({ kind: "invalid" });
+    expect(resolveTicketRequest(q("scope=run:x"))).toMatchObject({ kind: "invalid" });
+  });
+
+  it("rejects ambiguous scope=runs together with runId", () => {
+    expect(resolveTicketRequest(q("scope=runs&runId=run-1"))).toMatchObject({ kind: "invalid" });
   });
 });
 

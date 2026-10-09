@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { MainLayout } from "../../lib/layout";
+import { useActiveRuns } from "../../lib/orchestrator/use-active-runs";
 
 interface RunItem {
   id: string;
@@ -21,22 +22,15 @@ type Tab = "active" | "queued" | "history";
 export default function ExecutionsPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("active");
-  const [activeRuns, setActiveRuns] = useState<RunItem[]>([]);
-  const [queuedRuns, setQueuedRuns] = useState<RunItem[]>([]);
+  // Active/queued come live from the global runs feed (no polling).
+  const { active: activeRuns, queued: queuedRuns, loaded: liveLoaded, endSeq } = useActiveRuns();
   const [historyRuns, setHistoryRuns] = useState<RunItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const loading = historyLoading || !liveLoaded;
 
-  const fetchRuns = useCallback(async () => {
+  const fetchHistory = useCallback(async () => {
     try {
-      // Fetch active runs
-      const activeRes = await fetch("/api/orchestrator/runs/active");
-      if (activeRes.ok) {
-        const data = await activeRes.json();
-        setActiveRuns(data.active || []);
-        setQueuedRuns(data.queued || []);
-      }
-
       // Fetch history from local DB
       const historyRes = await fetch("/api/runs");
       if (historyRes.ok) {
@@ -46,16 +40,14 @@ export default function ExecutionsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch runs");
     } finally {
-      setLoading(false);
+      setHistoryLoading(false);
     }
   }, []);
 
+  // History is read on mount and refreshed whenever the feed reports a run end.
   useEffect(() => {
-    fetchRuns();
-    // Poll for updates
-    const interval = setInterval(fetchRuns, 5000);
-    return () => clearInterval(interval);
-  }, [fetchRuns]);
+    fetchHistory();
+  }, [fetchHistory, endSeq]);
 
   const handleEmergencyStop = async () => {
     if (!confirm("¿Detener TODAS las ejecuciones activas?")) return;
@@ -65,7 +57,7 @@ export default function ExecutionsPage() {
       if (res.ok) {
         const data = await res.json();
         alert(`Detenidas ${data.stoppedRuns} ejecuciones`);
-        fetchRuns();
+        fetchHistory();
       }
     } catch (err) {
       alert("Error al detener ejecuciones");

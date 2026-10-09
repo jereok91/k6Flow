@@ -2,9 +2,10 @@
  * Short-lived WebSocket handshake tickets (server-only; uses node:crypto).
  *
  * Browsers must never receive the orchestrator service token. Instead the
- * `GET /api/orchestrator/ws-ticket` route checks the session and run
- * ownership, then mints a ticket the browser presents as `?ticket=` on the
- * same-origin `/api/ws/runs/{runId}` proxy path. The orchestrator verifies it
+ * `GET /api/orchestrator/ws-ticket` route checks the session (and run
+ * ownership for `?runId=`), then mints a ticket the browser presents as
+ * `?ticket=` on the same-origin `/api/ws/runs/{runId}` proxy path, or on
+ * `/api/ws/runs` for the global runs feed (`?scope=runs`). The orchestrator verifies it
  * in apps/orchestrator/internal/live/ticket.go.
  *
  * Format: `v1.<scope>.<expUnixSeconds>.<nonce>.<sigBase64url>` where sig is
@@ -37,6 +38,31 @@ export interface WsTicket {
 /** Scope authorizing `/ws/runs/{runId}`. */
 export function runTicketScope(runId: string): string {
   return `run:${runId}`;
+}
+
+/** Scope authorizing the global runs feed `/ws/runs`. */
+export const RUNS_TICKET_SCOPE = "runs";
+
+export type TicketRequest =
+  | { kind: "runs"; scope: typeof RUNS_TICKET_SCOPE }
+  | { kind: "run"; runId: string; scope: string }
+  | { kind: "invalid"; error: string };
+
+/**
+ * Resolves the ticket route's query: `?scope=runs` (global feed) or
+ * `?runId=` (one run). Unknown scopes and the ambiguous combination of both
+ * are rejected so a caller can never widen a per-run request.
+ */
+export function resolveTicketRequest(params: URLSearchParams): TicketRequest {
+  const scope = params.get("scope");
+  const runId = params.get("runId");
+  if (scope !== null) {
+    if (scope !== RUNS_TICKET_SCOPE) return { kind: "invalid", error: "unsupported scope" };
+    if (runId) return { kind: "invalid", error: "scope and runId are mutually exclusive" };
+    return { kind: "runs", scope: RUNS_TICKET_SCOPE };
+  }
+  if (!runId) return { kind: "invalid", error: "runId or scope=runs is required" };
+  return { kind: "run", runId, scope: runTicketScope(runId) };
 }
 
 /**

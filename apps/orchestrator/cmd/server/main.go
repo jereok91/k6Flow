@@ -125,9 +125,33 @@ type sinkAdapter struct {
 }
 
 var (
-	_ metrics.FrameSink  = (*sinkAdapter)(nil)
-	_ engine.RunFinisher = (*sinkAdapter)(nil)
+	_ metrics.FrameSink   = (*sinkAdapter)(nil)
+	_ engine.RunFinisher  = (*sinkAdapter)(nil)
+	_ engine.RunEventSink = (*sinkAdapter)(nil)
+	_ runEventPublisher   = (*live.Server)(nil)
 )
+
+// runEventPublisher is the optional global-runs-feed side of the hub
+// (`GET /ws/runs`). It is detected dynamically so hubs that only close runs
+// (test fakes) keep satisfying runCloser.
+type runEventPublisher interface {
+	PublishRunState(run runs.Run, from, to runs.Status, at time.Time)
+	PublishRunEnd(run runs.Run)
+}
+
+// OnRunState forwards engine lifecycle transitions to the global runs feed.
+func (a *sinkAdapter) OnRunState(run runs.Run, from, to runs.Status, at time.Time) {
+	if p, ok := a.hub.(runEventPublisher); ok {
+		p.PublishRunState(run, from, to, at)
+	}
+}
+
+// OnRunEnd forwards engine terminal events to the global runs feed.
+func (a *sinkAdapter) OnRunEnd(run runs.Run) {
+	if p, ok := a.hub.(runEventPublisher); ok {
+		p.PublishRunEnd(run)
+	}
+}
 
 // OnFrame forwards a window frame to the hub (encode-once, non-blocking
 // fan-out happens inside live).
@@ -146,12 +170,14 @@ func (a *sinkAdapter) OnRunFinished(runID string) { a.hub.CloseRun(runID, wsClos
 // "/ws/runs/" hands the whole WebSocket subtree — every method — to the live
 // endpoint's own mux, whose "GET /ws/runs/{runId}" pattern then applies the
 // K6F3-02 gate order (blank runId 404 → 401 auth → 404 unknown run → 405
-// non-GET → upgrade). The bare "/ws/runs" path matches no prefix and falls
-// to the API's 404, so it can never reach the upgrade path.
+// non-GET → upgrade). The exact "/ws/runs" path is mounted too: it is the
+// global runs feed (live's "GET /ws/runs": 401 auth with ticket scope
+// `runs` or bearer subprotocol, then upgrade, snapshot and lifecycle events).
 func newRootHandler(api http.Handler, ws http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", api)
 	mux.Handle("/ws/runs/", ws)
+	mux.Handle("/ws/runs", ws) // exact path: global runs feed (GET /ws/runs)
 	return mux
 }
 
@@ -354,6 +380,7 @@ func main() {
 		Lookup:         store,
 		Logger:         logger,
 		AllowedOrigins: allowedOrigins,
+		Runs:           store, // global /ws/runs snapshot source
 	})
 	// The only place that constructs a real Docker client (K6F2-05); the
 	// SDK client package was unfrozen for this unit (see go.mod pins).

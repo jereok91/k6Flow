@@ -160,6 +160,127 @@ func NewEndMessage(run runs.Run) EndMessage {
 	return msg
 }
 
+// Global runs feed (`GET /ws/runs`) message types.
+const (
+	TypeRunsSnapshot = "runs.snapshot" // sent once on connect
+	TypeRunsState    = "runs.state"    // every run state transition (incl. creation)
+	TypeRunsEnd      = "runs.end"      // run reached a terminal state
+)
+
+// RunItem is the run summary carried by the global runs feed. Its JSON shape
+// mirrors httpapi's runListItem (GET /api/runs/active) so REST and feed
+// consumers share one model; finishedAt only appears on terminal runs.
+type RunItem struct {
+	ID           string `json:"id"`
+	Status       string `json:"status"`
+	ScenarioID   string `json:"scenarioId,omitempty"`
+	ScenarioName string `json:"scenarioName,omitempty"`
+	VUs          int    `json:"vus"`
+	DurationMs   int    `json:"durationMs"`
+	CreatedAt    int64  `json:"createdAt"`
+	StartedAt    *int64 `json:"startedAt,omitempty"`
+	FinishedAt   *int64 `json:"finishedAt,omitempty"`
+}
+
+// RunsSnapshotMessage lists the non-terminal runs (same split as
+// GET /api/runs/active: queued vs everything else).
+type RunsSnapshotMessage struct {
+	Version int       `json:"version"`
+	Type    string    `json:"type"`
+	Active  []RunItem `json:"active"`
+	Queued  []RunItem `json:"queued"`
+}
+
+// RunsStateMessage announces one run transition; FromState is empty for the
+// creation event.
+type RunsStateMessage struct {
+	Version   int     `json:"version"`
+	Type      string  `json:"type"`
+	Run       RunItem `json:"run"`
+	FromState string  `json:"fromState"`
+	ToState   string  `json:"toState"`
+	At        int64   `json:"at"` // ms since epoch
+}
+
+// RunsEndMessage announces a terminal run.
+type RunsEndMessage struct {
+	Version  int     `json:"version"`
+	Type     string  `json:"type"`
+	Run      RunItem `json:"run"`
+	Status   string  `json:"status"`
+	ExitCode int     `json:"exitCode"`
+}
+
+// NewRunItem projects a stored run onto the feed DTO.
+func NewRunItem(run runs.Run) RunItem {
+	item := RunItem{
+		ID:           run.ID,
+		Status:       string(run.Status),
+		ScenarioID:   run.ScenarioID,
+		ScenarioName: run.ScenarioName,
+		VUs:          run.VUs,
+		DurationMs:   run.DurationMs,
+		CreatedAt:    run.CreatedAt.UnixMilli(),
+		StartedAt:    msPtr(run.StartedAt),
+	}
+	if run.Status.IsTerminal() {
+		item.FinishedAt = msPtr(run.FinishedAt)
+	}
+	return item
+}
+
+func msPtr(t *time.Time) *int64 {
+	if t == nil {
+		return nil
+	}
+	ms := t.UnixMilli()
+	return &ms
+}
+
+// NewRunsSnapshotMessage splits non-terminal runs into active and queued.
+func NewRunsSnapshotMessage(all []runs.Run) RunsSnapshotMessage {
+	msg := RunsSnapshotMessage{
+		Version: contractVersion,
+		Type:    TypeRunsSnapshot,
+		Active:  make([]RunItem, 0),
+		Queued:  make([]RunItem, 0),
+	}
+	for _, run := range all {
+		if run.Status.IsTerminal() {
+			continue
+		}
+		if run.Status == runs.StatusQueued {
+			msg.Queued = append(msg.Queued, NewRunItem(run))
+		} else {
+			msg.Active = append(msg.Active, NewRunItem(run))
+		}
+	}
+	return msg
+}
+
+// NewRunsStateMessage builds a runs.state event.
+func NewRunsStateMessage(run runs.Run, from, to runs.Status, at time.Time) RunsStateMessage {
+	return RunsStateMessage{
+		Version:   contractVersion,
+		Type:      TypeRunsState,
+		Run:       NewRunItem(run),
+		FromState: string(from),
+		ToState:   string(to),
+		At:        at.UnixMilli(),
+	}
+}
+
+// NewRunsEndMessage builds a runs.end event.
+func NewRunsEndMessage(run runs.Run) RunsEndMessage {
+	return RunsEndMessage{
+		Version:  contractVersion,
+		Type:     TypeRunsEnd,
+		Run:      NewRunItem(run),
+		Status:   string(run.Status),
+		ExitCode: run.ExitCode,
+	}
+}
+
 // EncodeMessage encodes any message to JSON bytes.
 func EncodeMessage(msg any) ([]byte, error) {
 	return json.Marshal(msg)

@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../theme";
 import { useSidebar } from "./SidebarContext";
+import { activeRunsCount as activeRunsCountOf } from "../orchestrator/active-runs";
+import { useActiveRuns } from "../orchestrator/use-active-runs";
 
 interface User {
   id: string;
@@ -28,7 +30,9 @@ export function Sidebar() {
   const { collapsed, ready, toggleCollapsed } = useSidebar();
   const [user, setUser] = useState<User | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [activeRunsCount, setActiveRunsCount] = useState(0);
+  // Live active + queued count from the global runs feed (no polling).
+  const liveRuns = useActiveRuns();
+  const activeRunsCount = activeRunsCountOf(liveRuns);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Fetch current user
@@ -37,19 +41,6 @@ export function Sidebar() {
       .then((res) => (res.ok ? res.json() : null))
       .then(setUser)
       .catch(() => setUser(null));
-  }, []);
-
-  // Fetch active runs count
-  useEffect(() => {
-    const fetchCount = () => {
-      fetch("/api/orchestrator/runs/active")
-        .then((res) => (res.ok ? res.json() : { active: [], queued: [] }))
-        .then((data) => setActiveRunsCount((data.active?.length || 0) + (data.queued?.length || 0)))
-        .catch(() => {});
-    };
-    fetchCount();
-    const interval = setInterval(fetchCount, 10000);
-    return () => clearInterval(interval);
   }, []);
 
   // Close menu on outside click
