@@ -10,6 +10,17 @@ import (
 	"time"
 )
 
+func TestFakeDiagnosticSpecCopies(t *testing.T) {
+	fake := NewFakeRuntime()
+	spec := Spec{DiagnosticEntry:[]byte("entry"), Env:map[string]string{ScriptEnvKey:"source"}, Args:[]string{"arg"}}
+	if _, err := fake.Create(context.Background(), spec); err != nil { t.Fatal(err) }
+	spec.DiagnosticEntry[0] = 'X'; spec.Env[ScriptEnvKey] = "mutated"; spec.Args[0] = "mutated"
+	first := fake.Specs()[0]
+	first.DiagnosticEntry[0] = 'Y'; first.Env[ScriptEnvKey] = "mutated"
+	got := fake.Specs()[0]
+	if string(got.DiagnosticEntry) != "entry" || got.Env[ScriptEnvKey] != "source" || got.Args[0] != "arg" { t.Fatal("spec aliasing") }
+}
+
 // must fails the test when a fake call reports an error.
 func must(t *testing.T, op string, err error) {
 	t.Helper()

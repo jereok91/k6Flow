@@ -36,6 +36,7 @@ const (
 	// ScriptPath is the fixed in-container script destination; the run command
 	// references it (e.g. "run /k6flow/script.js").
 	ScriptPath = "/k6flow/script.js"
+	DiagnosticPath = "/k6flow/diagnostic.js"
 )
 
 // dockerAPI is exactly the subset of the official Docker SDK client that
@@ -148,7 +149,7 @@ func sortedEnv(env map[string]string) []string {
 // deliverScript streams the script into the container as an in-memory tar:
 // no host file is ever created, so script bytes exist only inside the
 // container filesystem and vanish with the container's removal.
-func (d *DockerRuntime) deliverScript(ctx context.Context, containerID string, script []byte) error {
+func (d *DockerRuntime) deliverScript(ctx context.Context, containerID string, script, entry []byte) error {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	dir := strings.TrimPrefix(path.Dir(ScriptPath), "/")
@@ -161,6 +162,15 @@ func (d *DockerRuntime) deliverScript(ctx context.Context, containerID string, s
 	}
 	if _, err := tw.Write(script); err != nil {
 		return err
+	}
+	if len(entry) > 0 {
+		entryName := strings.TrimPrefix(DiagnosticPath, "/")
+		if err := tw.WriteHeader(&tar.Header{Name: entryName, Mode: 0o644, Size: int64(len(entry)), Typeflag: tar.TypeReg}); err != nil {
+			return err
+		}
+		if _, err := tw.Write(entry); err != nil {
+			return err
+		}
 	}
 	if err := tw.Close(); err != nil {
 		return err
@@ -214,7 +224,7 @@ func (d *DockerRuntime) Create(ctx context.Context, spec Spec) (string, error) {
 	if len(script) == 0 {
 		return resp.ID, nil
 	}
-	if err := d.deliverScript(ctx, resp.ID, script); err != nil {
+	if err := d.deliverScript(ctx, resp.ID, script, spec.DiagnosticEntry); err != nil {
 		d.log.Warn("script delivery failed", "container", resp.ID, "error", err)
 		// Guaranteed removal: a half-created container must not linger even
 		// when the caller's context is already canceled.
@@ -259,10 +269,13 @@ func (d *DockerRuntime) Wait(ctx context.Context, containerID string) (int, erro
 
 // Stop asks the container to stop gracefully, rounding timeout up to whole
 // seconds so the grace period is never shorter than requested; a nonpositive
-// timeout leaves the engine default (10s).
+// timeout leaves the engine default (10s); negative requests immediate stop.
 func (d *DockerRuntime) Stop(ctx context.Context, containerID string, timeout time.Duration) error {
 	opts := container.StopOptions{}
-	if timeout > 0 {
+	if timeout < 0 {
+		zero := 0
+		opts.Timeout = &zero // diagnostic execution deadline: immediate kill
+	} else if timeout > 0 {
 		seconds := int((timeout + time.Second - 1) / time.Second)
 		opts.Timeout = &seconds
 	}

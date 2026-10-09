@@ -13,6 +13,9 @@ import (
 // Spec describes a container to create: image, command/args, env, limits in
 // contract units (CPU millis, memory MiB), labels and network.
 type Spec struct {
+	// DiagnosticEntry is delivered only to the fixed diagnostic entry path.
+	// It is not container environment and is never logged.
+	DiagnosticEntry []byte
 	Image, Network       string
 	Command, Args        []string
 	Env, Labels          map[string]string
@@ -44,6 +47,24 @@ type FakeRuntime struct {
 	created    int
 }
 
+func copySpec(spec Spec) Spec {
+	spec.DiagnosticEntry = append([]byte(nil), spec.DiagnosticEntry...)
+	spec.Command = append([]string(nil), spec.Command...)
+	spec.Args = append([]string(nil), spec.Args...)
+	copyMap := func(in map[string]string) map[string]string {
+		if in == nil {
+			return nil
+		}
+		out := make(map[string]string, len(in))
+		for k, v := range in {
+			out[k] = v
+		}
+		return out
+	}
+	spec.Env, spec.Labels = copyMap(spec.Env), copyMap(spec.Labels)
+	return spec
+}
+
 // NewFakeRuntime returns an empty fake runtime.
 func NewFakeRuntime() *FakeRuntime {
 	return &FakeRuntime{errors: map[string]error{}, exitCodes: map[string]int{}, outputs: map[string]string{}}
@@ -72,7 +93,11 @@ func (f *FakeRuntime) Calls() []string {
 func (f *FakeRuntime) Specs() []Spec {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]Spec(nil), f.specs...)
+	out := make([]Spec, len(f.specs))
+	for i, spec := range f.specs {
+		out[i] = copySpec(spec)
+	}
+	return out
 }
 
 // SetError injects a persistent error keyed by "Op" or "Op:containerID".
@@ -112,7 +137,7 @@ func (f *FakeRuntime) Create(ctx context.Context, spec Spec) (string, error) {
 	if err := f.record("Create:" + id); err != nil {
 		return "", err
 	}
-	f.specs = append(f.specs, spec)
+	f.specs = append(f.specs, copySpec(spec))
 	return id, nil
 }
 

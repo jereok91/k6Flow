@@ -338,6 +338,34 @@ func TestCreateDeliversScriptViaInMemoryTar(t *testing.T) {
 	}
 }
 
+func TestDiagnosticImmediateStopPreservesLoadDefault(t *testing.T) {
+	rt, fake, _ := newDockerTestRuntime(t)
+	if err := rt.Stop(context.Background(), "c", 0); err != nil { t.Fatal(err) }
+	if fake.stopOpts.Timeout != nil { t.Fatal("load default changed") }
+	if err := rt.Stop(context.Background(), "c", -time.Nanosecond); err != nil { t.Fatal(err) }
+	if fake.stopOpts.Timeout == nil || *fake.stopOpts.Timeout != 0 { t.Fatal("diagnostic stop was not immediate") }
+}
+
+func TestDiagnosticEntryDeliveryFailureCleanup(t *testing.T) {
+	rt, fake, _ := newDockerTestRuntime(t)
+	fake.copyErr = errors.New("copy failed")
+	_, err := rt.Create(context.Background(), Spec{CPUMillis:1, MemoryMiB:1, DiagnosticEntry:[]byte("entry"), Env:map[string]string{ScriptEnvKey:"source"}})
+	if err == nil || !fake.removeForces[fake.createdID] { t.Fatal("delivery error did not force cleanup") }
+}
+
+func TestDiagnosticEntryDelivery(t *testing.T) {
+	rt, fake, logs := newDockerTestRuntime(t)
+	entry := []byte("server-owned-entry-secret")
+	source := "submitted-source-secret"
+	_, err := rt.Create(context.Background(), Spec{CPUMillis: 1, MemoryMiB: 1, DiagnosticEntry: entry, Env: map[string]string{ScriptEnvKey: source}})
+	if err != nil { t.Fatal(err) }
+	files := map[string]string{}
+	tr := tar.NewReader(bytes.NewReader(fake.copyTar))
+	for { header, err := tr.Next(); if errors.Is(err, io.EOF) { break }; if err != nil { t.Fatal(err) }; if header.Typeflag == tar.TypeReg { data, _ := io.ReadAll(tr); files[header.Name] = string(data) } }
+	if len(files) != 2 || files["k6flow/script.js"] != source || files["k6flow/diagnostic.js"] != string(entry) { t.Fatalf("wrong fixed tar entries: %v", files) }
+	if strings.Contains(strings.Join(fake.cfg.Env, ","), source) || strings.Contains(logs.String(), source) || strings.Contains(logs.String(), string(entry)) { t.Fatal("source leaked") }
+}
+
 func TestCreateWithoutScriptSkipsCopy(t *testing.T) {
 	rt, fake, _ := newDockerTestRuntime(t)
 	if _, err := rt.Create(context.Background(), Spec{CPUMillis: 1, MemoryMiB: 1,
