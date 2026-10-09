@@ -13,9 +13,11 @@
 - [x] T1 Fix orchestrator proxies (active, preflight, emergency-stop): shared config, auth, status passthrough — `59b7e62` (emergency-stop admin-only)
 - [x] T2 History metrics: errorRate basis points round-trip (tested), keep avgDurationMs 0 — `59cb567`
 - [x] T3 Completion summary on polling / already-finished paths — `d6afc99`
-- [ ] T4 Orchestrator endpoints/failures contract: flat fields, unified key, error tags, error rate (Go tests)
-- [ ] T5 Executions page: fetch summary only when terminal; refresh endpoints/failures while live
+- [x] T4 Orchestrator endpoints/failures contract: flat fields, unified key, error tags, error rate (Go tests) — `0d0174d`
+- [x] T5 Executions page: fetch summary only when terminal; refresh endpoints/failures while live — `75c96e9`
 - [ ] T6 Global runs WebSocket (/ws/runs) in orchestrator + web proxy; Sidebar subscribes instead of polling
 
 ## Evidence
+- T4/T5: metrics tests (RED build failure -> GREEN 9 tests); go test ./... ok, vet clean; apps/web 278 tests; tsc clean
+- T1-T3 review review-165621585e8f79ff approved + acknowledged (advisory proxy.ts:9)
 - T1-T3: proxy 5 + metrics 12 tests (RED missing module -> GREEN); apps/web 22 files / 278 tests; tsc clean
