@@ -30,6 +30,27 @@ describe("standalone runs REST declarations", () => {
     expect(runStartConfigSchema.parse(start)).toEqual(start);
     expect(runStartConfigSchema.parse({ ...start, attachments: [{ id: "csv-pool" }] })).toEqual({ ...start, attachments: [{ id: "csv-pool" }] });
   });
+  it("accepts an optional K6FLOW_VAR_* env record within the orchestrator limits", () => {
+    const env = { K6FLOW_VAR_TOKEN: "s3cret", ["K6FLOW_VAR_" + "A".repeat(80)]: "v".repeat(8192), K6FLOW_VAR_EMPTY: "" };
+    expect(runStartConfigSchema.parse({ ...start, env })).toEqual({ ...start, env });
+    expect(runStartConfigSchema.parse({ ...start, env: {} })).toEqual({ ...start, env: {} });
+    const hundred = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`K6FLOW_VAR_V${i}`, "x"]));
+    expect(runStartConfigSchema.safeParse({ ...start, env: hundred }).success).toBe(true);
+  });
+  it.each([
+    ["reserved script key", { K6FLOW_SCRIPT: "x" }],
+    ["missing prefix", { TOKEN: "x" }],
+    ["lowercase suffix", { K6FLOW_VAR_token: "x" }],
+    ["empty suffix", { K6FLOW_VAR_: "x" }],
+    ["invalid char", { "K6FLOW_VAR_A-B": "x" }],
+    ["suffix over 80", { ["K6FLOW_VAR_" + "A".repeat(81)]: "x" }],
+    ["value over 8 KiB", { K6FLOW_VAR_BIG: "a".repeat(8193) }],
+    ["non-string value", { K6FLOW_VAR_N: 1 }],
+    ["over 100 entries", Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`K6FLOW_VAR_V${i}`, "x"]))],
+    ["over 64 KiB total", Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`K6FLOW_VAR_B${i}`, "a".repeat(8192)]))],
+  ])("rejects env with %s", (_name, env) => {
+    expect(runStartConfigSchema.safeParse({ ...start, env }).success).toBe(false);
+  });
   it.each(["version", "script", "vus", "durationMs", "cpuMillis", "memoryMiB"])(
     "requires %s on the run start payload", (field) => {
       const body: Record<string, unknown> = { ...start };

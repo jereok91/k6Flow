@@ -11,6 +11,29 @@ const runEnvelope = versionEnvelopeSchema.shape.version;
 export const runStatusSchema = z.enum(["pending", "running", "finished", "failed", "stopped"]);
 export const runTerminalStatusSchema = z.enum(["finished", "failed", "stopped"]);
 export const idempotencyKeySchema = nonblankString;
+// k6flow-variables V-T3: secret variables travel as K6FLOW_VAR_* container env.
+// Limits mirror the orchestrator (UTF-8 bytes): <= 100 entries, value <= 8 KiB,
+// keys + values <= 64 KiB. Values are request-scoped: never stored, returned or logged.
+export const RUN_ENV_KEY_PATTERN = /^K6FLOW_VAR_[A-Z0-9_]{1,80}$/;
+export const RUN_ENV_MAX_ENTRIES = 100;
+export const RUN_ENV_MAX_VALUE_BYTES = 8 * 1024;
+export const RUN_ENV_MAX_TOTAL_BYTES = 64 * 1024;
+const utf8Bytes = (value: string): number => new TextEncoder().encode(value).length;
+export const runEnvSchema = z.record(
+  z.string().regex(RUN_ENV_KEY_PATTERN),
+  z.string().refine((value) => utf8Bytes(value) <= RUN_ENV_MAX_VALUE_BYTES, {
+    message: `Env value exceeds ${RUN_ENV_MAX_VALUE_BYTES} bytes`,
+  }),
+).superRefine((env, ctx) => {
+  const entries = Object.entries(env);
+  if (entries.length > RUN_ENV_MAX_ENTRIES) {
+    ctx.addIssue({ code: "custom", message: `Env has more than ${RUN_ENV_MAX_ENTRIES} entries` });
+  }
+  const total = entries.reduce((sum, [key, value]) => sum + utf8Bytes(key) + utf8Bytes(value), 0);
+  if (total > RUN_ENV_MAX_TOTAL_BYTES) {
+    ctx.addIssue({ code: "custom", message: `Env exceeds ${RUN_ENV_MAX_TOTAL_BYTES} bytes in total` });
+  }
+});
 // Declaration only: opaque already compiled script, never a graph or parsed k6 options; REST vus/durationMs always override script options; attachments are opaque ids.
 export const runStartConfigSchema = z.strictObject({
   version: runEnvelope,
@@ -20,6 +43,7 @@ export const runStartConfigSchema = z.strictObject({
   cpuMillis: positiveSafeInteger,
   memoryMiB: positiveSafeInteger,
   attachments: z.array(z.strictObject({ id: nonblankString })).optional(),
+  env: runEnvSchema.optional(),
 });
 export const runReferenceSchema = z.strictObject({ version: runEnvelope, runId: nonblankString });
 export const runStateSchema = z.strictObject({
@@ -84,6 +108,7 @@ export function deriveRunStartOutcome(
     sameJson(record.body, request.body));
   return match === undefined ? { kind: "created" } : { kind: "deduplicated", runId: match.runId };
 }
+export type RunEnv = z.infer<typeof runEnvSchema>;
 export type RunStatus = z.infer<typeof runStatusSchema>;
 export type RunTerminalStatus = z.infer<typeof runTerminalStatusSchema>;
 export type RunStartConfig = z.infer<typeof runStartConfigSchema>;

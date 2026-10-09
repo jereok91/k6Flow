@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,6 +78,11 @@ type RunEventSink interface {
 	OnRunState(run runs.Run, from, to runs.Status, at time.Time)
 	OnRunEnd(run runs.Run)
 }
+
+// VariableEnvPrefix is the only env namespace a run request may inject into
+// the k6 container (secret variables, `__ENV["K6FLOW_VAR_<NAME>"]`). It is
+// disjoint from runtime.ScriptEnvKey, so user env cannot replace the script.
+const VariableEnvPrefix = "K6FLOW_VAR_"
 
 // Engine owns in-flight launches keyed by run id; the handle map is the
 // double-launch guard and the Stop rendezvous point.
@@ -147,6 +153,16 @@ func New(d Deps) *Engine {
 // after promotion terminalize the run as failed. Launch returns once the
 // container has started.
 func (e *Engine) Launch(ctx context.Context, runID string) error {
+	return e.LaunchWithEnv(ctx, runID, nil)
+}
+
+// LaunchWithEnv is Launch plus per-run container env (k6flow-variables
+// V-T3: secret variables as K6FLOW_VAR_* entries). env lives only in this
+// call: it is copied into the container spec, never stored in the run record
+// and never logged. Keys outside the VariableEnvPrefix namespace are dropped,
+// so env can never override the reserved script key or any other runtime
+// env (the HTTP layer already rejects them; this is defense in depth).
+func (e *Engine) LaunchWithEnv(ctx context.Context, runID string, env map[string]string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("engine: launch %s: %w", runID, err)
 	}
@@ -197,7 +213,7 @@ func (e *Engine) Launch(ctx context.Context, runID string) error {
 	}
 	e.log.Info("run launch requested", "runId", runID, "image", e.image)
 
-	containerID, err := e.rt.Create(ctx, e.spec(run))
+	containerID, err := e.rt.Create(ctx, e.spec(run, env))
 	if err != nil {
 		e.failLaunch(runID, "create", err)
 		return fmt.Errorf("engine: launch %s: create: %w", runID, err)
@@ -574,8 +590,16 @@ func forwardLine(agg *metrics.RunWindowAggregator, runID string, log *slog.Logge
 // spec builds the container spec from the stored run fields: the script via
 // the reserved env key (stripped before container create by the runtime),
 // `run --out json` with REST VUs/duration overriding script options, the
-// run-id label and the contract limits. Spec contents are never logged.
-func (e *Engine) spec(run runs.Run) runtime.Spec {
+// run-id label and the contract limits, plus the request env restricted to
+// VariableEnvPrefix keys. Spec contents are never logged.
+func (e *Engine) spec(run runs.Run, extra map[string]string) runtime.Spec {
+	env := make(map[string]string, len(extra)+1)
+	for key, value := range extra {
+		if strings.HasPrefix(key, VariableEnvPrefix) {
+			env[key] = value
+		}
+	}
+	env[runtime.ScriptEnvKey] = run.Script
 	return runtime.Spec{
 		Image:   e.image,
 		Network: e.network,
@@ -586,7 +610,7 @@ func (e *Engine) spec(run runs.Run) runtime.Spec {
 			"--duration", strconv.FormatInt(int64(run.DurationMs), 10) + "ms",
 			runtime.ScriptPath,
 		},
-		Env:       map[string]string{runtime.ScriptEnvKey: run.Script},
+		Env:       env,
 		Labels:    map[string]string{runtime.LabelRunID: run.ID},
 		CPUMillis: run.CPUMillis,
 		MemoryMiB: run.MemoryMiB,

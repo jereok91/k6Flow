@@ -786,3 +786,22 @@ func TestLifecycleLogsNeverContainScriptOrEnvValues(t *testing.T) {
 		}
 	}
 }
+
+// k6flow-variables V-T3: user env (K6FLOW_VAR_*) reaches the container env
+// while the reserved script key stays stripped.
+func TestCreatePassesVariableEnvAndStripsScript(t *testing.T) {
+	rt, fake, logs := newDockerTestRuntime(t)
+	if _, err := rt.Create(context.Background(), Spec{CPUMillis: 1, MemoryMiB: 1,
+		Env: map[string]string{ScriptEnvKey: "script-body", "K6FLOW_VAR_TOKEN": "tok-var-secret"}}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if env := strings.Join(fake.cfg.Env, "\n"); env != "K6FLOW_VAR_TOKEN=tok-var-secret" {
+		t.Errorf("container env = %q, want only K6FLOW_VAR_TOKEN=tok-var-secret", env)
+	}
+	if strings.HasPrefix(ScriptEnvKey, "K6FLOW_VAR_") {
+		t.Errorf("reserved script key %q must not share the K6FLOW_VAR_ prefix", ScriptEnvKey)
+	}
+	if strings.Contains(logs.String(), "tok-var-secret") {
+		t.Errorf("logs leak env value: %s", logs.String())
+	}
+}

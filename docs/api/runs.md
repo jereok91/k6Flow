@@ -82,3 +82,43 @@ creates no run, launches no container and does not consume its `Idempotency-Key`
 The `message` names the requested value, the limit and the variable, e.g.
 `requested 1900 VUs exceeds the per-run limit of 500 (MAX_VUS_PER_RUN)`. When several
 ceilings are exceeded, only the first in the order VUs → memory → CPU is reported.
+
+## Secret variable env
+
+`POST /api/runs` (and `/api/runs/preflight`) accept an optional `env` object that becomes
+container environment for k6. It carries secret variables (`{{token}}` in the editor), which
+the translator writes into the script as `__ENV["K6FLOW_VAR_TOKEN"]` instead of a literal.
+
+```json
+{ "version": 1, "script": "...", "vus": 1, "durationMs": 30000, "cpuMillis": 750,
+  "memoryMiB": 256, "env": { "K6FLOW_VAR_TOKEN": "<secret>" } }
+```
+
+| Rule | Limit |
+|------|-------|
+| Key | `^K6FLOW_VAR_[A-Z0-9_]{1,80}$` |
+| Entries | at most 100 |
+| Value | string, at most 8 KiB (UTF-8 bytes) |
+| Total | keys + values at most 64 KiB |
+
+A violation is `400 invalid-request`; no run is created. The key namespace is disjoint from
+the runtime's reserved script key (`K6FLOW_SCRIPT`) and from any other container env, so a
+request can never override them. The engine also drops any key outside `K6FLOW_VAR_`.
+
+Values are request-scoped. They reach the container spec in memory and are **never** stored
+in the run record, returned by any `GET`, echoed in errors or written to logs. The
+idempotency payload hash covers the raw body, `env` included: a replay with a different
+secret is a different payload (new run), and only the SHA-256 digest is kept.
+
+Browsers never send `env`. They send `environmentId` and `requiredEnv` (env names only) to
+the web proxy `POST /api/orchestrator/runs`, which resolves the values server-side:
+
+| Proxy answer | When |
+|--------------|------|
+| `400 { error }` | malformed `scenarioId`, `environmentId` or `requiredEnv` |
+| `403` / `404` | scenario not owned (owner or admin) / environment not owned, or unknown |
+| `422 { error, errors }` | a required name has no secret value, secret names collide, or secrets are requested with no scenario or environment |
+
+The proxy discards any client-sent `env`, strips its own fields, and forwards only
+`env` entries for requested names that map to secret variables. Shared schema:
+`runEnvSchema` in `packages/shared/src/runs-rest.ts`.

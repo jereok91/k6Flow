@@ -97,7 +97,9 @@ components:
       properties: { version: { const: 1 }, script: { type: string, minLength: 1, description: "Opaque compiled script; REST vus/durationMs always override script-embedded options" },
         vus: { type: integer, minimum: 1, maximum: 9007199254740991 }, durationMs: { type: integer, minimum: 1, maximum: 9007199254740991 },
         cpuMillis: { type: integer, minimum: 1, maximum: 9007199254740991 }, memoryMiB: { type: integer, minimum: 1, maximum: 9007199254740991 },
-        attachments: { type: array, items: { $ref: "#/components/schemas/RunAttachment" } } }
+        attachments: { type: array, items: { $ref: "#/components/schemas/RunAttachment" } },
+        env: { type: object, maxProperties: 100, propertyNames: { pattern: "^K6FLOW_VAR_[A-Z0-9_]{1,80}$" }, additionalProperties: { type: string, maxLength: 8192 },
+          description: "Optional secret-variable container env (K6FLOW_VAR_*). Values are at most 8 KiB each and keys + values at most 64 KiB in total (UTF-8 bytes). Values are never stored, returned or logged; they only change the idempotency payload hash." } }
     RunTotals: { type: object, additionalProperties: false, required: [requests, errors, failedChecks], properties: { requests: { type: integer, minimum: 0, maximum: 9007199254740991 }, errors: { type: integer, minimum: 0, maximum: 9007199254740991 }, failedChecks: { type: integer, minimum: 0, maximum: 9007199254740991 } } }
     RunLatency: { type: object, additionalProperties: false, required: [avgMs, p90Ms, p95Ms, p99Ms], properties: { avgMs: { type: number, minimum: 0 }, p90Ms: { type: number, minimum: 0 }, p95Ms: { type: number, minimum: 0 }, p99Ms: { type: number, minimum: 0 } } }
     RunSummary:

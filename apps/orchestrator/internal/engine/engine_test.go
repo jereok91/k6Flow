@@ -1300,3 +1300,73 @@ func TestRunEventPanicDoesNotFailRun(t *testing.T) {
 	waitCallsContain(t, h, "Remove:fake-1")
 	assertSemFree(t, h.sem)
 }
+
+// k6flow-variables V-T3: request env reaches the container spec, never the
+// store or the logs, and can never override the reserved script key.
+func TestLaunchWithEnvAddsEnvToSpec(t *testing.T) {
+	h := newHarness(runtime.NewFakeRuntime())
+	id := h.createRun(t)
+	h.rt.SetOutput("fake-1", k6Output)
+	const secret = "env-secret-value-91ab"
+	env := map[string]string{"K6FLOW_VAR_TOKEN": secret, "K6FLOW_VAR_HOST": "h"}
+	if err := h.eng.LaunchWithEnv(context.Background(), id, env); err != nil {
+		t.Fatalf("LaunchWithEnv: %v", err)
+	}
+	h.waitForStatus(t, id, runs.StatusFinished)
+	specs := h.rt.Specs()
+	if len(specs) != 1 {
+		t.Fatalf("specs = %d, want 1", len(specs))
+	}
+	got := specs[0].Env
+	if got["K6FLOW_VAR_TOKEN"] != secret || got["K6FLOW_VAR_HOST"] != "h" {
+		t.Errorf("spec env = %v, want request env", got)
+	}
+	if got[runtime.ScriptEnvKey] != script {
+		t.Errorf("script env = %q, want the stored script", got[runtime.ScriptEnvKey])
+	}
+	run, _ := h.st.Get(id)
+	if strings.Contains(fmt.Sprintf("%+v", run), secret) {
+		t.Error("run record holds the env value")
+	}
+	if strings.Contains(h.log.String(), secret) {
+		t.Errorf("logs leak the env value: %s", h.log.String())
+	}
+	// The caller's map is not retained/mutated.
+	if len(env) != 2 {
+		t.Errorf("caller env mutated: %v", env)
+	}
+}
+
+func TestLaunchWithEnvCannotOverrideReservedKeys(t *testing.T) {
+	h := newHarness(runtime.NewFakeRuntime())
+	id := h.createRun(t)
+	h.rt.SetOutput("fake-1", k6Output)
+	env := map[string]string{runtime.ScriptEnvKey: "evil()", "PATH": "/evil", "K6FLOW_VAR_OK": "ok"}
+	if err := h.eng.LaunchWithEnv(context.Background(), id, env); err != nil {
+		t.Fatalf("LaunchWithEnv: %v", err)
+	}
+	h.waitForStatus(t, id, runs.StatusFinished)
+	got := h.rt.Specs()[0].Env
+	if got[runtime.ScriptEnvKey] != script {
+		t.Errorf("reserved script key overridden: %q", got[runtime.ScriptEnvKey])
+	}
+	if _, ok := got["PATH"]; ok {
+		t.Error("non-prefixed key reached the spec")
+	}
+	if got["K6FLOW_VAR_OK"] != "ok" {
+		t.Errorf("prefixed key dropped: %v", got)
+	}
+}
+
+func TestLaunchWithoutEnvKeepsScriptOnlyEnv(t *testing.T) {
+	h := newHarness(runtime.NewFakeRuntime())
+	id := h.createRun(t)
+	h.rt.SetOutput("fake-1", k6Output)
+	if err := h.eng.Launch(context.Background(), id); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	h.waitForStatus(t, id, runs.StatusFinished)
+	if got := h.rt.Specs()[0].Env; len(got) != 1 {
+		t.Errorf("spec env = %v, want only the script key", got)
+	}
+}

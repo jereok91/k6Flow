@@ -4,10 +4,11 @@
  * Translates graph to K6 script and submits to the orchestrator.
  */
 
-import { translateToK6, type K6TranslatorOptions } from "@k6flow/shared";
+import { translateToK6, type K6TranslationError, type K6TranslatorOptions } from "@k6flow/shared";
 import type { GraphDraftComposition } from "@k6flow/shared";
 import { computeRunResources } from "./run-resources";
 import { describeStartError, parseStartErrorBody } from "./run-failure";
+import { formatTranslationErrors, loadRunVariables, parseProxyRunError } from "./run-variables";
 
 // Use Next.js API proxy to reach the orchestrator
 // This works both in Docker (where browser can't reach orchestrator directly)
@@ -44,6 +45,8 @@ export interface RunConfig {
   scenarioId?: string;
   /** Scenario name for history tracking */
   scenarioName?: string;
+  /** Environment whose variables apply to the run (scenario variables override them) */
+  environmentId?: string;
 }
 
 /**
@@ -60,6 +63,8 @@ export interface RunStartResult {
   warnings?: string[];
   requiresFiles?: string[];
   missingFiles?: string[];
+  /** Blocking translation errors (unknown variables, missing values, env collisions) */
+  translationErrors?: K6TranslationError[];
 }
 
 /**
@@ -75,18 +80,35 @@ export async function runScenario(
     attachments = [],
     scenarioId,
     scenarioName,
+    environmentId,
   } = config;
   const defaults = computeRunResources(vus);
   const cpuMillis = config.cpuMillis ?? defaults.cpuMillis;
   const memoryMiB = config.memoryMiB ?? defaults.memoryMiB;
 
+  // Masked variable sets: secrets have no value here and become __ENV refs.
+  const loaded = await loadRunVariables({ scenarioId, environmentId });
+  if (!loaded.ok) {
+    return { success: false, error: loaded.error };
+  }
+
   // Translate graph to K6 script
   const translatorOptions: K6TranslatorOptions = {
     vus,
     duration: `${Math.floor(durationMs / 1000)}s`,
+    variables: loaded.variables,
   };
 
   const translation = translateToK6(graph, translatorOptions);
+
+  if (translation.errors.length > 0) {
+    return {
+      success: false,
+      error: formatTranslationErrors(translation.errors),
+      translationErrors: translation.errors,
+      warnings: translation.warnings,
+    };
+  }
 
   // Check for required files (CSV pools)
   if (translation.requiresFiles.length > 0) {
@@ -123,6 +145,10 @@ export async function runScenario(
     // History tracking (not sent to orchestrator, only used by proxy)
     scenarioId,
     scenarioName,
+    // Variables: the proxy resolves secret values server-side for these env
+    // names; the browser never sends or sees secret values.
+    environmentId,
+    requiredEnv: translation.requiredEnv,
   };
 
   try {
@@ -143,6 +169,10 @@ export async function runScenario(
           errorMessage: parsed.message,
           warnings: translation.warnings,
         };
+      }
+      const proxyError = parseProxyRunError(errorBody);
+      if (proxyError) {
+        return { success: false, error: proxyError, warnings: translation.warnings };
       }
       return {
         success: false,

@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,6 +31,9 @@ type startConfig struct {
 	CPUMillis   json.RawMessage `json:"cpuMillis"`
 	MemoryMiB   json.RawMessage `json:"memoryMiB"`
 	Attachments []attachment    `json:"attachments"`
+	// Env carries secret variables as K6FLOW_VAR_* container env (V-T3).
+	// Values are request-scoped: never stored, returned or logged.
+	Env map[string]string `json:"env"`
 }
 
 type attachment struct {
@@ -44,6 +48,39 @@ type startRequest struct {
 	CPUMillis   int
 	MemoryMiB   int
 	Attachments []string
+	Env         map[string]string
+}
+
+// Env limits (k6flow-variables V-T3). The key pattern confines user env to
+// the K6FLOW_VAR_ namespace, disjoint from the runtime's reserved keys.
+const (
+	maxEnvEntries    = 100
+	maxEnvValueBytes = 8 * 1024
+	maxEnvTotalBytes = 64 * 1024
+)
+
+var envKeyPattern = regexp.MustCompile(`^K6FLOW_VAR_[A-Z0-9_]{1,80}$`)
+
+// validateEnv checks keys, entry count and sizes. Error messages never
+// include keys or values.
+func validateEnv(env map[string]string) error {
+	if len(env) > maxEnvEntries {
+		return fmt.Errorf("env: more than %d entries", maxEnvEntries)
+	}
+	total := 0
+	for key, value := range env {
+		if !envKeyPattern.MatchString(key) {
+			return errors.New("env: key must match ^K6FLOW_VAR_[A-Z0-9_]{1,80}$")
+		}
+		if len(value) > maxEnvValueBytes {
+			return fmt.Errorf("env: value exceeds %d bytes", maxEnvValueBytes)
+		}
+		total += len(key) + len(value)
+	}
+	if total > maxEnvTotalBytes {
+		return fmt.Errorf("env: total size exceeds %d bytes", maxEnvTotalBytes)
+	}
+	return nil
 }
 
 // decodeStart strictly validates one run start body: unknown fields, trailing
@@ -88,6 +125,12 @@ func decodeStart(raw []byte) (startRequest, error) {
 			return startRequest{}, errors.New("attachment id must be a nonblank string")
 		}
 		req.Attachments = append(req.Attachments, item.ID)
+	}
+	if err := validateEnv(wire.Env); err != nil {
+		return startRequest{}, err
+	}
+	if len(wire.Env) > 0 {
+		req.Env = wire.Env
 	}
 	return req, nil
 }
@@ -139,6 +182,15 @@ func (h *handler) startRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, limErr.code, limErr.message)
 		return
 	}
+	// Env needs an env-capable launcher; never drop it silently.
+	envLauncher, envOK := h.launcher.(EnvLauncher)
+	if len(req.Env) > 0 && !envOK {
+		h.logger.Error("run start env unsupported by launcher", "path", r.URL.Path)
+		writeError(w, http.StatusInternalServerError, codeInternal, msgInternal)
+		return
+	}
+	// The hash covers the raw body, env included: a different secret is a
+	// different payload. Only the digest is kept, never the env values.
 	sum := sha256.Sum256(raw)
 	hash := hex.EncodeToString(sum[:])
 	key := r.Header.Get("Idempotency-Key")
@@ -173,8 +225,15 @@ func (h *handler) startRun(w http.ResponseWriter, r *http.Request) {
 	ctx := context.WithoutCancel(r.Context())
 	h.logger.Info("run accepted", "runId", run.ID)
 	writeJSON(w, http.StatusAccepted, runRef{Version: contractVersion, RunID: run.ID})
+	env := req.Env
 	go func() {
-		if err := h.launcher.Launch(ctx, run.ID); err != nil {
+		var err error
+		if len(env) > 0 {
+			err = envLauncher.LaunchWithEnv(ctx, run.ID, env)
+		} else {
+			err = h.launcher.Launch(ctx, run.ID)
+		}
+		if err != nil {
 			h.logger.Error("async launch failed", "runId", run.ID, "error", err)
 		}
 	}()

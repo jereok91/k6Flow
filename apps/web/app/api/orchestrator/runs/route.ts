@@ -6,6 +6,8 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "../../../../lib/auth/require-user";
 import { setRunOwner, clearRunOwner, type RunHistoryData } from "../../../../lib/editor/run-ownership";
+import { resolveVariablesForRun } from "../../../../lib/variables/store";
+import { prepareRunStart } from "./run-env";
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_INTERNAL_URL ?? "http://orchestrator:8080";
 const SERVICE_TOKEN = process.env.ORCHESTRATOR_SERVICE_TOKEN ?? "k6flow-internal-token";
@@ -34,9 +36,18 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Extract history fields before sending to orchestrator
-    // (orchestrator rejects unknown fields)
-    const { scenarioId, scenarioName, ...orchestratorBody } = body;
+    // Proxy-only fields (history + variables) are stripped before forwarding
+    // (orchestrator rejects unknown fields). Secret env values are resolved
+    // here from the database for the requested `requiredEnv` names only; a
+    // client-sent `env` is always discarded. Never log the prepared body.
+    const prepared = await prepareRunStart(body, user, resolveVariablesForRun);
+    if (!prepared.ok) {
+      return Response.json(
+        prepared.errors ? { error: prepared.error, errors: prepared.errors } : { error: prepared.error },
+        { status: prepared.status, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    const orchestratorBody = prepared.orchestratorBody;
 
     const res = await fetch(`${ORCHESTRATOR_URL}/api/runs`, {
       method: "POST",

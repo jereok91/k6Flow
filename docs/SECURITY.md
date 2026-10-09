@@ -130,6 +130,31 @@ socket is not cut when its ticket expires. Server-side clients keep the
 `Sec-WebSocket-Protocol: k6flow.bearer, <token>` handshake. The `?token=<service token>`
 query parameter is no longer accepted. Contract details: [api/ws-metrics.md](api/ws-metrics.md).
 
+### Secret variables
+
+Variables marked **secret** (environment or scenario) never reach the browser and are never
+written into a k6 script. Their path is:
+
+1. **Database** — stored in `environment_variables` / `scenario_variables`. Browser `GET`
+   routes mask them (`{ name, secret: true, hasValue }`); export and version history leave
+   them out.
+2. **Browser** — translates the graph with the masked set. A secret becomes
+   `__ENV["K6FLOW_VAR_<NAME>"]` in the script. The run request carries only the env
+   **names** (`requiredEnv`) and the chosen `environmentId`.
+3. **Web server** (`/api/orchestrator/runs`) — checks scenario ownership (owner or admin) and
+   environment ownership (owner only). It reads the values with the server-only
+   `resolveVariablesForRun` (scenario overrides environment). It builds `env` only for
+   requested names that map to secret variables, and rejects (422) a missing value or
+   colliding secret names. A client-sent `env` is discarded.
+4. **Orchestrator** — validates `env` (`K6FLOW_VAR_*` keys only, 100 entries, 8 KiB per value,
+   64 KiB total) and hands it to the engine in memory. It is not kept in the run record,
+   returned by any `GET`, or logged. The idempotency hash includes it as a digest only.
+5. **Container** — values arrive as process environment of the per-run k6 container,
+   which is removed when the run ends. The `K6FLOW_VAR_` namespace cannot override the
+   reserved script key or other runtime env.
+
+Error messages along this path name variables and env keys, never values.
+
 ## Recommendations
 
 1. **Deploy behind reverse proxy**: Use Caddy/nginx for TLS termination

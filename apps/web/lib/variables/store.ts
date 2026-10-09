@@ -320,25 +320,28 @@ export async function replaceScenarioVariables(
 /**
  * Full variable values for a run, scenario overriding environment by name.
  * SERVER-ONLY: returns plaintext secrets. Never expose through a route; the run
- * proxy (V-T3) uses it to inline non-secrets and inject secrets as k6 env.
- * The scenario must be accessible to the actor (owner or admin) and the
- * environment, when given, must belong to the actor.
+ * proxy (V-T3) uses it to inject secrets as k6 env.
+ * The scenario, when given, must be accessible to the actor (owner or admin)
+ * and the environment, when given, must belong to the actor. A null scenario
+ * (ad-hoc run of an unsaved graph) resolves environment variables only.
  */
 export async function resolveVariablesForRun(
   actor: Actor,
-  scenarioId: string,
+  scenarioId: string | null,
   environmentId: string | null,
 ): Promise<StoreResult<VariableDefinition[]>> {
   const db = getDb();
-  const scenarioDecision = await scenarioAccess(db, actor, scenarioId);
-  if (scenarioDecision !== "ok") return deny(scenarioDecision);
+  if (scenarioId !== null) {
+    const scenarioDecision = await scenarioAccess(db, actor, scenarioId);
+    if (scenarioDecision !== "ok") return deny(scenarioDecision);
+  }
   let environmentVars: VariableDefinition[] = [];
   if (environmentId !== null) {
     const environmentDecision = await environmentAccess(db, actor, environmentId);
     if (environmentDecision !== "ok") return deny(environmentDecision);
     environmentVars = await readEnvironmentVariables(db, environmentId);
   }
-  const scenarioVars = await readScenarioVariables(db, scenarioId);
+  const scenarioVars = scenarioId === null ? [] : await readScenarioVariables(db, scenarioId);
   return { ok: true, value: mergeVariablesForRun(environmentVars, scenarioVars) };
 }
 

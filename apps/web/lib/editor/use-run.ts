@@ -13,6 +13,8 @@ export interface UseRunConfig extends RunConfig {
   scenarioId?: string;
   /** Scenario name for history tracking */
   scenarioName?: string;
+  /** Environment selected for the run (its variables apply; scenario variables win) */
+  environmentId?: string;
 }
 
 interface UseRunResult {
@@ -39,7 +41,7 @@ export function useRun(): UseRunResult {
   }, []);
 
   const startRun = useCallback(
-    async (nodes: K6Node[], edges: K6Edge[], config?: RunConfig): Promise<RunStartResult> => {
+    async (nodes: K6Node[], edges: K6Edge[], config?: UseRunConfig): Promise<RunStartResult> => {
       setRunning(true);
       setError(null);
       setWarnings([]);

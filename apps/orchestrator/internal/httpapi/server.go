@@ -49,6 +49,13 @@ type RunLauncher interface {
 	Stop(ctx context.Context, runID string) error
 }
 
+// EnvLauncher is the optional env-capable extension of RunLauncher
+// (k6flow-variables V-T3): *engine.Engine implements it. A start carrying
+// `env` requires it; env is handed over in memory and never stored.
+type EnvLauncher interface {
+	LaunchWithEnv(ctx context.Context, runID string, env map[string]string) error
+}
+
 // Deps are the constructor dependencies. Logger defaults to slog.Default;
 // Launcher is the engine (required, see RunLauncher) wired by tests with a
 // fake and consumed by startRun/stopRun — this unit never talks to containers.
