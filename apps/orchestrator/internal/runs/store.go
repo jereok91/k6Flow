@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"k6flow/apps/orchestrator/internal/diagnostic"
 )
 
 // Status is the lifecycle state of a run.
@@ -114,6 +116,9 @@ const (
 // Run is one stored run. CreatedAt is always set; StartedAt and FinishedAt
 // stay nil until SetStatus stamps them.
 type Run struct {
+	Mode           string
+	Diagnostic     *diagnostic.Metadata
+	Trace          *diagnostic.Snapshot
 	ID             string
 	Status         Status
 	Result         Result  // set when terminal
@@ -178,6 +183,27 @@ func (s *Store) Create(run Run) (Run, error) {
 			break
 		}
 	}
+	if run.Mode == "" {
+		run.Mode = "load"
+	}
+	if run.Mode != "load" && run.Mode != "diagnostic" {
+		return Run{}, fmt.Errorf("runs: invalid mode")
+	}
+	if run.Mode == "diagnostic" {
+		if run.Diagnostic == nil || run.Diagnostic.Validate() != nil {
+			return Run{}, fmt.Errorf("runs: invalid diagnostic metadata")
+		}
+		metadata := *run.Diagnostic
+		metadata.NodeIDs = append([]string(nil), metadata.NodeIDs...)
+		run.Diagnostic = &metadata
+		trace := diagnostic.New()
+		run.Trace = &trace
+	} else {
+		if run.Diagnostic != nil {
+			return Run{}, fmt.Errorf("runs: load forbids diagnostic metadata")
+		}
+		run.Trace = nil
+	}
 	run.ID = id
 	run.Status = StatusPending
 	run.Summary = nil
@@ -230,6 +256,7 @@ func (s *Store) SetStatus(id string, to Status) error {
 	if to.IsTerminal() {
 		run.FinishedAt = &now
 	}
+	updateTraceStatus(run, to)
 	// Record event
 	event := RunEvent{
 		ID:        generateEventID(),
@@ -266,6 +293,7 @@ func (s *Store) SetStatusWithCause(id string, to Status, actor, cause string) er
 	if to.IsTerminal() {
 		run.FinishedAt = &now
 	}
+	updateTraceStatus(run, to)
 	event := RunEvent{
 		ID:        generateEventID(),
 		RunID:     id,
@@ -331,12 +359,54 @@ func (s *Store) List() []Run {
 
 // copyRun detaches slices and summaries so callers cannot mutate stored state.
 func copyRun(run Run) Run {
+	if run.Diagnostic != nil {
+		metadata := *run.Diagnostic
+		metadata.NodeIDs = append([]string(nil), metadata.NodeIDs...)
+		run.Diagnostic = &metadata
+	}
+	if run.Trace != nil {
+		trace := diagnostic.Copy(*run.Trace)
+		run.Trace = &trace
+	}
+	run.Events = append([]RunEvent(nil), run.Events...)
 	run.Attachments = append([]string(nil), run.Attachments...)
 	if run.Summary != nil {
 		summary := *run.Summary
 		run.Summary = &summary
 	}
 	return run
+}
+
+// DiagnosticLine consumes custom output under the transition lock. Terminal
+// snapshots reject late writes, including malformed points.
+func (s *Store) DiagnosticLine(id string, line []byte) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, ok := s.runs[id]
+	if !ok || run.Trace == nil {
+		return false
+	}
+	return diagnostic.Consume(run.Trace, *run.Diagnostic, line)
+}
+
+func (s *Store) InvalidateDiagnostic(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if run, ok := s.runs[id]; ok && run.Trace != nil {
+		diagnostic.Invalidate(run.Trace)
+	}
+}
+
+func updateTraceStatus(run *Run, to Status) {
+	if run.Trace == nil {
+		return
+	}
+	if to == StatusRunning {
+		run.Trace.State = "running"
+	}
+	if to.IsTerminal() {
+		diagnostic.Finish(run.Trace, string(to))
+	}
 }
 
 // SetEndpoints stores the per-run endpoints tracker.
