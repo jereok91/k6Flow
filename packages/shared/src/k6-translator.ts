@@ -5,7 +5,9 @@
  * Deterministic: the same graph always produces the same script (init §13).
  */
 
-import type { GraphDraftComposition } from "./graph-composition";
+import { graphReadyCompositionSchema, type GraphDraftComposition } from "./graph-composition";
+import { DIAGNOSTIC_TIMEOUT_MS, diagnosticMetadataSchema, diagnosticPrelude, instrumentDiagnosticNode,
+  type DiagnosticMetadata, type RunMode } from "./diagnostic";
 import type { HttpParameters } from "./http-parameters";
 import type { JsonParameterValue, StringParameterValue } from "./parameter-values";
 import {
@@ -16,6 +18,8 @@ import {
  * K6 script generation options.
  */
 export interface K6TranslatorOptions {
+  /** Opt-in application diagnostic events; load remains the default. */
+  mode?: RunMode;
   /** Virtual users (default: 1) */
   vus?: number;
   /** Duration string (default: "30s") */
@@ -31,7 +35,7 @@ export interface K6TranslatorOptions {
 
 /** A translation problem that should block running the script. */
 export interface K6TranslationError {
-  code: "unknown-variable" | "missing-value" | "secret-env-collision" | "disabled-dependency" | "no-enabled-nodes";
+  code: "unknown-variable" | "missing-value" | "secret-env-collision" | "disabled-dependency" | "no-enabled-nodes" | "invalid-diagnostic";
   /** Empty for graph-level errors. */
   nodeId: string;
   /** Variable name; disabled producer id for "disabled-dependency"; empty for graph-level errors. */
@@ -53,6 +57,8 @@ export interface K6TranslatorResult {
   errors: K6TranslationError[];
   /** Env names (unique, sorted) of referenced secret variables the run must inject. */
   requiredEnv: string[];
+  /** Expected IDs in execution order, including disabled/skipped nodes. */
+  diagnostic?: DiagnosticMetadata;
 }
 
 type GraphNode = GraphDraftComposition["nodes"][number];
@@ -67,7 +73,16 @@ export function translateToK6(
   graph: GraphDraftComposition,
   options: K6TranslatorOptions = {},
 ): K6TranslatorResult {
-  const { vus = 1, duration = "30s", iterations, variables } = options;
+  const diagnostic = options.mode === "diagnostic";
+  const { variables } = options;
+  const vus = diagnostic ? 1 : (options.vus ?? 1);
+  const duration = options.duration ?? "30s";
+  const iterations = diagnostic ? 1 : options.iterations;
+  if (diagnostic && !validDiagnosticGraph(graph)) {
+    return { script: "", warnings: [], requiresFiles: [], requiredEnv: [], errors: [{
+      code: "invalid-diagnostic", nodeId: "", variable: "", message: "Unsupported or incomplete diagnostic graph",
+    }] };
+  }
   const warnings: string[] = [];
   const requiresFiles: string[] = [];
   const errors: K6TranslationError[] = [];
@@ -172,8 +187,20 @@ export function translateToK6(
     }
   }
 
+  // Preserve legacy load names only when their generated binding families cannot
+  // overlap. Reserved ordinal names never derive from user-controlled text.
+  const legacyNames = sortedIds.map(sanitizeVarName);
+  const nodeNames = new Map(sortedIds.map((id, index) => {
+    const legacy = legacyNames[index];
+    const safe = /^[A-Za-z_][A-Za-z0-9_]*$/.test(legacy) && !RESERVED_IDENTIFIERS.has(legacy)
+      && !legacy.startsWith("__") && !legacyNames.some((other, otherIndex) => otherIndex !== index
+        && (legacy === other || legacy.startsWith(other + "_") || other.startsWith(legacy + "_")));
+    return [id, diagnostic ? `__node${index}` : safe ? legacy : `__k6flow_node${index}`];
+  }));
+
   // Generate imports
   const imports: string[] = ["import http from 'k6/http';"];
+  if (diagnostic) imports.push("import { Counter } from 'k6/metrics';");
   const hasChecks = enabledNodes.some((n) => n.kind === "response-validation");
   if (hasChecks) {
     imports.push("import { check } from 'k6';");
@@ -192,12 +219,14 @@ export function translateToK6(
   } else {
     optionsLines.push(`  duration: '${duration}',`);
   }
+  if (diagnostic) optionsLines.push(`  maxDuration: '${DIAGNOSTIC_TIMEOUT_MS / 1000}s',`, "  gracefulStop: '0s',");
   optionsLines.push("};");
 
   // Generate setup for user pools
   const setupLines: string[] = [];
   for (const node of enabledNodes) {
     if (node.kind === "user-pool" && node.parameters) {
+      const poolVar = nodeNames.get(node.id)!;
       const params = node.parameters;
       const mode = params.mode ?? "csv";
       
@@ -205,13 +234,13 @@ export function translateToK6(
         // Manual mode: embed users directly in script
         // WARNING: Passwords are embedded in plain text - use CSV mode for production!
         setupLines.push("");
-        setupLines.push(`// User pool (manual): ${node.id}`);
+        setupLines.push(`// User pool (manual): ${JSON.stringify(node.id)}`);
         setupLines.push("// WARNING: Passwords embedded in script. Use CSV mode for production.");
         // Use JSON.stringify for safe serialization of user data
         const usersJson = JSON.stringify(params.manualUsers);
         // Use JSON.stringify for safe string escaping in generated JS
         const safeNodeId = JSON.stringify(node.id);
-        setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray(${safeNodeId}, function () {`);
+        setupLines.push(`const ${poolVar}_data = new SharedArray(${safeNodeId}, function () {`);
         setupLines.push(`  return ${usersJson};`);
         setupLines.push("});");
       } else if (params.attachment) {
@@ -219,11 +248,11 @@ export function translateToK6(
         const fileId = params.attachment.id;
         requiresFiles.push(`${fileId}.csv`);
         setupLines.push("");
-        setupLines.push(`// User pool: ${node.id}`);
+        setupLines.push(`// User pool: ${JSON.stringify(node.id)}`);
         // Use JSON.stringify for safe string escaping in generated JS
         const safeFileId = JSON.stringify(fileId);
         const safeFilePath = JSON.stringify(`./${fileId}.csv`);
-        setupLines.push(`const ${sanitizeVarName(node.id)}_data = new SharedArray(${safeFileId}, function () {`);
+        setupLines.push(`const ${poolVar}_data = new SharedArray(${safeFileId}, function () {`);
         setupLines.push(`  return papaparse.parse(open(${safeFilePath}), { header: true }).data;`);
         setupLines.push("});");
       }
@@ -234,11 +263,16 @@ export function translateToK6(
   const bodyLines: string[] = [];
   const varMap = new Map<string, string>(); // node.id -> variable name
 
-  for (const id of executionIds) {
+  if (diagnostic) bodyLines.push("  __diagSeq = 0;", "  let __diagFailed = false;");
+  for (const id of diagnostic ? sortedIds : executionIds) {
     const node = nodeMap.get(id);
     if (!node) continue;
-
-    const varName = sanitizeVarName(id);
+    if (diagnostic && disabledIds.has(id)) {
+      bodyLines.push(...instrumentDiagnosticNode([], id, true, []));
+      continue;
+    }
+    const start = bodyLines.length;
+    const varName = nodeNames.get(id)!;
 
     switch (node.kind) {
       case "user-pool": {
@@ -250,7 +284,7 @@ export function translateToK6(
         
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
-        bodyLines.push(`  const ${varName} = ${varName}_data[__VU % ${varName}_data.length];`);
+        bodyLines.push(`  const ${varName} = ${varName}_data[${diagnostic ? "(__VU - 1)" : "__VU"} % ${varName}_data.length];`);
         
         // Map outputs - use explicit outputs if defined, otherwise infer from manualUsers fields
         let outputNames: string[] = [];
@@ -262,7 +296,8 @@ export function translateToK6(
         }
         
         for (const name of outputNames) {
-          varMap.set(`${id}.${name}`, `${varName}[${JSON.stringify(name)}]`);
+          const field = diagnostic ? params.outputs?.find(output => output.name === name)?.header ?? name : name;
+          varMap.set(`${id}.${name}`, `${varName}[${JSON.stringify(field)}]`);
         }
         break;
       }
@@ -302,6 +337,8 @@ export function translateToK6(
               }
             }
             // An implicit dependency on a disabled pool must block, not fall back.
+            if (diagnostic && !resolved) addError({ code: "invalid-diagnostic", nodeId: id, variable: "",
+              message: "Unresolved diagnostic authentication input" });
             if (!resolved) {
               for (const pool of graph.nodes) {
                 if (disabledIds.has(pool.id) && userPoolOutputNames(pool).includes(field.variable)) {
@@ -318,22 +355,54 @@ export function translateToK6(
           authBody = `${varName}_body`;
         }
         
-        const authUrl = interpolate(url, node.id, `'${url}'`);
-        bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}(${authUrl}, ${authBody}, {`);
-        bodyLines.push("    headers: { 'Content-Type': 'application/json' },");
+        const authBaseUrl = req.url.kind === "reference"
+          ? varMap.get(`${req.url.reference.producerNodeId}.${req.url.reference.output}`) ?? "''"
+          : interpolate(url, node.id, JSON.stringify(url));
+        const authUrl = requestQuery(authBaseUrl, req, node.id, varMap, interpolate);
+        if (diagnostic && !params.bodyTemplate?.length && req.body && "value" in req.body) {
+          const value = req.body.value;
+          authBody = value.kind === "literal" ? interpolate(value.value, node.id, JSON.stringify(value.value))
+            : varMap.get(`${value.reference.producerNodeId}.${value.reference.output}`) ?? "null";
+        }
+        bodyLines.push(diagnostic
+          ? `  const ${varName}_res = http.request(${JSON.stringify(method)}, ${authUrl}, ${authBody}, {`
+          : `  const ${varName}_res = http.${method.toLowerCase()}(${authUrl}, ${authBody}, {`);
+        const authHeaders = (diagnostic ? req.headers ?? [] : []).map(header => {
+          const value = parameterExpression(header.value, node.id, varMap, interpolate);
+          return `[${JSON.stringify(header.name)}]: ${value}`;
+        });
+        bodyLines.push(diagnostic
+          ? `    headers: { 'Content-Type': 'application/json', ${authHeaders.join(", ")} }, timeout: '${DIAGNOSTIC_TIMEOUT_MS / 1000}s',`
+          : "    headers: { 'Content-Type': 'application/json' },");
         bodyLines.push("  });");
 
+        if (diagnostic) {
+          bodyLines.push(`  __diagStatus = ${varName}_res.status;`);
+          bodyLines.push(`  if (__diagStatus < 200 || __diagStatus >= 400) __diagReason = 'http';`);
+          bodyLines.push(`  if (__diagReason === 'none') {`);
+          bodyLines.push(`  __diagReason = 'extraction';`);
+        }
         // Extract outputs
         if (params.outputs && Array.isArray(params.outputs)) {
           for (const output of params.outputs) {
             if (output.selector?.kind === "json-path") {
               // Filter empty segments (can occur during UI editing)
               const jsonPath = output.selector.path.filter(Boolean).join(".");
-              bodyLines.push(`  const ${varName}_${output.name} = ${varName}_res.json('${jsonPath}');`);
-              varMap.set(`${id}.${output.name}`, `${varName}_${output.name}`);
+              const index = params.outputs.indexOf(output);
+              const suffix = sanitizeVarName(output.name);
+              const safe = !["res", "body", "data", "checks"].includes(suffix) && !suffix.startsWith("__output")
+                && params.outputs.every((other, otherIndex) => otherIndex === index || sanitizeVarName(other.name) !== suffix);
+              const outputVar = diagnostic ? `${varName}_output${index}`
+                : `${varName}_${safe ? suffix : `__output${index}`}`;
+              const selector = diagnostic ? `${varName}_res.json()${output.selector.path.map(segment => `[${JSON.stringify(segment)}]`).join("")}`
+                : `${varName}_res.json(${JSON.stringify(jsonPath)})`;
+              bodyLines.push(`  const ${outputVar} = ${selector};`);
+              if (diagnostic) bodyLines.push(`  if (${outputVar} === undefined || ${outputVar} === null${output.expectedType === "string" ? ` || typeof ${outputVar} !== 'string'` : ""}) throw new Error('extraction');`);
+              varMap.set(`${id}.${output.name}`, outputVar);
             }
           }
         }
+        if (diagnostic) bodyLines.push(`  __diagReason = 'none';`, `  }`);
         varMap.set(`${id}.response`, `${varName}_res`);
         break;
       }
@@ -345,12 +414,13 @@ export function translateToK6(
         let url = "''";
         if (params.url.kind === "literal") {
           const trimmed = params.url.value.trim();
-          url = interpolate(trimmed, node.id, `'${trimmed}'`);
+          url = interpolate(trimmed, node.id, JSON.stringify(trimmed));
         } else if (params.url.kind === "reference") {
           const ref = params.url.reference;
           url = varMap.get(`${ref.producerNodeId}.${ref.output}`) ?? "''";
         }
 
+        url = requestQuery(url, params, node.id, varMap, interpolate);
         let body = "null";
         let contentType = "application/json";
         // JSON bodies are interpolated on the raw text; values are not JSON-escaped.
@@ -420,7 +490,15 @@ export function translateToK6(
           ? `{ ${headerEntries.join(", ")} }`
           : "{}";
         
-        if (methodsWithBody.includes(method.toUpperCase())) {
+        if (diagnostic) {
+          if (params.body && 'value' in params.body && params.body.value.kind === 'reference') {
+            const ref = params.body.value.reference;
+            body = varMap.get(`${ref.producerNodeId}.${ref.output}`) ?? "null";
+          }
+          bodyLines.push(`  const ${varName}_res = http.request(${JSON.stringify(method)}, ${url}, ${body}, {`);
+          bodyLines.push(`    headers: ${headersObj}, timeout: '${DIAGNOSTIC_TIMEOUT_MS / 1000}s',`);
+          bodyLines.push("  });");
+        } else if (methodsWithBody.includes(method.toUpperCase())) {
           bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}(${url}, ${body}, {`);
           bodyLines.push(`    headers: ${headersObj},`);
           bodyLines.push("  });");
@@ -445,7 +523,7 @@ export function translateToK6(
 
         bodyLines.push("");
         bodyLines.push(`  // ${node.id}`);
-        bodyLines.push(`  check(${responseVar}, {`);
+        bodyLines.push(`  ${diagnostic ? `const ${varName}_checks = ` : ""}check(${responseVar}, {`);
 
         for (const chk of params.checks) {
           let checkExpr = "true";
@@ -458,14 +536,28 @@ export function translateToK6(
             const op = operatorToJs(chk.operator);
             checkExpr = `(r) => r.timings.duration ${op} ${chk.expected}`;
           }
-          bodyLines.push(`    '${chk.name}': ${checkExpr},`);
+          bodyLines.push(`    [${JSON.stringify(chk.name)}]: ${checkExpr},`);
         }
 
         bodyLines.push("  });");
         break;
       }
     }
+    if (diagnostic) {
+      const success: string[] = [];
+      if (node.kind === "http-request") success.push(
+        `  __diagStatus = ${varName}_res.status;`,
+        `  if (__diagStatus < 200 || __diagStatus >= 400) __diagReason = 'http';`,
+      );
+      if (node.kind === "response-validation") success.push(`  if (!${varName}_checks) __diagReason = 'check';`);
+      if (node.kind === "user-pool") {
+        success.push(`  if (!${varName}) __diagReason = 'pool';`);
+        for (const output of node.parameters?.outputs ?? []) success.push(`  if (!${varName} || typeof ${varName}[${JSON.stringify(output.header)}] !== 'string') __diagReason = 'pool';`);
+      }
+      bodyLines.push(...instrumentDiagnosticNode(bodyLines.splice(start), id, false, success));
+    }
   }
+  if (diagnostic) bodyLines.push("  __diagEmit('', 'complete', 0, 0, __diagFailed ? 'failure' : 'success', __diagFailed ? 'prior-failure' : 'none');");
 
   // Assemble script
   const script = [
@@ -476,9 +568,12 @@ export function translateToK6(
     "",
     ...optionsLines,
     ...setupLines,
+    ...(diagnostic ? diagnosticPrelude() : []),
+    ...(graph.nodes.some(n => (n.kind === "http-request" && n.parameters?.query?.length) ||
+      (n.kind === "authentication" && n.parameters?.method.request.query?.length)) ? [QUERY_HELPER] : []),
     "",
     "export default function () {",
-    ...bodyLines,
+    ...bodyLines.map(line => line.trimStart().startsWith("//") ? line.replace(/\r/g, "\\r").replace(/\n/g, "\\n") : line),
     "}",
     "",
   ].join("\n");
@@ -497,7 +592,9 @@ export function translateToK6(
     [...secretFirstNode.keys()].map(secretEnvName),
   )].sort();
 
-  return { script, warnings, requiresFiles, errors, requiredEnv };
+  return { script, warnings, requiresFiles, errors, requiredEnv,
+    ...(diagnostic ? { diagnostic: { nodeIds: sortedIds } } : {}),
+  };
 }
 
 /** Producer node ids a node consumes: declared references plus embedded parameter references. */
@@ -530,6 +627,55 @@ function userPoolOutputNames(node: GraphNode): string[] {
   return params.manualUsers?.[0] ? Object.keys(params.manualUsers[0]) : [];
 }
 
+/** Reject drafts and translator features that cannot be faithfully diagnosed. */
+function validDiagnosticGraph(graph: GraphDraftComposition): boolean {
+  if (!diagnosticMetadataSchema.safeParse({ nodeIds: graph.nodes.map(node => node.id) }).success) return false;
+  const ready = graphReadyCompositionSchema.safeParse({ ...graph, load: {
+    version: 1, profile: { kind: "constant-vus", vus: 1, durationMs: DIAGNOSTIC_TIMEOUT_MS },
+    thresholds: [], thresholdPolicy: "final-pass-fail",
+  } });
+  if (!ready.success) return false;
+  return graph.nodes.every(node => {
+    const request = node.kind === "http-request" ? node.parameters
+      : node.kind === "authentication" ? node.parameters?.method.request : undefined;
+    if (request?.url.kind === "literal" && !request.url.value.trim()) return false;
+    if (node.kind === "user-pool") {
+      const params = node.parameters;
+      return params?.mode === "manual" ? !!params.manualUsers?.length : !!params?.attachment;
+    }
+    if (node.kind === "authentication") return node.parameters?.outputs.every(output => output.selector.kind === "json-path");
+    if (node.kind === "response-validation") return node.parameters?.checks.every(check =>
+      check.kind === "status" || check.kind === "duration-ms" ||
+      (check.kind === "body-text" && check.predicate.operator === "contains-literal"));
+    return true;
+  });
+}
+
+const QUERY_HELPER = `function __k6flowQuery(url, entries) {
+  url = String(url);
+  const hash = url.indexOf('#');
+  const base = hash < 0 ? url : url.slice(0, hash);
+  const fragment = hash < 0 ? '' : url.slice(hash);
+  const separator = base.indexOf('?') < 0 ? '?' : /[?&]$/.test(base) ? '' : '&';
+  return base + separator + entries.map(entry => encodeURIComponent(entry[0]) + '=' + encodeURIComponent(String(entry[1]))).join('&') + fragment;
+}`;
+
+function parameterExpression(value: StringParameterValue, nodeId: string, varMap: Map<string, string>,
+  interpolate: (text: string, nodeId: string, fallback: string) => string): string {
+  if (value.kind === "literal") return interpolate(value.value, nodeId, JSON.stringify(value.value));
+  return varMap.get(`${value.reference.producerNodeId}.${value.reference.output}`) ?? "''";
+}
+
+function requestQuery(url: string, params: HttpParameters, nodeId: string, varMap: Map<string, string>,
+  interpolate: (text: string, nodeId: string, fallback: string) => string): string {
+  if (!params.query?.length) return url;
+  return `__k6flowQuery(${url}, [${params.query.map(entry =>
+    `[${JSON.stringify(entry.name)}, ${parameterExpression(entry.value, nodeId, varMap, interpolate)}]`).join(", ")}])`;
+}
+
+// Keywords and globals that a standalone pool binding must not shadow.
+const RESERVED_IDENTIFIERS = new Set(("await break case catch class const continue debugger default delete do else enum export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof var void while with yield arguments eval http check SharedArray papaparse open options Date encodeURIComponent String JSON undefined NaN Infinity").split(" "));
+
 /** Sanitize a node ID to a valid JS variable name */
 function sanitizeVarName(id: string): string {
   return id.replace(/[^a-zA-Z0-9_]/g, "_").replace(/^(\d)/, "_$1");
@@ -537,7 +683,7 @@ function sanitizeVarName(id: string): string {
 
 /** Escape a string for JS string literal */
 function escapeString(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n");
+  return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
 }
 
 /** Convert operator to JS operator */

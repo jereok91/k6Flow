@@ -26,14 +26,20 @@ const section = (from: string, to?: string): string => {
   return doc.slice(fromAt, toAt);
 };
 describe("standalone runs REST declarations", () => {
+  it("requires minimal diagnostic metadata only in explicit diagnostic mode", () => {
+    expect(runStartConfigSchema.safeParse({ ...start, mode: "diagnostic", diagnostic: { nodeIds: ["a"] } }).success).toBe(true);
+    for (const patch of [ { mode: "other" }, { mode: "diagnostic" },
+      { diagnostic: { nodeIds: ["a"] } }, { mode: "diagnostic", diagnostic: { nodeIds: ["a"], url: "secret" } },
+    ]) expect(runStartConfigSchema.safeParse({ ...start, ...patch }).success).toBe(false);
+  });
   it("accepts an approved compiled-script payload with optional opaque attachments", () => {
-    expect(runStartConfigSchema.parse(start)).toEqual(start);
-    expect(runStartConfigSchema.parse({ ...start, attachments: [{ id: "csv-pool" }] })).toEqual({ ...start, attachments: [{ id: "csv-pool" }] });
+    expect(runStartConfigSchema.parse(start)).toEqual({ ...start, mode: "load" });
+    expect(runStartConfigSchema.parse({ ...start, attachments: [{ id: "csv-pool" }] })).toEqual({ ...start, mode: "load", attachments: [{ id: "csv-pool" }] });
   });
   it("accepts an optional K6FLOW_VAR_* env record within the orchestrator limits", () => {
     const env = { K6FLOW_VAR_TOKEN: "s3cret", ["K6FLOW_VAR_" + "A".repeat(80)]: "v".repeat(8192), K6FLOW_VAR_EMPTY: "" };
-    expect(runStartConfigSchema.parse({ ...start, env })).toEqual({ ...start, env });
-    expect(runStartConfigSchema.parse({ ...start, env: {} })).toEqual({ ...start, env: {} });
+    expect(runStartConfigSchema.parse({ ...start, env })).toEqual({ ...start, mode: "load", env });
+    expect(runStartConfigSchema.parse({ ...start, env: {} })).toEqual({ ...start, mode: "load", env: {} });
     const hundred = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`K6FLOW_VAR_V${i}`, "x"]));
     expect(runStartConfigSchema.safeParse({ ...start, env: hundred }).success).toBe(true);
   });
@@ -153,7 +159,7 @@ describe("standalone runs REST declarations", () => {
     const premature: shared.RunSummary = { version: 1, runId: "run-1", status: "running", totals, latency };
     expect(shared.runSummarySchema.safeParse(premature).success).toBe(false);
   });
-  it("matches the OpenAPI document against the declared contract", () => {
+  it("matches the legacy load OpenAPI fields (diagnostic documentation deferred to T7)", () => {
     const doc = openapi();
     const create = section("/api/runs:", "/api/runs/{runId}:");
     for (const fragment of ['"202":', '"200":', '"401":', "Idempotency-Key"]) expect(create).toContain(fragment);
@@ -165,7 +171,7 @@ describe("standalone runs REST declarations", () => {
     for (const fragment of ['"409":', '"404":']) expect(summary).toContain(fragment);
     expect(doc).toContain(`enum: [${runStatusSchema.options.join(", ")}]`);
     expect(doc).toContain(`enum: [${shared.runErrorCodeSchema.options.join(", ")}]`);
-    for (const key of [...Object.keys(runStartConfigSchema.shape), ...Object.keys(runTotalsSchema.shape),
+    for (const key of [...Object.keys(runStartConfigSchema.shape).filter(key => key !== "mode" && key !== "diagnostic"), ...Object.keys(runTotalsSchema.shape),
       ...Object.keys(runLatencySchema.shape), "thresholdsPassed"]) expect(doc).toContain(`${key}:`);
     expect(doc).toContain("const: 1");
     expect(doc).toContain(String(max));

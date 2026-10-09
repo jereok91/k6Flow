@@ -75,6 +75,12 @@ export type {
   RecorderWsInputFrame,
 } from "./recorder-contracts";
 
+export {
+  DIAGNOSTIC_METRIC, DIAGNOSTIC_MAX_NODES, DIAGNOSTIC_MAX_EVENTS, DIAGNOSTIC_TIMEOUT_MS,
+  runModeSchema, diagnosticNodeIdSchema, diagnosticMetadataSchema, diagnosticEventSchema,
+} from "./diagnostic";
+export type { RunMode, DiagnosticMetadata, DiagnosticEvent } from "./diagnostic";
+
 // K6 translator
 export {
   translateToK6, type K6TranslatorOptions, type K6TranslatorResult, type K6TranslationError,

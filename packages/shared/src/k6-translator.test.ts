@@ -71,7 +71,7 @@ describe("translateToK6", () => {
     const result = translateToK6(graph);
 
     expect(result.script).toContain("// node-1");
-    expect(result.script).toContain("http.get('https://api.example.com/users'");
+    expect(result.script).toContain('http.get("https://api.example.com/users"');
   });
 
   it("generates POST request with body", () => {
@@ -132,8 +132,8 @@ describe("translateToK6", () => {
     const result = translateToK6(graph);
 
     expect(result.script).toContain("// auth-1");
-    expect(result.script).toContain("http.post('https://api.example.com/login'");
-    expect(result.script).toContain(".json('data.accessToken')");
+    expect(result.script).toContain('http.post("https://api.example.com/login"');
+    expect(result.script).toContain('.json("data.accessToken")');
   });
 
   it("generates response-validation node with status check", () => {
@@ -171,7 +171,7 @@ describe("translateToK6", () => {
     expect(result.script).toContain("import { check } from 'k6';");
     expect(result.script).toContain("// check-1");
     expect(result.script).toContain("check(req_1_res, {");
-    expect(result.script).toContain("'is-200': (r) => r.status === 200,");
+    expect(result.script).toContain('["is-200"]: (r) => r.status === 200,');
   });
 
   it("generates user-pool node", () => {
@@ -392,7 +392,7 @@ describe("translateToK6 variables", () => {
 
   it("leaves placeholders untouched when no variables option is supplied", () => {
     const result = translateToK6(graphOf(httpNode({ method: "GET", url: lit("{{baseUrl}}/x") })));
-    expect(result.script).toContain("http.get('{{baseUrl}}/x'");
+    expect(result.script).toContain('http.get("{{baseUrl}}/x"');
     expect(result.errors).toEqual([]);
     expect(result.requiredEnv).toEqual([]);
   });

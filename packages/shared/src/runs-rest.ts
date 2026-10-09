@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { versionEnvelopeSchema } from "./version";
+import { diagnosticMetadataSchema, runModeSchema } from "./diagnostic";
 
 const positiveSafeInteger = z.number().int().positive();
 const nonnegativeSafeInteger = z.number().int().nonnegative();
@@ -34,16 +35,23 @@ export const runEnvSchema = z.record(
     ctx.addIssue({ code: "custom", message: `Env exceeds ${RUN_ENV_MAX_TOTAL_BYTES} bytes in total` });
   }
 });
-// Declaration only: opaque already compiled script, never a graph or parsed k6 options; REST vus/durationMs always override script options; attachments are opaque ids.
+// Opaque compiled script. Diagnostic metadata contains IDs/order only, never graph parameters.
+// Runtime must enforce diagnostic options independently; load retains REST overrides.
 export const runStartConfigSchema = z.strictObject({
   version: runEnvelope,
   script: nonblankString,
+  mode: runModeSchema.default("load"),
+  diagnostic: diagnosticMetadataSchema.optional(),
   vus: positiveSafeInteger,
   durationMs: positiveSafeInteger,
   cpuMillis: positiveSafeInteger,
   memoryMiB: positiveSafeInteger,
   attachments: z.array(z.strictObject({ id: nonblankString })).optional(),
   env: runEnvSchema.optional(),
+}).superRefine((config, ctx) => {
+  if ((config.mode === "diagnostic") !== (config.diagnostic !== undefined)) {
+    ctx.addIssue({ code: "custom", path: ["diagnostic"], message: "Diagnostic mode requires metadata; load forbids it" });
+  }
 });
 export const runReferenceSchema = z.strictObject({ version: runEnvelope, runId: nonblankString });
 export const runStateSchema = z.strictObject({
@@ -111,7 +119,7 @@ export function deriveRunStartOutcome(
 export type RunEnv = z.infer<typeof runEnvSchema>;
 export type RunStatus = z.infer<typeof runStatusSchema>;
 export type RunTerminalStatus = z.infer<typeof runTerminalStatusSchema>;
-export type RunStartConfig = z.infer<typeof runStartConfigSchema>;
+export type RunStartConfig = z.input<typeof runStartConfigSchema>;
 export type RunReference = z.infer<typeof runReferenceSchema>;
 export type RunState = z.infer<typeof runStateSchema>;
 export type RunTotals = z.infer<typeof runTotalsSchema>;
