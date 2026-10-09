@@ -194,3 +194,45 @@ describe("typed ready graph composition", () => {
     expect(parseReady({ ...draft([mismatched]), load }).success).toBe(false);
   });
 });
+
+describe("composition editor metadata", () => {
+  const meta = { label: "Login API", position: { x: 120, y: 80 } };
+
+  it("accepts and preserves metadata on draft and ready nodes", () => {
+    const labelled = { ...authNode, ...meta };
+    expect(graphDraftCompositionSchema.parse(draft([labelled]))).toEqual(draft([labelled]));
+    const ready = { ...readyChain, nodes: [labelled, requestNode, checksNode] };
+    expect(graphReadyCompositionSchema.parse(ready)).toEqual(ready);
+  });
+
+  it("still parses old graphs without metadata", () => {
+    expect(graphReadyCompositionSchema.parse(readyChain)).toEqual(readyChain);
+  });
+
+  it("rejects malformed metadata through the composition", () => {
+    expect(parseDraft(draft([{ ...authNode, label: "" }])).success).toBe(false);
+    expect(parseDraft(draft([{ ...authNode, disabled: 1 }])).success).toBe(false);
+  });
+
+  it("keeps disabled nodes in a ready graph when bypassed safely", () => {
+    const extra = node("extra", "http-request", [], httpParameters());
+    const ready = { ...readyChain,
+      nodes: [authNode, requestNode, { ...extra, disabled: true }, checksNode],
+      connections: [{ source: "auth", target: "request" }, { source: "request", target: "extra" },
+        { source: "extra", target: "checks" }] };
+    const parsed = graphReadyCompositionSchema.parse(ready);
+    expect(parsed.nodes).toHaveLength(4);
+    expect(parsed.nodes[2]).toMatchObject({ id: "extra", disabled: true });
+  });
+
+  it("saves a draft with an enabled consumer of a disabled producer but refuses it as ready", () => {
+    const nodes = [{ ...authNode, disabled: true }, requestNode, checksNode];
+    expect(parseDraft(draft(nodes, connections)).success).toBe(true);
+    const result = parseReady({ ...readyChain, nodes });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((issue) => issue.message)).toContain("Reference producer is disabled");
+      expect(result.error.issues[0]?.path).toEqual(["nodes", 1, "references", 0, "producerNodeId"]);
+    }
+  });
+});

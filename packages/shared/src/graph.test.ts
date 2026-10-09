@@ -130,3 +130,67 @@ describe("graph structure and execution topology", () => {
     expectTypeOf<GraphExecutionTopology>().toEqualTypeOf<GraphDraftStructure>();
   });
 });
+
+describe("editor metadata and disabled nodes", () => {
+  const withMeta = (id: string, meta: Record<string, unknown>) => ({ ...node(id), ...meta });
+
+  it("accepts old graphs without metadata unchanged", () => {
+    expect(graphDraftStructureSchema.parse(allKinds)).toEqual(allKinds);
+    expect(graphExecutionTopologySchema.safeParse(allKinds).success).toBe(true);
+  });
+
+  it("accepts optional label, position and disabled metadata", () => {
+    const input = graph([
+      withMeta("a", { label: "Login", position: { x: 10.5, y: -20 }, disabled: false }),
+      withMeta("b", { disabled: true }),
+    ]);
+    expect(graphDraftStructureSchema.parse(input)).toEqual(input);
+  });
+
+  it.each([
+    ["blank label", { label: "  " }],
+    ["numeric label", { label: 3 }],
+    ["overlong label", { label: "x".repeat(121) }],
+    ["infinite position", { position: { x: Infinity, y: 0 } }],
+    ["partial position", { position: { x: 1 } }],
+    ["extra position field", { position: { x: 1, y: 2, z: 3 } }],
+    ["string disabled", { disabled: "yes" }],
+  ])("rejects malformed metadata: %s", (_name, meta) => {
+    expect(graphDraftStructureSchema.safeParse(graph([withMeta("a", meta)], [])).success).toBe(false);
+  });
+
+  it("bypasses a disabled middle node in execution topology", () => {
+    const input = graph([node("a"), withMeta("b", { disabled: true }), node("c")],
+      [edge("a", "b"), edge("b", "c")]);
+    expect(graphExecutionTopologySchema.safeParse(input).success).toBe(true);
+  });
+
+  it("keeps a disabled dependency as draft but rejects it in execution topology", () => {
+    const input = graph([withMeta("a", { disabled: true }),
+      { ...node("b"), references: [reference("a")] }]);
+    expect(graphDraftStructureSchema.safeParse(input).success).toBe(true);
+    const result = graphExecutionTopologySchema.safeParse(input);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual([expect.objectContaining({
+        path: ["nodes", 1, "references", 0, "producerNodeId"],
+        message: "Reference producer is disabled",
+      })]);
+    }
+  });
+
+  it("allows a disabled consumer of a disabled producer", () => {
+    const input = graph([node("a"), withMeta("b", { disabled: true }),
+      { ...withMeta("c", { disabled: true }), references: [reference("b")] }],
+    [edge("a", "b"), edge("b", "c")]);
+    expect(graphExecutionTopologySchema.safeParse(input).success).toBe(true);
+  });
+
+  it("rejects execution topology when every node is disabled", () => {
+    const input = graph([withMeta("a", { disabled: true })], []);
+    expect(graphDraftStructureSchema.safeParse(input).success).toBe(true);
+    const result = graphExecutionTopologySchema.safeParse(input);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues[0]?.message).toBe("Expected at least one enabled node");
+  });
+});

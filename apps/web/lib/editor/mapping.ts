@@ -14,6 +14,8 @@ export type NodeKind = "authentication" | "http-request" | "response-validation"
 export interface K6NodeData {
   kind: NodeKind;
   label: string;
+  /** Editor-only: disabled nodes stay in the graph but are skipped at run time. */
+  disabled?: boolean;
   references: { producerNodeId: string; output: string }[];
   parameters?: unknown;
   [key: string]: unknown; // Required for @xyflow/react Node<T> constraint
@@ -41,7 +43,9 @@ const INITIAL_Y = 100;
 
 /**
  * Convert a GraphDraftComposition to React Flow nodes and edges.
- * Positions are computed in a simple left-to-right layout based on connection order.
+ * Stored positions win; nodes without one (graphs saved before positions were
+ * persisted) use a simple left-to-right layout based on connection order.
+ * Missing labels default to the kind label and missing disabled to enabled.
  */
 export function toReactFlowGraph(composition: GraphDraftComposition): {
   nodes: K6Node[];
@@ -85,10 +89,13 @@ export function toReactFlowGraph(composition: GraphDraftComposition): {
   const nodes: K6Node[] = composition.nodes.map((node) => ({
     id: node.id,
     type: "k6Node",
-    position: positions.get(node.id) ?? { x: INITIAL_X, y: INITIAL_Y },
+    position: node.position
+      ? { x: node.position.x, y: node.position.y }
+      : positions.get(node.id) ?? { x: INITIAL_X, y: INITIAL_Y },
     data: {
       kind: node.kind,
-      label: NODE_LABELS[node.kind],
+      label: node.label ?? NODE_LABELS[node.kind],
+      disabled: node.disabled === true,
       references: node.references,
       parameters: node.parameters,
     },
@@ -118,15 +125,19 @@ export function fromReactFlowGraph(
 ): GraphDraftComposition {
   // Cast nodes to the expected discriminated union type.
   // The caller should validate with graphDraftCompositionSchema after conversion.
+  // Editor metadata is saved minimally: labels only when customized (trimmed,
+  // nonblank), disabled only when true, and the current position always.
   const mappedNodes = nodes.map((node) => {
-    const base = {
+    const label = typeof node.data.label === "string" ? node.data.label.trim() : "";
+    return {
       id: node.id,
       kind: node.data.kind,
       references: node.data.references,
+      ...(label !== "" && label !== NODE_LABELS[node.data.kind] && { label }),
+      position: { x: node.position.x, y: node.position.y },
+      ...(node.data.disabled === true && { disabled: true }),
+      ...(node.data.parameters !== undefined && { parameters: node.data.parameters }),
     };
-    return node.data.parameters !== undefined
-      ? { ...base, parameters: node.data.parameters }
-      : base;
   }) as GraphDraftComposition["nodes"];
 
   return {
@@ -172,6 +183,7 @@ export function createNode(kind: NodeKind, position: { x: number; y: number }): 
     data: {
       kind,
       label: NODE_LABELS[kind],
+      disabled: false,
       references: [],
       parameters: undefined,
     },

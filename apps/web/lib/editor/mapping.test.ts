@@ -165,6 +165,7 @@ describe("fromReactFlowGraph", () => {
       id: "node-1",
       kind: "http-request",
       references: [],
+      position: { x: 100, y: 100 },
       parameters: { method: "POST", url: { kind: "literal", value: "https://api.test" } },
     });
   });
@@ -329,5 +330,63 @@ describe("NODE_KINDS", () => {
   it("is readonly", () => {
     // TypeScript should prevent modification, but we can check length
     expect(NODE_KINDS.length).toBe(4);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Editor metadata (label, position, disabled)
+// -----------------------------------------------------------------------------
+
+describe("editor metadata", () => {
+  const metadataGraph: GraphDraftComposition = {
+    version: 1,
+    nodes: [
+      { id: "auth", kind: "authentication", references: [], label: "Login",
+        position: { x: 12, y: 34 } },
+      { id: "http", kind: "http-request", references: [], disabled: true,
+        position: { x: 400, y: -50 } },
+    ],
+    connections: [{ source: "auth", target: "http" }],
+  };
+
+  it("defaults labels, computed layout and enabled state for old graphs", () => {
+    const { nodes } = toReactFlowGraph(linearChainGraph);
+    expect(nodes.map((n) => n.data.label)).toEqual(["Authentication", "HTTP Request", "Response Validation"]);
+    expect(nodes.map((n) => n.data.disabled)).toEqual([false, false, false]);
+    expect(nodes[0].position).toEqual({ x: 100, y: 100 });
+  });
+
+  it("loads stored labels, positions and disabled flags", () => {
+    const { nodes } = toReactFlowGraph(metadataGraph);
+    expect(nodes[0].data.label).toBe("Login");
+    expect(nodes[0].position).toEqual({ x: 12, y: 34 });
+    expect(nodes[0].data.disabled).toBe(false);
+    expect(nodes[1].data.label).toBe("HTTP Request");
+    expect(nodes[1].position).toEqual({ x: 400, y: -50 });
+    expect(nodes[1].data.disabled).toBe(true);
+  });
+
+  it("round-trips metadata, omitting default labels and enabled flags", () => {
+    const { nodes, edges } = toReactFlowGraph(metadataGraph);
+    expect(fromReactFlowGraph(nodes, edges)).toEqual(metadataGraph);
+  });
+
+  it("persists computed positions for old graphs so the layout is stable", () => {
+    const { nodes, edges } = toReactFlowGraph(linearChainGraph);
+    const saved = fromReactFlowGraph(nodes, edges);
+    expect(saved.nodes.map((n) => n.position)).toEqual(nodes.map((n) => n.position));
+    expect(saved.nodes.every((n) => !("label" in n) && !("disabled" in n))).toBe(true);
+  });
+
+  it("omits blank labels and trims custom labels on save", () => {
+    const [blank] = toReactFlowGraph(singleNodeGraph).nodes;
+    blank.data.label = "   ";
+    expect("label" in fromReactFlowGraph([blank], []).nodes[0]).toBe(false);
+    blank.data.label = "  Users API  ";
+    expect(fromReactFlowGraph([blank], []).nodes[0].label).toBe("Users API");
+  });
+
+  it("creates new nodes enabled", () => {
+    expect(createNode("user-pool", { x: 0, y: 0 }).data.disabled).toBe(false);
   });
 });

@@ -15,25 +15,33 @@ import type {
 const structural = graphDraftStructureSchema.shape;
 const nodeShape = structural.nodes.element.shape;
 
+// Editor metadata (label, position, disabled) is optional on every kind.
+const nodeBase = {
+  id: nodeShape.id, references: nodeShape.references,
+  label: nodeShape.label, position: nodeShape.position, disabled: nodeShape.disabled,
+};
+
 const draftNodeSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ id: nodeShape.id, kind: z.literal("authentication"),
-    references: nodeShape.references, parameters: authParametersSchema.optional() }),
-  z.strictObject({ id: nodeShape.id, kind: z.literal("http-request"),
-    references: nodeShape.references, parameters: httpParametersSchema.optional() }),
-  z.strictObject({ id: nodeShape.id, kind: z.literal("response-validation"),
-    references: nodeShape.references, parameters: checkParametersSchema.optional() }),
-  z.strictObject({ id: nodeShape.id, kind: z.literal("user-pool"),
-    references: nodeShape.references, parameters: csvPoolParametersSchema.optional() }),
+  z.strictObject({ ...nodeBase, kind: z.literal("authentication"),
+    parameters: authParametersSchema.optional() }),
+  z.strictObject({ ...nodeBase, kind: z.literal("http-request"),
+    parameters: httpParametersSchema.optional() }),
+  z.strictObject({ ...nodeBase, kind: z.literal("response-validation"),
+    parameters: checkParametersSchema.optional() }),
+  z.strictObject({ ...nodeBase, kind: z.literal("user-pool"),
+    parameters: csvPoolParametersSchema.optional() }),
 ]);
+// Disabled nodes still require valid parameters: they stay in the saved
+// graph and become executable again when re-enabled.
 const readyNodeSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ id: nodeShape.id, kind: z.literal("authentication"),
-    references: nodeShape.references, parameters: authParametersSchema }),
-  z.strictObject({ id: nodeShape.id, kind: z.literal("http-request"),
-    references: nodeShape.references, parameters: httpParametersSchema }),
-  z.strictObject({ id: nodeShape.id, kind: z.literal("response-validation"),
-    references: nodeShape.references, parameters: checkParametersSchema }),
-  z.strictObject({ id: nodeShape.id, kind: z.literal("user-pool"),
-    references: nodeShape.references, parameters: csvPoolParametersSchema }),
+  z.strictObject({ ...nodeBase, kind: z.literal("authentication"),
+    parameters: authParametersSchema }),
+  z.strictObject({ ...nodeBase, kind: z.literal("http-request"),
+    parameters: httpParametersSchema }),
+  z.strictObject({ ...nodeBase, kind: z.literal("response-validation"),
+    parameters: checkParametersSchema }),
+  z.strictObject({ ...nodeBase, kind: z.literal("user-pool"),
+    parameters: csvPoolParametersSchema }),
 ]);
 type TypedDraftNode = z.infer<typeof draftNodeSchema>;
 
@@ -164,7 +172,8 @@ function validateComposition(graph: DraftGraph, ctx: z.RefinementCtx): void {
 function forwardStructural(graph: DraftGraph, schema: z.ZodTypeAny, ctx: z.RefinementCtx): boolean {
   const result = schema.safeParse({
     version: graph.version,
-    nodes: graph.nodes.map(({ id, kind, references }) => ({ id, kind, references })),
+    nodes: graph.nodes.map(({ id, kind, references, disabled }) =>
+      (disabled === undefined ? { id, kind, references } : { id, kind, references, disabled })),
     connections: graph.connections,
   });
   if (result.success) return true;

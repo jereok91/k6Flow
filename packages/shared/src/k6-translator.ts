@@ -6,6 +6,8 @@
  */
 
 import type { GraphDraftComposition } from "./graph-composition";
+import type { HttpParameters } from "./http-parameters";
+import type { JsonParameterValue, StringParameterValue } from "./parameter-values";
 import {
   findSecretEnvCollisions, renderTemplateExpression, secretEnvName, type ResolvedVariables,
 } from "./variables";
@@ -29,8 +31,10 @@ export interface K6TranslatorOptions {
 
 /** A translation problem that should block running the script. */
 export interface K6TranslationError {
-  code: "unknown-variable" | "missing-value" | "secret-env-collision";
+  code: "unknown-variable" | "missing-value" | "secret-env-collision" | "disabled-dependency" | "no-enabled-nodes";
+  /** Empty for graph-level errors. */
   nodeId: string;
+  /** Variable name; disabled producer id for "disabled-dependency"; empty for graph-level errors. */
   variable: string;
   message: string;
 }
@@ -145,13 +149,36 @@ export function translateToK6(
     warnings.push("Graph contains cycles; some nodes may not execute");
   }
 
+  // Disabled nodes are bypassed: dropping them from the sorted order keeps the
+  // relative order of the remaining nodes, which is the linear bypass.
+  const disabledIds = new Set(graph.nodes.filter((n) => n.disabled === true).map((n) => n.id));
+  const enabledNodes = graph.nodes.filter((n) => !disabledIds.has(n.id));
+  if (graph.nodes.length > 0 && enabledNodes.length === 0) {
+    addError({
+      code: "no-enabled-nodes", nodeId: "", variable: "",
+      message: "Graph has no enabled nodes; enable at least one node before running",
+    });
+  }
+  const executionIds = sortedIds.filter((id) => !disabledIds.has(id));
+  const blockDisabledDependency = (nodeId: string, producerNodeId: string) => addError({
+    code: "disabled-dependency", nodeId, variable: producerNodeId,
+    message: `Node ${nodeId} depends on disabled node ${producerNodeId}`,
+  });
+  for (const id of executionIds) {
+    const node = nodeMap.get(id);
+    if (!node) continue;
+    for (const producerNodeId of referencedProducers(node)) {
+      if (disabledIds.has(producerNodeId)) blockDisabledDependency(id, producerNodeId);
+    }
+  }
+
   // Generate imports
   const imports: string[] = ["import http from 'k6/http';"];
-  const hasChecks = graph.nodes.some((n) => n.kind === "response-validation");
+  const hasChecks = enabledNodes.some((n) => n.kind === "response-validation");
   if (hasChecks) {
     imports.push("import { check } from 'k6';");
   }
-  const hasUserPool = graph.nodes.some((n) => n.kind === "user-pool");
+  const hasUserPool = enabledNodes.some((n) => n.kind === "user-pool");
   if (hasUserPool) {
     imports.push("import { SharedArray } from 'k6/data';");
     imports.push("import papaparse from 'https://jslib.k6.io/papaparse/5.1.1/index.js';");
@@ -169,7 +196,7 @@ export function translateToK6(
 
   // Generate setup for user pools
   const setupLines: string[] = [];
-  for (const node of graph.nodes) {
+  for (const node of enabledNodes) {
     if (node.kind === "user-pool" && node.parameters) {
       const params = node.parameters;
       const mode = params.mode ?? "csv";
@@ -207,7 +234,7 @@ export function translateToK6(
   const bodyLines: string[] = [];
   const varMap = new Map<string, string>(); // node.id -> variable name
 
-  for (const id of sortedIds) {
+  for (const id of executionIds) {
     const node = nodeMap.get(id);
     if (!node) continue;
 
@@ -265,11 +292,21 @@ export function translateToK6(
             // Look up variable in varMap (from User Pool outputs)
             let value = `"{{${safeVariable}}}"`; // fallback placeholder - sanitized
             // Try to find the variable from connected User Pool
+            let resolved = false;
             for (const [key, mappedVar] of varMap.entries()) {
               if (key.endsWith(`.${field.variable}`)) {
                 // mappedVar is already safe (uses bracket notation with JSON.stringify)
                 value = mappedVar;
+                resolved = true;
                 break;
+              }
+            }
+            // An implicit dependency on a disabled pool must block, not fall back.
+            if (!resolved) {
+              for (const pool of graph.nodes) {
+                if (disabledIds.has(pool.id) && userPoolOutputNames(pool).includes(field.variable)) {
+                  blockDisabledDependency(id, pool.id);
+                }
               }
             }
             // Use bracket notation with quoted key for safety
@@ -461,6 +498,36 @@ export function translateToK6(
   )].sort();
 
   return { script, warnings, requiresFiles, errors, requiredEnv };
+}
+
+/** Producer node ids a node consumes: declared references plus embedded parameter references. */
+function referencedProducers(node: GraphNode): string[] {
+  const ids = new Set(node.references.map((reference) => reference.producerNodeId));
+  const add = (value: StringParameterValue | JsonParameterValue | undefined) => {
+    if (value?.kind === "reference") ids.add(value.reference.producerNodeId);
+  };
+  const addRequest = (request: HttpParameters) => {
+    add(request.url);
+    for (const entry of request.headers ?? []) add(entry.value);
+    for (const entry of request.query ?? []) add(entry.value);
+    if (request.body && "value" in request.body) add(request.body.value);
+  };
+  if (node.kind === "http-request" && node.parameters) addRequest(node.parameters);
+  if (node.kind === "authentication" && node.parameters?.method.kind === "http") {
+    addRequest(node.parameters.method.request);
+  }
+  if (node.kind === "response-validation" && node.parameters?.response) {
+    ids.add(node.parameters.response.producerNodeId);
+  }
+  return [...ids].sort();
+}
+
+/** Output names a user pool exposes, mirroring the body generation below. */
+function userPoolOutputNames(node: GraphNode): string[] {
+  if (node.kind !== "user-pool" || !node.parameters) return [];
+  const params = node.parameters;
+  if (params.outputs && params.outputs.length > 0) return params.outputs.map((o) => o.name);
+  return params.manualUsers?.[0] ? Object.keys(params.manualUsers[0]) : [];
 }
 
 /** Sanitize a node ID to a valid JS variable name */

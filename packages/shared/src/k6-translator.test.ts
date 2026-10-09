@@ -22,6 +22,7 @@ describe("translateToK6", () => {
     expect(result.script).toContain("duration: '30s',");
     expect(result.script).toContain("export default function () {");
     expect(result.warnings).toHaveLength(0);
+    expect(result.errors).toEqual([]);
   });
 
   it("respects custom options", () => {
@@ -542,5 +543,103 @@ describe("translateToK6 variables", () => {
       expect.objectContaining({ code: "secret-env-collision", variable: "api-key", nodeId: "req-1" }),
     ]);
     expect(result.errors[0].message).toContain("K6FLOW_VAR_API_KEY");
+  });
+});
+
+describe("translateToK6 disabled nodes", () => {
+  const lit = (value: string) => ({ kind: "literal" as const, value });
+  const request = (id: string, url: string, extra: Record<string, unknown> = {}) => ({
+    id, kind: "http-request" as const, references: [],
+    parameters: { method: "GET" as const, url: lit(url) }, ...extra,
+  }) as GraphDraftComposition["nodes"][number];
+  const chain = (...nodes: GraphDraftComposition["nodes"]): GraphDraftComposition => ({
+    version: 1, nodes,
+    connections: nodes.slice(1).map((node, index) => ({ source: nodes[index]!.id, target: node.id })),
+  });
+
+  it("produces identical output for nodes without metadata and explicit enabled metadata", () => {
+    const plain = translateToK6(chain(request("a", "https://a.test")));
+    const labelled = translateToK6(chain(request("a", "https://a.test",
+      { label: "Home", position: { x: 1, y: 2 }, disabled: false })));
+    expect(labelled).toEqual(plain);
+  });
+
+  it("omits a disabled middle node and keeps linear order of the rest", () => {
+    const result = translateToK6(chain(request("a", "https://a.test"),
+      request("b", "https://b.test", { disabled: true }), request("c", "https://c.test")));
+    expect(result.errors).toEqual([]);
+    expect(result.script).not.toContain("https://b.test");
+    expect(result.script).not.toContain("// b");
+    expect(result.script.indexOf("https://a.test")).toBeLessThan(result.script.indexOf("https://c.test"));
+    expect(result.script).toBe(translateToK6(chain(request("a", "https://a.test"),
+      request("c", "https://c.test"))).script);
+  });
+
+  it("omits disabled checks and user pools from imports, setup and files", () => {
+    const pool = { id: "pool", kind: "user-pool", references: [], disabled: true,
+      parameters: { version: 1, attachment: { id: "users" }, allocation: "csv-order-distinct-row-per-vu",
+        onInsufficientCapacity: "reject-before-execution",
+        outputs: [{ header: "u", name: "u", expectedType: "string", required: true }] } };
+    const checks = { id: "chk", kind: "response-validation", disabled: true,
+      references: [{ producerNodeId: "a", output: "response" }],
+      parameters: { version: 1, response: { producerNodeId: "a", output: "response" },
+        checks: [{ name: "ok", kind: "status", operator: "eq", expected: 200 }],
+        onCheckFailure: "record-failure-and-continue" } };
+    const result = translateToK6(chain(pool as unknown as GraphDraftComposition["nodes"][number],
+      request("a", "https://a.test"), checks as unknown as GraphDraftComposition["nodes"][number]));
+    expect(result.requiresFiles).toEqual([]);
+    expect(result.script).not.toContain("SharedArray");
+    expect(result.script).not.toContain("check(");
+    expect(result.script).not.toContain("from 'k6';");
+    expect(result.errors).toEqual([]);
+  });
+
+  it("blocks an enabled node that references a disabled producer", () => {
+    const checks = { id: "chk", kind: "response-validation",
+      references: [{ producerNodeId: "a", output: "response" }],
+      parameters: { version: 1, response: { producerNodeId: "a", output: "response" },
+        checks: [{ name: "ok", kind: "status", operator: "eq", expected: 200 }],
+        onCheckFailure: "record-failure-and-continue" } };
+    const result = translateToK6(chain(request("a", "https://a.test", { disabled: true }),
+      checks as unknown as GraphDraftComposition["nodes"][number]));
+    expect(result.errors).toEqual([{
+      code: "disabled-dependency", nodeId: "chk", variable: "a",
+      message: "Node chk depends on disabled node a",
+    }]);
+  });
+
+  it("blocks an authentication body template fed only by a disabled user pool", () => {
+    const pool = { id: "pool", kind: "user-pool", references: [], disabled: true,
+      parameters: { version: 1, mode: "manual", manualUsers: [{ username: "u" }],
+        allocation: "csv-order-distinct-row-per-vu", onInsufficientCapacity: "reject-before-execution",
+        outputs: [] } };
+    const auth = { id: "auth", kind: "authentication", references: [],
+      parameters: { method: { kind: "http", request: { method: "POST", url: lit("https://a.test/login") } },
+        bodyTemplate: [{ key: "user", variable: "username" }], outputs: [],
+        onOutputFailure: "stop-current-vu-iteration" } };
+    const result = translateToK6(chain(pool as unknown as GraphDraftComposition["nodes"][number],
+      auth as unknown as GraphDraftComposition["nodes"][number]));
+    expect(result.errors).toEqual([expect.objectContaining({
+      code: "disabled-dependency", nodeId: "auth", variable: "pool" })]);
+  });
+
+  it.each([1, 2])("blocks a graph with %i disabled nodes and no enabled nodes", (count) => {
+    const result = translateToK6(chain(...Array.from({ length: count }, (_, index) =>
+      request(`disabled-${index}`, "https://disabled.test", { disabled: true }))));
+    expect(result.errors).toEqual([{
+      code: "no-enabled-nodes", nodeId: "", variable: "",
+      message: "Graph has no enabled nodes; enable at least one node before running",
+    }]);
+    expect(result.script).not.toContain("https://disabled.test");
+  });
+
+  it("does not report dependencies of disabled consumers with an enabled independent node", () => {
+    const graph = chain(request("a", "https://a.test", { disabled: true }),
+      request("b", "https://b.test", { disabled: true,
+        references: [{ producerNodeId: "a", output: "response" }] }));
+    graph.nodes.push(request("independent", "https://independent.test"));
+    const result = translateToK6(graph);
+    expect(result.errors).toEqual([]);
+    expect(result.script).toContain("https://independent.test");
   });
 });

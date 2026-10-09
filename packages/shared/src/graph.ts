@@ -5,12 +5,23 @@ const identifier = z.string().refine((value) => value.trim().length > 0, {
   message: "Expected a nonblank identifier",
 });
 
+// Editor-only metadata. Optional so graphs saved before it existed keep
+// parsing unchanged; absent label/position/disabled mean default label,
+// computed layout and enabled.
+const MAX_NODE_LABEL_LENGTH = 120;
+const nodeLabelSchema = z.string().max(MAX_NODE_LABEL_LENGTH)
+  .refine((value) => value.trim().length > 0, { message: "Expected a nonblank label" });
+const nodePositionSchema = z.strictObject({ x: z.number().finite(), y: z.number().finite() });
+
 const graphStructureShape = z.strictObject({
   version: z.literal(CONTRACT_VERSION),
   nodes: z.array(z.strictObject({
     id: identifier,
     kind: z.enum(["authentication", "http-request", "response-validation", "user-pool"]),
     references: z.array(z.strictObject({ producerNodeId: identifier, output: identifier })),
+    label: nodeLabelSchema.optional(),
+    position: nodePositionSchema.optional(),
+    disabled: z.boolean().optional(),
   })),
   connections: z.array(z.strictObject({ source: identifier, target: identifier })),
 });
@@ -94,8 +105,22 @@ export const graphExecutionTopologySchema = graphStructureShape.superRefine((gra
     topologyIssue();
     return;
   }
+  // Disabled nodes stay in the saved chain; execution bypasses them, so the
+  // effective chain is the traversal order minus disabled nodes.
+  const disabled = new Set(graph.nodes.filter((node) => node.disabled === true).map((node) => node.id));
+  if (disabled.size === graph.nodes.length) {
+    ctx.addIssue({ code: "custom", path: ["nodes"], message: "Expected at least one enabled node" });
+    return;
+  }
   graph.nodes.forEach((node, index) => {
     node.references.forEach((reference, referenceIndex) => {
+      if (node.disabled !== true && disabled.has(reference.producerNodeId)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["nodes", index, "references", referenceIndex, "producerNodeId"],
+          message: "Reference producer is disabled",
+        });
+      }
       // Structural validation and complete traversal guarantee both ranks exist.
       const producerRank = order.get(reference.producerNodeId)!;
       const consumerRank = order.get(node.id)!;
