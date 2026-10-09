@@ -8,6 +8,7 @@
 import { eq, desc } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { runOwnership, type RunOwnership } from "../db/schema";
+import { errorRateToStored } from "./run-history-metrics";
 
 export interface RunHistoryData {
   scenarioId?: string;
@@ -63,7 +64,7 @@ export interface RunUpdateData {
   status: "running" | "completed" | "failed" | "stopped";
   iterations?: number;
   avgDurationMs?: number;
-  errorRate?: number; // percentage, e.g., 5.5
+  errorRate?: number; // 0-1 fraction, e.g., 0.055 (stored as basis points)
 }
 
 export async function updateRunStatus(
@@ -76,8 +77,11 @@ export async function updateRunStatus(
     .set({
       status: data.status,
       iterations: data.iterations,
-      avgDurationMs: data.avgDurationMs ? Math.round(data.avgDurationMs) : undefined,
-      errorRate: data.errorRate !== undefined ? Math.round(data.errorRate * 100) : undefined,
+      avgDurationMs:
+        data.avgDurationMs !== undefined && Number.isFinite(data.avgDurationMs)
+          ? Math.round(data.avgDurationMs)
+          : undefined,
+      errorRate: data.errorRate !== undefined ? errorRateToStored(data.errorRate) : undefined,
       completedAt: data.status !== "running" ? new Date() : undefined,
     })
     .where(eq(runOwnership.runId, runId));

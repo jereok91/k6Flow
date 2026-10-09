@@ -5,6 +5,7 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "../../../lib/auth/require-user";
 import { getUserRunHistory } from "../../../lib/editor/run-ownership";
+import { storedToErrorRate } from "../../../lib/editor/run-history-metrics";
 
 export async function GET(request: NextRequest) {
   const user = await requireUser(request.headers.get("cookie"));
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
       durationMs: run.durationMs,
       iterations: run.iterations || 0,
       avgDurationMs: run.avgDurationMs,
-      errorRate: run.errorRate !== null ? run.errorRate / 100 : undefined, // Convert back to percentage
+      errorRate: storedToErrorRate(run.errorRate), // basis points -> 0-1 fraction
       startedAt: run.createdAt.toISOString(),
       completedAt: run.completedAt?.toISOString(),
     }));
