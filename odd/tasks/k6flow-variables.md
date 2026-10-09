@@ -17,7 +17,7 @@ Let users define variables (baseUrl, token, ...) and reference them as `{{name}}
 - [x] T1 Shared: `{{var}}` parser/validator + translator interpolation (literal vs `__ENV`), tests — `5b49dd5`
 - [x] T2 DB + API: environments, environment variables, scenario variables (secret masking, export/version exclusion), tests — `f60c7aa`
 - [x] T3 Run integration: environment selection, merge rules, secret env injection through web proxy + orchestrator run env (validated), tests — `b418cda`
-- [ ] T4 Editor UI: environments manager, scenario variables panel, environment selector by Ejecutar, `{{var}}` highlight/autocomplete + unresolved warnings
+- [x] T4 Editor UI: environments manager, scenario variables panel, environment selector by Ejecutar, `{{var}}` highlight/autocomplete + unresolved warnings — `799c215`
 
 ## Evidence
 - T1: RED (module missing + 14 failing) -> GREEN shared 19 files / 788 tests; shared + web tsc clean. Emitted: `http.get("https://api.example.com" + "/auth/login"` and `'Authorization': "Bearer " + __ENV["K6FLOW_VAR_TOKEN"]`.
@@ -27,3 +27,6 @@ Let users define variables (baseUrl, token, ...) and reference them as `{{name}}
 - T3 notes: call resolveVariablesForRun(actor, scenarioId, environmentId|null) server-side; run findSecretEnvCollisions on the merged set; version snapshots hold only the graph (no variables); variables returned sorted by name.
 - T3: RED (Go unknown field env, LaunchWithEnv undefined, shared strict env, missing web modules) -> GREEN; go test ./... ok + vet; vitest apps/web+shared 47 files / 1189 tests; tsc clean.
 - T3 behavior notes: literal `{{x}}` with no matching variable now fails translation (unknown-variable); runs with scenarioId need DB for ownership; preflight proxy untouched.
+- T3 review review-5236b05deb80690a (HIGH) approved + acknowledged; advisories run-env.ts:16-17, handlers.go:76 (NUL in env), handlers.go:190-191.
+- T4: template-highlight RED (missing module) -> GREEN 25 tests; apps/web 29 files / 415 tests; tsc clean; no lint configured; UI not browser-verified yet.
+- Known follow-ups: JSON body hint flags unquoted placeholders; selected environment stored per browser (not per user).
