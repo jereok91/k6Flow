@@ -19,7 +19,7 @@
 - [x] T4 Orchestrator endpoints/failures contract: flat fields, unified key, error tags, error rate (Go tests) — `0d0174d`
 - [x] T5 Executions page: fetch summary only when terminal; refresh endpoints/failures while live — `75c96e9`
 - [x] T6a Browser WebSocket auth via short-lived signed tickets (web mints after requireUser + ownership; orchestrator verifies); remove hardcoded service token from RunExecutionPanel; fix executions page WS URL (/api/ws/runs/{id}) — `0394bac`
-- [ ] T6b Global runs WebSocket (lifecycle events) in orchestrator; Sidebar subscribes instead of polling /active
+- [x] T6b Global runs WebSocket (lifecycle events) in orchestrator; Sidebar subscribes instead of polling /active — `ab93ec2`
 
 ## Evidence
 - T6a: ticket tests Go+web (cross-language vector; RED compile/behavior -> GREEN); go test ./... ok; apps/web 23 files / 288 tests; tsc clean; no service token in client code
@@ -32,3 +32,12 @@
 - Recorder still passes its token in the WS URL (?token=) — same class of leak
 - docs/DECISIONES.md K6F3-02 still describes subprotocol-only auth
 - lib/live-metrics.ts wsProtocols now unused by browser code
+
+## Review state (T6a) — resolved
+- Lineage review-89f8bec695818126 (high tier, 4 lenses + refuter) -> correction_required: candidate-caused severe finding confirmed by refuter.
+- Blocked: correction must be applied on a quiet worktree; T6b worker (mv0jlmyk-9-rimr) is concurrently editing live/server.go and web ws-ticket files, so the intended-untracked selection binding was rejected.
+- Plan: let T6b finish, stash T6b changes (git stash -u), re-query bound STATUS, apply the bounded correction to T6a, commit, finish review, then restore T6b and rebase it on the corrected code.
+- Correction applied: `26535b2` removes the publicly known fallback ticket secret (finding R1-known-ticket-secret, CRITICAL, refuter-confirmed). RED: expected 'k6flow-internal-token' to be '' -> GREEN 11/11; apps/web 289 tests.
+- After the correction commit, STATUS returned terminal stop `captured_artifacts_unverifiable` (likely due to the concurrent T6b worktree churn during collection). Lineage review-89f8bec695818126 needs maintainer inspection or a fresh review START over 29c4545..HEAD.
+- T6b: `ab93ec2`; go test ./... ok, vet clean; apps/web 24 files / 309 tests; tsc clean. main_test.go routing row updated (bare /ws/runs now 401).
+- Remaining gap: a pending run stopped via httpapi before Launch only emits runs.end once Launch sees it.
