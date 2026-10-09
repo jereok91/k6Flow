@@ -60,7 +60,10 @@ export default function EditorPage() {
   const [auth, setAuth] = useState<AuthState>({ loading: true, authenticated: false });
   const [nodes, setNodes] = useState<K6NodeType[]>([]);
   const [edges, setEdges] = useState<K6Edge[]>([]);
-  const [selectedNode, setSelectedNode] = useState<K6NodeType | null>(null);
+  // Store only the selected id and derive the node from `nodes` during render. A copied
+  // node synced in an effect reached the config panel one commit late, so React reverted
+  // the controlled field to the stale value and the caret jumped to the end on each key.
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [scenarioNameInput, setScenarioNameInput] = useState("");
   const [attachments, setAttachments] = useState<AttachmentInfo[]>([]);
@@ -104,15 +107,13 @@ export default function EditorPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Keep selectedNode in sync with nodes
-  useEffect(() => {
-    if (selectedNode) {
-      const updated = nodes.find((n) => n.id === selectedNode.id);
-      if (updated && updated !== selectedNode) {
-        setSelectedNode(updated);
-      }
-    }
-  }, [nodes, selectedNode]);
+  const selectedNode = useMemo(
+    () => (selectedNodeId === null ? null : nodes.find((n) => n.id === selectedNodeId) ?? null),
+    [nodes, selectedNodeId],
+  );
+  const selectNode = useCallback((node: K6NodeType | null) => {
+    setSelectedNodeId(node?.id ?? null);
+  }, []);
 
   // Check orchestrator on mount
   useEffect(() => {
@@ -345,7 +346,7 @@ export default function EditorPage() {
   );
 
   const closeConfigPanel = useCallback(() => {
-    setSelectedNode(null);
+    setSelectedNodeId(null);
     setNodes((current) => current.map((n) => ({ ...n, selected: false })));
   }, []);
 
@@ -383,7 +384,7 @@ export default function EditorPage() {
     scenario.clearScenario();
     setNodes([]);
     setEdges([]);
-    setSelectedNode(null);
+    setSelectedNodeId(null);
     setAttachments([]);
     setImportedCaptures(null);
     setImportAnalysis(null);
@@ -565,6 +566,7 @@ export default function EditorPage() {
       case "http-request":
         return (
           <HttpRequestConfigPanel
+            key={nodeId}
             parameters={parameters as Parameters<typeof HttpRequestConfigPanel>[0]["parameters"]}
             availableOutputs={getAvailableOutputs()}
             variableNames={definedVariableNames}
@@ -575,6 +577,7 @@ export default function EditorPage() {
       case "authentication":
         return (
           <AuthenticationConfigPanel
+            key={nodeId}
             parameters={parameters as Parameters<typeof AuthenticationConfigPanel>[0]["parameters"]}
             variableNames={definedVariableNames}
             onChange={(params) => updateNodeParameters(nodeId, params)}
@@ -584,6 +587,7 @@ export default function EditorPage() {
       case "response-validation":
         return (
           <ResponseValidationConfigPanel
+            key={nodeId}
             parameters={parameters as Parameters<typeof ResponseValidationConfigPanel>[0]["parameters"]}
             availableNodes={getHttpRequestNodes()}
             onChange={(params) => updateNodeParameters(nodeId, params)}
@@ -593,6 +597,7 @@ export default function EditorPage() {
       case "user-pool":
         return (
           <UserPoolConfigPanel
+            key={nodeId}
             parameters={parameters as Parameters<typeof UserPoolConfigPanel>[0]["parameters"]}
             scenarioId={scenario.scenarioId}
             attachments={attachments}
@@ -850,7 +855,7 @@ export default function EditorPage() {
           edges={edges}
           onNodesChange={setNodes}
           onEdgesChange={setEdges}
-          onNodeSelect={setSelectedNode}
+          onNodeSelect={selectNode}
         />
         {renderConfigPanel()}
         {showVariablesPanel && (
