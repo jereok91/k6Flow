@@ -784,6 +784,7 @@ export default function EditorPage() {
         {showExecutionPanel && currentRunId && (
           <RunExecutionPanel
             runId={currentRunId}
+            vus={runHistory.find((r) => r.runId === currentRunId)?.vus}
             onClose={() => {
               setShowExecutionPanel(false);
               setCurrentRunId(null);

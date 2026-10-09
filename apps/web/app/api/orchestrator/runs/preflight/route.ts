@@ -15,8 +15,13 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
+    // Pass the orchestrator body through unchanged (including 422
+    // `{version, code, message}` limit errors) instead of re-encoding it.
+    const data = await res.text();
+    return new Response(data, {
+      status: res.status,
+      headers: { "Content-Type": res.headers.get("Content-Type") ?? "application/json" },
+    });
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to connect to orchestrator" },

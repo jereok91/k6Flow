@@ -5,19 +5,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { RpsChart, LatencyChart, Sparkline } from "./MetricsChart";
+import { describeRunFailure } from "./run-failure";
 
-// K6 exit code to human-readable error message
-function getK6ErrorMessage(status: string): string {
-  // When status is "failed", k6 exited with a non-zero code
-  // Common causes:
-  // - Exit 107: Script initialization error (syntax error, missing import)
-  // - Exit 99: Script error at init
-  // - Exit 1: Threshold breach
-  return "El script de k6 falló. Posibles causas:\n" +
-    "• Error de sintaxis en el script generado\n" +
-    "• Nodos sin configurar (URL vacía, etc.)\n" +
-    "• Endpoint no accesible desde el contenedor\n" +
-    "Revisa que todos los nodos tengan URLs válidas y accesibles.";
+// k6 exit code to human-readable error message (see run-failure.ts)
+function formatRunFailure(input: { exitCode?: number | null; status?: string; vus?: number }): string {
+  const { title, detail } = describeRunFailure(input);
+  return `${title}\n${detail}`;
 }
 
 interface RunMetrics {
@@ -33,6 +26,8 @@ interface RunMetrics {
 
 interface RunExecutionPanelProps {
   runId: string;
+  /** Requested VU count, used to make failure messages more specific */
+  vus?: number;
   onClose: () => void;
   onComplete?: (result: RunResult) => void;
 }
@@ -48,7 +43,7 @@ interface RunResult {
 
 type RunStatus = "pending" | "running" | "finished" | "completed" | "failed" | "stopped";
 
-export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPanelProps) {
+export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecutionPanelProps) {
   const router = useRouter();
   const [status, setStatus] = useState<RunStatus>("pending");
   const [metrics, setMetrics] = useState<RunMetrics>({
@@ -84,6 +79,8 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
   });
   const logsEndRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(Date.now());
+  // k6 exit code from the WebSocket end message (the run GET has no exitCode)
+  const exitCodeRef = useRef<number | null>(null);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -162,8 +159,14 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
 
           // Handle end message
           if (msg.type === "end") {
+            if (typeof msg.exitCode === "number") {
+              exitCodeRef.current = msg.exitCode;
+            }
             setStatus(msg.status as RunStatus);
             setLogs(prev => [...prev, `[END] Run ${msg.status} - exit code: ${msg.exitCode}`]);
+            if (msg.status === "failed" || msg.status === "errored") {
+              setError(formatRunFailure({ exitCode: exitCodeRef.current, status: msg.status, vus }));
+            }
             return;
           }
           
@@ -232,7 +235,7 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
             const finalStatus = data.status as RunStatus;
             setStatus(finalStatus);
             if (finalStatus === "failed") {
-              setError(getK6ErrorMessage(finalStatus));
+              setError(formatRunFailure({ exitCode: exitCodeRef.current ?? data.exitCode, status: finalStatus, vus }));
               setLogs(prev => [...prev, "[ERROR] La ejecucion de k6 fallo"]);
             }
             if (finalStatus === "finished" || finalStatus === "completed" || finalStatus === "failed" || finalStatus === "stopped") {
@@ -298,7 +301,7 @@ export function RunExecutionPanel({ runId, onClose, onComplete }: RunExecutionPa
         if (data && !cancelled) {
           setStatus(data.status);
           if (data.status === "failed") {
-            setError(getK6ErrorMessage(data.status));
+            setError(formatRunFailure({ exitCode: exitCodeRef.current ?? data.exitCode, status: data.status, vus }));
             setLogs(prev => [...prev, "[ERROR] La ejecucion de k6 fallo"]);
           }
           if (data.status === "finished" || data.status === "completed" || data.status === "failed" || data.status === "stopped") {
@@ -701,6 +704,7 @@ const errorStyle: React.CSSProperties = {
   background: "rgba(239, 68, 68, 0.1)",
   color: "#ef4444",
   fontSize: "12px",
+  whiteSpace: "pre-line",
   borderBottom: "1px solid rgba(239, 68, 68, 0.3)",
 };
 

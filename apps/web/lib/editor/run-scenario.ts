@@ -6,6 +6,8 @@
 
 import { translateToK6, type K6TranslatorOptions } from "@k6flow/shared";
 import type { GraphDraftComposition } from "@k6flow/shared";
+import { computeRunResources } from "./run-resources";
+import { describeStartError, parseStartErrorBody } from "./run-failure";
 
 // Use Next.js API proxy to reach the orchestrator
 // This works both in Docker (where browser can't reach orchestrator directly)
@@ -32,9 +34,9 @@ export interface RunConfig {
   vus?: number;
   /** Duration in milliseconds */
   durationMs?: number;
-  /** CPU limit in millicores */
+  /** CPU limit in millicores (defaults to computeRunResources(vus)) */
   cpuMillis?: number;
-  /** Memory limit in MiB */
+  /** Memory limit in MiB (defaults to computeRunResources(vus)) */
   memoryMiB?: number;
   /** Attachments (CSV files) to include */
   attachments?: RunAttachment[];
@@ -51,6 +53,10 @@ export interface RunStartResult {
   success: boolean;
   runId?: string;
   error?: string;
+  /** Orchestrator error code, passed through unchanged (e.g. "vus-limit-exceeded") */
+  errorCode?: string;
+  /** Orchestrator error message, passed through unchanged */
+  errorMessage?: string;
   warnings?: string[];
   requiresFiles?: string[];
   missingFiles?: string[];
@@ -66,12 +72,13 @@ export async function runScenario(
   const {
     vus = 1,
     durationMs = 30000,
-    cpuMillis = 500,
-    memoryMiB = 256,
     attachments = [],
     scenarioId,
     scenarioName,
   } = config;
+  const defaults = computeRunResources(vus);
+  const cpuMillis = config.cpuMillis ?? defaults.cpuMillis;
+  const memoryMiB = config.memoryMiB ?? defaults.memoryMiB;
 
   // Translate graph to K6 script
   const translatorOptions: K6TranslatorOptions = {
@@ -127,6 +134,16 @@ export async function runScenario(
 
     if (!res.ok) {
       const errorBody = await res.text();
+      const parsed = parseStartErrorBody(errorBody);
+      if (parsed) {
+        return {
+          success: false,
+          error: describeStartError(parsed.code, parsed.message).text,
+          errorCode: parsed.code,
+          errorMessage: parsed.message,
+          warnings: translation.warnings,
+        };
+      }
       return {
         success: false,
         error: `Orchestrator error: ${res.status} ${errorBody}`,

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
 import { MainLayout } from "../../../lib/layout";
 import { RpsChart, LatencyChart, Sparkline } from "../../../lib/editor/MetricsChart";
+import { describeRunFailure } from "../../../lib/editor/run-failure";
 
 interface RunMetrics {
   vus: number;
@@ -66,6 +67,8 @@ interface RunDetail {
   iterations?: number;
   avgDurationMs?: number;
   errorRate?: number;
+  /** k6 exit code, when the backing API provides it */
+  exitCode?: number | null;
 }
 
 type RunStatus = "queued" | "starting" | "running" | "stopping" | "finished" | "completed" | "failed" | "aborted" | "errored";
@@ -87,6 +90,8 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
   // Live execution state
   const [isLive, setIsLive] = useState(false);
   const [status, setStatus] = useState<RunStatus>("queued");
+  // k6 exit code: from the run data when available, else from the WS end message
+  const [exitCode, setExitCode] = useState<number | null>(null);
   const [metrics, setMetrics] = useState<RunMetrics>({
     vus: 0,
     iterations: 0,
@@ -130,6 +135,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
           if (localRes.ok) {
             const data = await localRes.json();
             setRun(data);
+            if (typeof data.exitCode === "number") setExitCode(data.exitCode);
             setStatus(data.status as RunStatus);
             setIsLive(["queued", "starting", "running", "stopping"].includes(data.status));
           } else {
@@ -145,6 +151,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
             createdAt: Date.now(),
             scenarioName: data.scenarioName,
           });
+          if (typeof data.exitCode === "number") setExitCode(data.exitCode);
           setStatus(data.status as RunStatus);
           setIsLive(["queued", "starting", "running", "stopping"].includes(data.status));
         }
@@ -226,6 +233,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
             setIsLive(false);
           }
         } else if (data.type === "end") {
+          if (typeof data.exitCode === "number") setExitCode(data.exitCode);
           setStatus((data.status || "finished") as RunStatus);
           setIsLive(false);
         }
@@ -415,6 +423,18 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
             )}
           </div>
         </div>
+
+        {/* Failure explanation */}
+        {(status === "failed" || status === "errored") && (() => {
+          const failure = describeRunFailure({ exitCode, status, vus: run.vus });
+          return (
+            <div style={{ ...errorBoxStyle, whiteSpace: "pre-line" }}>
+              <strong>{failure.title}</strong>
+              {"\n"}
+              {failure.detail}
+            </div>
+          );
+        })()}
 
         {/* Tabs */}
         <div style={tabsContainerStyle}>

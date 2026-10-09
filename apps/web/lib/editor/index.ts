@@ -11,6 +11,16 @@ export { UserPoolConfigPanel } from "./UserPoolConfigPanel";
 export { ScriptPanel } from "./ScriptPanel";
 export { RunExecutionPanel } from "./RunExecutionPanel";
 export { RunHistoryPanel, type RunHistoryEntry } from "./RunHistoryPanel";
+export { computeRunResources, type RunResources } from "./run-resources";
+export {
+  describeRunFailure,
+  describeStartError,
+  parseStartErrorBody,
+  type RunFailureKind,
+  type RunFailureInput,
+  type RunFailureDescription,
+  type StartErrorDescription,
+} from "./run-failure";
 export {
   toReactFlowGraph,
   fromReactFlowGraph,
