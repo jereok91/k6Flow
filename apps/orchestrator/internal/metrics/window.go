@@ -126,10 +126,10 @@ type windowBucket struct {
 // RunWindowAggregator is the per-run window state machine. Not safe for
 // concurrent use: feed it from a single goroutine (the engine tap).
 type RunWindowAggregator struct {
-	runID  string
-	anchor time.Time
-	sink   FrameSink
-	now    func() time.Time // arrival-time fallback clock (test seam)
+	runID     string
+	anchor    time.Time
+	sink      FrameSink
+	now       func() time.Time  // arrival-time fallback clock (test seam)
 	endpoints *EndpointsTracker // optional per-endpoint tracking
 
 	seq    int64 // next seq to assign (0-based, +1 per emitted window)
@@ -196,14 +196,22 @@ func (a *RunWindowAggregator) OnLine(line []byte) {
 		Time  *string  `json:"time"`
 		Value *float64 `json:"value"`
 		Tags  *struct {
-			Method string `json:"method"`
-			URL    string `json:"url"`
-			Name   string `json:"name"`
-			Status string `json:"status"`
+			Method    string `json:"method"`
+			URL       string `json:"url"`
+			Name      string `json:"name"`
+			Status    string `json:"status"`
+			Error     string `json:"error"`
+			ErrorCode string `json:"error_code"`
 		} `json:"tags"`
 	}
 	if err := json.Unmarshal(msg.Data, &data); err != nil || data.Value == nil {
 		return
+	}
+	// Per-endpoint metrics are cumulative (not windowed), so they are recorded
+	// before the late-point drop below: a late point still counts for its endpoint.
+	if a.endpoints != nil && data.Tags != nil && data.Tags.URL != "" {
+		tg := data.Tags
+		a.recordEndpoint(name, *data.Value, tg.Method, tg.URL, tg.Name, tg.Status, tg.ErrorCode, tg.Error, a.pointTimeMs(data.Time))
 	}
 	idx := int64(a.offset(data.Time).Milliseconds()) / windowMillis
 	if idx > a.winIdx {
@@ -217,11 +225,17 @@ func (a *RunWindowAggregator) OnLine(line []byte) {
 		return // late/out-of-order point for an already-emitted window
 	}
 	a.fold(name, *data.Value)
-	
-	// Record per-endpoint metrics if tracker is configured
-	if a.endpoints != nil && data.Tags != nil && data.Tags.URL != "" {
-		a.recordEndpoint(name, *data.Value, data.Tags.Method, data.Tags.URL, data.Tags.Name, data.Tags.Status)
+}
+
+// pointTimeMs returns the point's data.time in ms since epoch, falling back to
+// the arrival clock when the time is absent or unparsable.
+func (a *RunWindowAggregator) pointTimeMs(ts *string) int64 {
+	if ts != nil {
+		if pt, err := time.Parse(time.RFC3339Nano, *ts); err == nil {
+			return pt.UnixMilli()
+		}
 	}
+	return a.now().UnixMilli()
 }
 
 // knownMetric reports whether the point feeds any frame field; everything
@@ -288,28 +302,25 @@ func (a *RunWindowAggregator) fold(name string, value float64) {
 	}
 }
 
-// recordEndpoint feeds the per-endpoint tracker with request data.
-// Called for http_reqs and http_req_duration metrics.
-func (a *RunWindowAggregator) recordEndpoint(metric string, value float64, method, url, name, status string) {
+// recordEndpoint feeds the per-endpoint tracker. k6 emits exactly one
+// http_req_duration point per request (failed or not) and one http_req_failed
+// point (0/1) per request, so requests are counted from the former and
+// failures from the latter (value 1) — http_reqs is ignored to avoid double
+// counting. Status "0"/empty/unparsable means a network error (no response).
+func (a *RunWindowAggregator) recordEndpoint(metric string, value float64, method, url, name, status, errorCode, errorMsg string, tsMs int64) {
 	if a.endpoints == nil {
 		return
 	}
-	
 	switch metric {
-	case k6sum.MetricRequests:
-		// Count request (duration will come from http_req_duration)
-		// We don't have duration here, so we only use this for counting
 	case k6sum.MetricDurationMs:
-		// Record the request with its duration
 		a.endpoints.RecordRequest(method, url, name, value)
 	case k6sum.MetricFailed:
-		// Record failure if value > 0 (failure rate sample)
 		if value > 0 {
-			statusInt := 0
-			if status != "" {
-				statusInt, _ = strconv.Atoi(status)
+			statusInt, err := strconv.Atoi(status)
+			if err != nil || statusInt < 0 {
+				statusInt = 0
 			}
-			a.endpoints.RecordFailure(method, url, statusInt, "", "", 0, time.Now().UnixMilli())
+			a.endpoints.RecordFailure(method, url, name, statusInt, errorCode, errorMsg, 0, tsMs)
 		}
 	}
 }

@@ -11,6 +11,8 @@ parsing or threshold evaluation. [openapi.yaml](openapi.yaml) mirrors it for too
 | GET | `/api/runs/{runId}` | `200` run state | `401`, `404` |
 | POST | `/api/runs/{runId}/stop` | `202` stop accepted | `401`, `404` |
 | GET | `/api/runs/{runId}/summary` | `200` cumulative summary | `401`, `404`, `409` |
+| GET | `/api/runs/{runId}/endpoints` | `200` per-endpoint metrics | `401`, `404` |
+| GET | `/api/runs/{runId}/failures` | `200` failure groups | `401`, `404` |
 | GET | `/healthz` | `200` `{"status":"ok"}`, public and unversioned | none |
 
 ## Approved policies
@@ -33,6 +35,37 @@ The final summary is cumulative — `totals` (`requests`, `errors`, `failedCheck
 separate from the windowed WebSocket topic (K6F1-05). Error bodies are `{ version, code,
 message }` with catalog `unauthorized` → 401, `run-not-found` → 404, `summary-not-terminal`
 → 409, mirrored by `runErrorCatalogSchema` and OpenAPI. Boundary: declarations only.
+
+## Endpoints and failures
+
+Both are cumulative, available while the run is live and after it ends, and built from the
+k6 JSON point tags `method`, `url`, `name`, `status`, `error` and `error_code`.
+
+```json
+{ "version": 1, "endpoints": [
+  { "method": "GET", "url": "https://api.test/items/1", "name": "https://api.test/items/${id}",
+    "requests": 4, "failures": 1, "errorRate": 0.25,
+    "avgDurationMs": 25, "minDurationMs": 20, "maxDurationMs": 40, "p95DurationMs": 40 } ] }
+```
+
+- **Grouping** — one row per `method` + `name`, falling back to `url` when `name` is empty
+  (k6's `name` tag defaults to the URL and groups dynamic URLs). `url` is the first URL seen.
+- **Counts** — `requests` counts every request, failed or not (one `http_req_duration` point
+  each); `failures` counts `http_req_failed` points with value 1, on the same row.
+- **`errorRate`** — `failures / requests` as a 0–1 fraction, `0` when `requests` is 0.
+- **Order** — `requests` descending.
+
+```json
+{ "version": 1, "failures": [
+  { "method": "GET", "url": "https://api.test/items/2", "status": 0, "errorCode": "1211",
+    "count": 1, "lastError": "dial tcp: i/o timeout", "lastSeenMs": 1772366400200 } ] }
+```
+
+- **Grouping** — endpoint (as above) + `status` + `errorCode`; `url` is the first URL seen.
+- **`status`** — HTTP status; `0` means a network error (no response).
+- **`errorCode` / `lastError`** — the k6 `error_code` and latest `error` tags (`""` when absent).
+- **`lastSeenMs`** — point time of the latest failure, ms since epoch.
+- **Order** — `count` descending.
 
 ## Per-run resource limits
 

@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -493,5 +494,110 @@ func TestNilSinkAndEmptyStreamAreSafe(t *testing.T) {
 	feed(b, `{"type":"Summary","data":{}}`)
 	if got := sink.snapshot(); len(got) != 0 {
 		t.Errorf("frames = %d, want 0 for a stream without points", len(got))
+	}
+}
+
+// taggedPoint builds a k6 Point at a run-relative offset carrying HTTP tags.
+func taggedPoint(metric string, offsetMs int, value string, tags map[string]string) string {
+	tj, _ := json.Marshal(tags)
+	ts := testAnchor.Add(time.Duration(offsetMs) * time.Millisecond).UTC().Format(time.RFC3339Nano)
+	return fmt.Sprintf(`{"type":"Point","metric":%q,"data":{"time":%q,"value":%s,"tags":%s}}`, metric, ts, value, tj)
+}
+
+// httpRequestLines emits the k6 point set for one request (http_reqs,
+// http_req_duration, http_req_failed) sharing the same tags.
+func httpRequestLines(offsetMs int, durMs string, failed bool, tags map[string]string) []string {
+	f := "0"
+	if failed {
+		f = "1"
+	}
+	return []string{
+		taggedPoint("http_reqs", offsetMs, "1", tags),
+		taggedPoint("http_req_duration", offsetMs, durMs, tags),
+		taggedPoint("http_req_failed", offsetMs, f, tags),
+	}
+}
+
+func TestOnLineFeedsSingleEndpointRowWithFailures(t *testing.T) {
+	a := newTestAgg(nil, testAnchor)
+	tr := NewEndpointsTracker(20)
+	a.SetEndpointsTracker(tr)
+	ok := map[string]string{"method": "GET", "url": "https://api.test/items/1", "name": "https://api.test/items/${id}", "status": "200"}
+	bad := map[string]string{"method": "GET", "url": "https://api.test/items/2", "name": "https://api.test/items/${id}",
+		"status": "0", "error": "dial tcp: i/o timeout", "error_code": "1211"}
+	var lines []string
+	for i := 0; i < 3; i++ {
+		lines = append(lines, httpRequestLines(100+i*10, "20", false, ok)...)
+	}
+	lines = append(lines, httpRequestLines(200, "40", true, bad)...)
+	feed(a, lines...)
+
+	raw, err := tr.GetEndpointsJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := decodeMap(t, raw)
+	eps := m["endpoints"].([]any)
+	if len(eps) != 1 {
+		t.Fatalf("endpoints = %d, want 1: %s", len(eps), raw)
+	}
+	ep := eps[0].(map[string]any)
+	if ep["method"] != "GET" || ep["url"] != "https://api.test/items/1" || ep["name"] != "https://api.test/items/${id}" {
+		t.Errorf("identity = %v", ep)
+	}
+	if ep["requests"].(float64) != 4 || ep["failures"].(float64) != 1 || ep["errorRate"].(float64) != 0.25 {
+		t.Errorf("counts = req %v fail %v rate %v, want 4/1/0.25", ep["requests"], ep["failures"], ep["errorRate"])
+	}
+
+	raw, err = tr.GetFailuresJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := decodeMap(t, raw)["failures"].([]any)
+	if len(fs) != 1 {
+		t.Fatalf("failures = %d, want 1: %s", len(fs), raw)
+	}
+	f := fs[0].(map[string]any)
+	if f["status"].(float64) != 0 || f["errorCode"] != "1211" || f["lastError"] != "dial tcp: i/o timeout" {
+		t.Errorf("failure tags = %v", f)
+	}
+	if f["url"] != "https://api.test/items/2" || f["count"].(float64) != 1 {
+		t.Errorf("failure identity = %v", f)
+	}
+	if want := float64(testAnchor.Add(200 * time.Millisecond).UnixMilli()); f["lastSeenMs"].(float64) != want {
+		t.Errorf("lastSeenMs = %v, want point time %v", f["lastSeenMs"], want)
+	}
+}
+
+func TestOnLineHTTPStatusFailureParsed(t *testing.T) {
+	a := newTestAgg(nil, testAnchor)
+	tr := NewEndpointsTracker(20)
+	a.SetEndpointsTracker(tr)
+	tags := map[string]string{"method": "POST", "url": "https://api.test/login", "status": "503", "error_code": "1503"}
+	feed(a, httpRequestLines(100, "5", true, tags)...)
+	feed(a, httpRequestLines(150, "5", true, tags)...)
+	fr := tr.FailureRows()
+	if len(fr) != 1 || fr[0].Status != 503 || fr[0].Count != 2 || fr[0].ErrorCode != "1503" {
+		t.Fatalf("failure rows = %+v", fr)
+	}
+	er := tr.EndpointRows()
+	if len(er) != 1 || er[0].Requests != 2 || er[0].Failures != 2 || er[0].ErrorRate != 1 || er[0].Name != "" {
+		t.Fatalf("endpoint rows = %+v", er)
+	}
+}
+
+func TestOnLineLatePointStillCountsForEndpoint(t *testing.T) {
+	sink := &recordingSink{}
+	a := newTestAgg(sink, testAnchor)
+	tr := NewEndpointsTracker(20)
+	a.SetEndpointsTracker(tr)
+	tags := map[string]string{"method": "GET", "url": "https://a", "status": "200"}
+	feed(a, httpRequestLines(2100, "5", false, tags)...)
+	feed(a, httpRequestLines(100, "5", false, tags)...) // late for windows, not for endpoints
+	if rows := tr.EndpointRows(); len(rows) != 1 || rows[0].Requests != 2 || rows[0].Failures != 0 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if got := len(sink.snapshot()); got != 2 {
+		t.Errorf("frames = %d, want 2 (late point must not reopen windows)", got)
 	}
 }
