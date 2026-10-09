@@ -13,9 +13,9 @@ Runs with many VUs (e.g. 1900) fail with exit code 137 (OOM kill) after ~15s.
 - Exit code 137 is reported as out-of-memory with actionable guidance.
 
 ## Tasks
-- [ ] T1 Orchestrator: enforce VU/memory/CPU limits on start + preflight, config + tests, compose/env docs
+- [x] T1 Orchestrator: enforce VU/memory/CPU limits on start + preflight, config + tests, compose/env docs — `6d01f1c` (deploy/.env.example not updated: blocked by safety policy; error codes kebab-case)
 - [ ] T2 Web: compute run resources from VUs (tested helper) and surface orchestrator limit errors in the editor
 - [ ] T3 Web: show OOM-specific message for exit code 137 (run panel + executions page)
 
 ## Evidence
-- (commits recorded here per task)
+- T1: `6d01f1c` — go test ./... all ok, go vet clean
