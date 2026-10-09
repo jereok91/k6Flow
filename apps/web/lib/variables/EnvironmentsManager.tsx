@@ -83,43 +83,70 @@ export function EnvironmentsManager() {
 
   const handleDirtyChange = useCallback((value: boolean) => setDirty(value), []);
 
+  const createDisabled = !newName.trim() || creating;
+
   return (
-    <div className="grid grid-cols-1 gap-space-lg lg:grid-cols-[300px_minmax(0,1fr)]">
+    <div style={layoutStyle}>
       {/* Environment list */}
-      <section className="flex flex-col gap-space-md rounded-xl border border-surface-container-high bg-surface-container-low p-space-lg">
-        <form onSubmit={handleCreate} className="flex gap-space-sm">
+      <section style={{ ...cardStyle, ...listCardStyle }}>
+        <form onSubmit={handleCreate} style={createRowStyle}>
           <input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Nuevo entorno (ej. staging)"
             maxLength={100}
-            className="input text-body-sm"
+            className="input"
+            style={fieldStyle}
             aria-label="Nombre del nuevo entorno"
           />
-          <button type="submit" disabled={!newName.trim() || creating} className="btn-primary disabled:opacity-50">
-            <span className="material-symbols-outlined text-[16px]">add</span>
+          <button
+            type="submit"
+            disabled={createDisabled}
+            className="btn-primary"
+            style={{ ...controlButtonStyle, ...(createDisabled ? disabledStyle : null) }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+              add
+            </span>
             <span>{creating ? "..." : "Crear"}</span>
           </button>
         </form>
 
-        {actionError && <p className="text-body-sm text-error">{actionError}</p>}
+        {actionError && (
+          <div style={errorBoxStyle} role="alert">
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+              error
+            </span>
+            <span>{actionError}</span>
+          </div>
+        )}
 
         {envs.loading && !envs.loaded ? (
-          <p className="text-body-sm text-on-surface-variant">Cargando entornos...</p>
+          <p style={mutedTextStyle}>Cargando entornos...</p>
         ) : envs.error ? (
-          <div className="text-body-sm text-error">
-            <p>{envs.error}</p>
-            <button type="button" onClick={() => void envs.reload()} className="mt-1 underline">
-              Reintentar
-            </button>
+          <div style={errorBoxStyle} role="alert">
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+              error
+            </span>
+            <div>
+              <p style={{ margin: 0 }}>{envs.error}</p>
+              <button type="button" onClick={() => void envs.reload()} style={linkButtonStyle}>
+                Reintentar
+              </button>
+            </div>
           </div>
         ) : envs.environments.length === 0 ? (
-          <p className="text-body-sm text-on-surface-variant">
-            Aún no hay entornos. Crea uno (dev, staging, prod...) para reutilizar variables entre escenarios.
-          </p>
+          <div style={emptyStateStyle}>
+            <span className="material-symbols-outlined" style={{ fontSize: 32, color: "var(--color-on-surface-variant)" }}>
+              layers
+            </span>
+            <p style={{ ...mutedTextStyle, textAlign: "center" }}>
+              Aún no hay entornos. Crea uno (dev, staging, prod...) para reutilizar variables entre escenarios.
+            </p>
+          </div>
         ) : (
-          <ul className="m-0 flex list-none flex-col gap-1 p-0">
+          <ul style={listStyle}>
             {envs.environments.map((env) => (
               <EnvironmentItem
                 key={env.id}
@@ -136,24 +163,41 @@ export function EnvironmentsManager() {
       </section>
 
       {/* Variables of the active environment */}
-      <section className="rounded-xl border border-surface-container-high bg-surface-container-low p-space-lg">
+      <section style={{ ...cardStyle, ...detailCardStyle }}>
         {active === null ? (
-          <p className="text-body-md text-on-surface-variant">Selecciona o crea un entorno para editar sus variables.</p>
+          <div style={emptyStateStyle}>
+            <span className="material-symbols-outlined" style={{ fontSize: 32, color: "var(--color-on-surface-variant)" }}>
+              data_object
+            </span>
+            <p style={{ ...mutedTextStyle, textAlign: "center" }}>
+              Selecciona o crea un entorno para editar sus variables.
+            </p>
+          </div>
         ) : (
           <>
-            <div className="mb-space-md flex flex-col gap-1">
-              <h2 className="m-0 text-headline-sm font-semibold text-on-surface">{active.name}</h2>
-              <p className="m-0 text-body-sm text-on-surface-variant">
-                Usa las variables como <code className="font-mono text-secondary">{"{{nombre}}"}</code> en URL,
-                cabeceras y body. Las variables del escenario con el mismo nombre tienen prioridad.
+            <div style={detailHeaderStyle}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--color-primary)" }}>
+                  layers
+                </span>
+                <h2 style={detailTitleStyle}>{active.name}</h2>
+              </div>
+              <p style={mutedTextStyle}>
+                Usa las variables como <code style={codeStyle}>{"{{nombre}}"}</code> en URL, cabeceras y body. Las
+                variables del escenario con el mismo nombre tienen prioridad.
               </p>
             </div>
             {variables.error && !variables.loading ? (
-              <div className="text-body-sm text-error">
-                <p>{variables.error}</p>
-                <button type="button" onClick={() => void variables.reload()} className="mt-1 underline">
-                  Reintentar
-                </button>
+              <div style={errorBoxStyle} role="alert">
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                  error
+                </span>
+                <div>
+                  <p style={{ margin: 0 }}>{variables.error}</p>
+                  <button type="button" onClick={() => void variables.reload()} style={linkButtonStyle}>
+                    Reintentar
+                  </button>
+                </div>
               </div>
             ) : (
               <VariableTable
@@ -203,14 +247,15 @@ function EnvironmentItem({ env, active, usedInEditor, onSelect, onRename, onDele
   if (editing) {
     return (
       <li>
-        <form onSubmit={submit} className="flex items-center gap-1">
+        <form onSubmit={submit} style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={100}
             autoFocus
-            className="input py-1 text-body-sm"
+            className="input"
+            style={{ ...fieldStyle, height: 32, padding: "4px 8px" }}
             aria-label="Nuevo nombre del entorno"
             onKeyDown={(e) => {
               if (e.key === "Escape") {
@@ -219,8 +264,15 @@ function EnvironmentItem({ env, active, usedInEditor, onSelect, onRename, onDele
               }
             }}
           />
-          <button type="submit" disabled={busy} className="p-1 text-secondary" title="Guardar nombre">
-            <span className="material-symbols-outlined text-[18px]">check</span>
+          <button
+            type="submit"
+            disabled={busy}
+            style={{ ...iconButtonStyle, color: "var(--color-secondary)", ...(busy ? disabledStyle : null) }}
+            title="Guardar nombre"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+              check
+            </span>
           </button>
           <button
             type="button"
@@ -228,10 +280,12 @@ function EnvironmentItem({ env, active, usedInEditor, onSelect, onRename, onDele
               setEditing(false);
               setName(env.name);
             }}
-            className="p-1 text-on-surface-variant"
+            style={iconButtonStyle}
             title="Cancelar"
           >
-            <span className="material-symbols-outlined text-[18px]">close</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+              close
+            </span>
           </button>
         </form>
       </li>
@@ -240,19 +294,20 @@ function EnvironmentItem({ env, active, usedInEditor, onSelect, onRename, onDele
 
   return (
     <li
-      className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 ${
-        active ? "bg-surface-container-high" : "hover:bg-surface-container"
-      }`}
+      className="nav-link"
+      style={{ ...itemStyle, ...(active ? itemActiveStyle : null) }}
+      aria-current={active ? "true" : undefined}
     >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="flex min-w-0 flex-1 items-center gap-2 text-left text-body-sm text-on-surface"
-      >
-        <span className="material-symbols-outlined text-[16px] text-on-surface-variant">layers</span>
-        <span className="truncate">{env.name}</span>
+      <button type="button" onClick={onSelect} style={itemSelectButtonStyle}>
+        <span
+          className="material-symbols-outlined"
+          style={{ fontSize: 16, color: active ? "var(--color-primary)" : "var(--color-on-surface-variant)" }}
+        >
+          layers
+        </span>
+        <span style={itemNameStyle}>{env.name}</span>
         {usedInEditor && (
-          <span className="shrink-0 rounded bg-secondary/15 px-1 text-[10px] text-secondary" title="Seleccionado en el editor">
+          <span className="badge-success" style={{ flexShrink: 0 }} title="Seleccionado en el editor">
             en uso
           </span>
         )}
@@ -263,21 +318,209 @@ function EnvironmentItem({ env, active, usedInEditor, onSelect, onRename, onDele
           setName(env.name);
           setEditing(true);
         }}
-        className="p-1 text-on-surface-variant hover:text-on-surface"
+        style={iconButtonStyle}
         title="Renombrar"
         aria-label={`Renombrar ${env.name}`}
       >
-        <span className="material-symbols-outlined text-[16px]">edit</span>
+        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+          edit
+        </span>
       </button>
       <button
         type="button"
         onClick={onDelete}
-        className="p-1 text-on-surface-variant hover:text-error"
+        style={iconButtonStyle}
         title="Eliminar"
         aria-label={`Eliminar ${env.name}`}
       >
-        <span className="material-symbols-outlined text-[16px]">delete</span>
+        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+          delete
+        </span>
       </button>
     </li>
   );
 }
+
+// -----------------------------------------------------------------------------
+// Styles (inline over the theme CSS variables, as in app/executions/page.tsx)
+// -----------------------------------------------------------------------------
+
+const layoutStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "flex-start",
+  gap: "16px",
+};
+
+const cardStyle: React.CSSProperties = {
+  background: "var(--color-surface-container-low)",
+  border: "1px solid var(--color-surface-container-high)",
+  borderRadius: "12px",
+  padding: "16px",
+  boxSizing: "border-box",
+};
+
+const listCardStyle: React.CSSProperties = {
+  flex: "1 1 280px",
+  maxWidth: "340px",
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "12px",
+};
+
+const detailCardStyle: React.CSSProperties = {
+  flex: "999 1 480px",
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "16px",
+};
+
+const createRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "stretch",
+  gap: "8px",
+};
+
+const fieldStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  height: "36px",
+  fontSize: "13px",
+  boxSizing: "border-box",
+};
+
+const controlButtonStyle: React.CSSProperties = {
+  height: "36px",
+  flexShrink: 0,
+  fontSize: "13px",
+  cursor: "pointer",
+  boxSizing: "border-box",
+};
+
+const disabledStyle: React.CSSProperties = {
+  opacity: 0.5,
+  cursor: "not-allowed",
+  boxShadow: "none",
+};
+
+const mutedTextStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "13px",
+  lineHeight: "20px",
+  color: "var(--color-on-surface-variant)",
+};
+
+const errorBoxStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: "8px",
+  padding: "8px 12px",
+  fontSize: "12px",
+  lineHeight: "18px",
+  color: "var(--color-error)",
+  background: "color-mix(in srgb, var(--color-error) 10%, transparent)",
+  border: "1px solid color-mix(in srgb, var(--color-error) 30%, transparent)",
+  borderRadius: "8px",
+};
+
+const linkButtonStyle: React.CSSProperties = {
+  marginTop: "4px",
+  padding: 0,
+  background: "none",
+  border: "none",
+  color: "inherit",
+  fontSize: "12px",
+  textDecoration: "underline",
+  cursor: "pointer",
+};
+
+const emptyStateStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: "8px",
+  padding: "32px 16px",
+  border: "1px dashed var(--color-outline-variant)",
+  borderRadius: "8px",
+};
+
+const listStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: "none",
+  display: "flex",
+  flexDirection: "column",
+  gap: "2px",
+};
+
+const itemStyle: React.CSSProperties = {
+  gap: "4px",
+  padding: "4px 4px 4px 10px",
+  border: "1px solid transparent",
+};
+
+const itemActiveStyle: React.CSSProperties = {
+  background: "var(--color-surface-container-high)",
+  borderColor: "var(--color-outline-variant)",
+  color: "var(--color-on-surface)",
+};
+
+const itemSelectButtonStyle: React.CSSProperties = {
+  display: "flex",
+  flex: 1,
+  minWidth: 0,
+  alignItems: "center",
+  gap: "8px",
+  padding: "4px 0",
+  background: "none",
+  border: "none",
+  color: "var(--color-on-surface)",
+  fontSize: "13px",
+  textAlign: "left",
+  cursor: "pointer",
+};
+
+const itemNameStyle: React.CSSProperties = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const iconButtonStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "28px",
+  height: "28px",
+  flexShrink: 0,
+  padding: 0,
+  background: "none",
+  border: "none",
+  borderRadius: "6px",
+  color: "var(--color-on-surface-variant)",
+  cursor: "pointer",
+};
+
+const detailHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "4px",
+  paddingBottom: "12px",
+  borderBottom: "1px solid var(--color-surface-container-high)",
+};
+
+const detailTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "16px",
+  lineHeight: "24px",
+  fontWeight: 600,
+  color: "var(--color-on-surface)",
+};
+
+const codeStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: "12px",
+  color: "var(--color-secondary)",
+};

@@ -4,6 +4,9 @@
 // VariableTable, also used by the environments manager.
 // Secret values are never loaded or rendered: a stored secret shows a placeholder and
 // an empty field keeps the stored value (sent as `value: null`).
+// Styling: inline styles over the theme CSS variables from app/globals.css (as in
+// app/executions/page.tsx and lib/editor/*Panel.tsx) plus the globals.css component
+// classes (.input, .btn-primary, .btn-secondary, .table-row, .badge-*).
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -22,6 +25,7 @@ import {
   type VariableSetState,
 } from "./use-variables";
 import { TokenChip } from "./VariableInput";
+import { inputStyle } from "../editor/ConfigPanel";
 
 export const STORED_SECRET_PLACEHOLDER = "•••••• (guardado)";
 
@@ -42,9 +46,6 @@ interface VariableTableProps {
   overriddenLabel?: string;
   onDirtyChange?: (dirty: boolean) => void;
 }
-
-const cellInput =
-  "w-full rounded-lg border bg-surface-container-lowest px-2 py-1.5 font-mono text-[12px] text-on-surface outline-none focus:border-primary-container";
 
 export function VariableTable({
   variables,
@@ -137,136 +138,189 @@ export function VariableTable({
   };
 
   if (loading) {
-    return <p className="py-space-md text-[12px] text-on-surface-variant">Loading variables...</p>;
+    return <p style={{ ...hintTextStyle, padding: "12px 0" }}>Loading variables...</p>;
   }
 
+  const actionsDisabled = !dirty || saving;
+
   return (
-    <div className="flex flex-col gap-2">
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       {rows.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-outline-variant px-3 py-3 text-center text-[12px] text-on-surface-variant">
-          No variables yet.
-        </p>
+        <div style={emptyTableStyle}>
+          <span className="material-symbols-outlined" style={{ fontSize: 24 }}>
+            data_object
+          </span>
+          <span>No variables yet.</span>
+        </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_56px_24px] gap-2 px-1 text-[11px] font-medium uppercase tracking-wide text-on-surface-variant">
-            <span>Name</span>
-            <span>Value</span>
-            <span className="text-center">Secret</span>
-            <span />
-          </div>
-          {rows.map((row) => {
-            const nameError = errorFor(row, "name");
-            const valueError = errorFor(row, "value");
-            const keepsStored = keepsStoredSecret(row);
-            const used = usedNames?.has(row.name);
-            const overrides = overriddenNames?.has(row.name);
-            return (
-              <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_56px_24px] items-start gap-2">
-                <div className="min-w-0">
-                  <input
-                    type="text"
-                    value={row.name}
-                    onChange={(e) => edit(row.key, { name: e.target.value })}
-                    placeholder="name"
-                    spellCheck={false}
-                    autoComplete="off"
-                    aria-label="Variable name"
-                    aria-invalid={!!nameError}
-                    className={`${cellInput} ${nameError ? "border-error" : "border-outline-variant"}`}
-                  />
-                  {(used || overrides) && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {used && (
-                        <span className="rounded bg-secondary/15 px-1 text-[10px] text-secondary">in use</span>
+        <div style={tableContainerStyle}>
+          <table style={tableStyle}>
+            <colgroup>
+              <col style={{ width: "40%" }} />
+              <col />
+              <col style={{ width: "56px" }} />
+              <col style={{ width: "40px" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th style={thStyle}>Name</th>
+                <th style={thStyle}>Value</th>
+                <th style={{ ...thStyle, textAlign: "center" }}>Secret</th>
+                <th style={thStyle}>
+                  <span style={visuallyHiddenStyle}>Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const nameError = errorFor(row, "name");
+                const valueError = errorFor(row, "value");
+                const keepsStored = keepsStoredSecret(row);
+                const used = usedNames?.has(row.name);
+                const overrides = overriddenNames?.has(row.name);
+                const hasError = !!nameError || !!valueError;
+                return (
+                  <tr key={row.key} className="table-row" style={hasError ? errorRowStyle : undefined}>
+                    <td style={hasError ? { ...tdStyle, ...errorCellMarkerStyle } : tdStyle}>
+                      <input
+                        type="text"
+                        value={row.name}
+                        onChange={(e) => edit(row.key, { name: e.target.value })}
+                        placeholder="name"
+                        spellCheck={false}
+                        autoComplete="off"
+                        aria-label="Variable name"
+                        aria-invalid={!!nameError}
+                        className="input"
+                        style={nameError ? cellInputErrorStyle : cellInputStyle}
+                      />
+                      {(used || overrides) && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "6px" }}>
+                          {used && (
+                            <span className="badge-success" style={smallBadgeStyle}>
+                              in use
+                            </span>
+                          )}
+                          {overrides && (
+                            <span style={{ ...smallBadgeStyle, ...overrideBadgeStyle }}>{overriddenLabel}</span>
+                          )}
+                        </div>
                       )}
-                      {overrides && (
-                        <span className="rounded bg-tertiary/15 px-1 text-[10px] text-tertiary">{overriddenLabel}</span>
+                      {nameError && <p style={fieldErrorStyle}>{nameError}</p>}
+                    </td>
+                    <td style={tdStyle}>
+                      {row.secret ? (
+                        <input
+                          type="password"
+                          value={row.value}
+                          onChange={(e) => edit(row.key, { value: e.target.value })}
+                          placeholder={keepsStored ? STORED_SECRET_PLACEHOLDER : "secret value"}
+                          autoComplete="new-password"
+                          aria-label="Secret value"
+                          aria-invalid={!!valueError}
+                          className="input"
+                          style={valueError ? cellInputErrorStyle : cellInputStyle}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={row.value}
+                          onChange={(e) => edit(row.key, { value: e.target.value })}
+                          placeholder="value"
+                          spellCheck={false}
+                          autoComplete="off"
+                          aria-label="Variable value"
+                          aria-invalid={!!valueError}
+                          className="input"
+                          style={valueError ? cellInputErrorStyle : cellInputStyle}
+                        />
                       )}
-                    </div>
-                  )}
-                  {nameError && <p className="mt-1 text-[11px] text-error">{nameError}</p>}
-                </div>
-                <div className="min-w-0">
-                  {row.secret ? (
-                    <input
-                      type="password"
-                      value={row.value}
-                      onChange={(e) => edit(row.key, { value: e.target.value })}
-                      placeholder={keepsStored ? STORED_SECRET_PLACEHOLDER : "secret value"}
-                      autoComplete="new-password"
-                      aria-label="Secret value"
-                      aria-invalid={!!valueError}
-                      className={`${cellInput} ${valueError ? "border-error" : "border-outline-variant"}`}
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={row.value}
-                      onChange={(e) => edit(row.key, { value: e.target.value })}
-                      placeholder="value"
-                      spellCheck={false}
-                      autoComplete="off"
-                      aria-label="Variable value"
-                      aria-invalid={!!valueError}
-                      className={`${cellInput} ${valueError ? "border-error" : "border-outline-variant"}`}
-                    />
-                  )}
-                  {row.secret && keepsStored && row.value === "" && !valueError && (
-                    <p className="mt-1 text-[10px] text-on-surface-variant">Leave empty to keep the stored value</p>
-                  )}
-                  {valueError && <p className="mt-1 text-[11px] text-error">{valueError}</p>}
-                </div>
-                <label className="flex h-[30px] cursor-pointer items-center justify-center" title="Secret: masked, never returned by the API, passed to k6 as an environment variable">
-                  <input
-                    type="checkbox"
-                    checked={row.secret}
-                    onChange={(e) => edit(row.key, { secret: e.target.checked })}
-                    aria-label="Secret"
-                    className="h-4 w-4 accent-[var(--color-primary)]"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => removeRow(row.key)}
-                  className="flex h-[30px] items-center justify-center text-on-surface-variant hover:text-error"
-                  title="Delete variable"
-                  aria-label={`Delete variable ${row.name}`}
-                >
-                  ✕
-                </button>
-              </div>
-            );
-          })}
+                      {row.secret && keepsStored && row.value === "" && !valueError && (
+                        <p style={{ ...hintTextStyle, fontSize: "10px", marginTop: "4px" }}>
+                          Leave empty to keep the stored value
+                        </p>
+                      )}
+                      {valueError && <p style={fieldErrorStyle}>{valueError}</p>}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: "center" }}>
+                      <label
+                        style={{ ...secretToggleStyle, ...(row.secret ? secretToggleOnStyle : null) }}
+                        title="Secret: masked, never returned by the API, passed to k6 as an environment variable"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={row.secret}
+                          onChange={(e) => edit(row.key, { secret: e.target.checked })}
+                          aria-label="Secret"
+                          style={visuallyHiddenStyle}
+                        />
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }} aria-hidden="true">
+                          {row.secret ? "lock" : "lock_open"}
+                        </span>
+                      </label>
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: "center" }}>
+                      <button
+                        type="button"
+                        onClick={() => removeRow(row.key)}
+                        style={iconButtonStyle}
+                        title="Delete variable"
+                        aria-label={`Delete variable ${row.name}`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                          delete
+                        </span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
       {generalErrors.length > 0 && (
-        <div className="rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-[12px] text-error">
+        <div style={errorBoxStyle} role="alert">
           {generalErrors.map((message, index) => (
-            <p key={index}>{message}</p>
+            <p key={index} style={{ margin: 0 }}>
+              {message}
+            </p>
           ))}
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 pt-1">
-        <button type="button" onClick={addRow} className="text-sm text-primary hover:underline">
-          + Add variable
+      <div style={footerStyle}>
+        <button type="button" onClick={addRow} style={textButtonStyle}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+            add
+          </span>
+          <span>Add variable</span>
         </button>
-        <div className="flex items-center gap-2">
-          {savedAt !== null && !dirty && <span className="text-[11px] text-secondary">✓ Saved</span>}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {savedAt !== null && !dirty && (
+            <span style={savedStyle}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                check_circle
+              </span>
+              Saved
+            </span>
+          )}
           <button
             type="button"
             onClick={discard}
-            disabled={!dirty || saving}
-            className="rounded-lg border border-outline-variant px-3 py-1.5 text-sm text-on-surface disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={actionsDisabled}
+            className="btn-secondary"
+            style={{ ...footerButtonStyle, ...(actionsDisabled ? disabledStyle : null) }}
           >
             Discard
           </button>
           <button
             type="button"
             onClick={save}
-            disabled={!dirty || saving}
-            className="rounded-lg bg-primary-container px-3 py-1.5 text-sm font-semibold text-on-primary-container transition-colors hover:bg-tertiary-container disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={actionsDisabled}
+            className="btn-primary"
+            style={{ ...footerButtonStyle, ...(actionsDisabled ? disabledStyle : null) }}
           >
             {saving ? "Saving..." : "Save"}
           </button>
@@ -312,34 +366,38 @@ export function VariablesPanel({
   return (
     <div style={panelStyle}>
       <div style={headerStyle}>
-        <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px] text-primary">data_object</span>
-          <h3 className="m-0 text-[14px] font-semibold text-on-surface">Variables</h3>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--color-primary)" }}>
+            data_object
+          </span>
+          <h3 style={panelTitleStyle}>Variables</h3>
         </div>
         <button onClick={onClose} style={closeButtonStyle} aria-label="Close">
-          ✕
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+            close
+          </span>
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        <p className="mb-3 text-[11px] text-on-surface-variant">
-          Reference variables as <code className="font-mono text-secondary">{"{{name}}"}</code> in URL, header values and
-          body. Scenario variables override environment variables with the same name.
+      <div style={panelBodyStyle}>
+        <p style={{ ...hintTextStyle, marginBottom: "12px" }}>
+          Reference variables as <code style={codeStyle}>{"{{name}}"}</code> in URL, header values and body. Scenario
+          variables override environment variables with the same name.
         </p>
 
         {/* Usage in the graph */}
-        <section className="mb-4 rounded-lg border border-surface-container-high bg-surface-container-lowest p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h4 className="m-0 text-[12px] font-medium text-on-surface-variant">Used in this scenario</h4>
-            <span className="text-[11px] text-on-surface-variant">
+        <section style={usageCardStyle}>
+          <div style={sectionHeaderStyle}>
+            <h4 style={sectionTitleStyle}>Used in this scenario</h4>
+            <span style={hintTextStyle}>
               Environment:{" "}
-              <span className="font-medium text-on-surface">{environmentName ?? "Sin entorno"}</span>
+              <span style={{ fontWeight: 500, color: "var(--color-on-surface)" }}>{environmentName ?? "Sin entorno"}</span>
             </span>
           </div>
           {usedNames.length === 0 ? (
-            <p className="text-[11px] text-on-surface-variant">No {"{{variables}}"} referenced by the graph.</p>
+            <p style={hintTextStyle}>No {"{{variables}}"} referenced by the graph.</p>
           ) : (
-            <div className="flex flex-wrap gap-1">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
               {usedNames.map((name) => (
                 <TokenChip
                   key={name}
@@ -349,26 +407,31 @@ export function VariablesPanel({
             </div>
           )}
           {undefinedNames.length > 0 && (
-            <p className="mt-2 text-[11px] text-amber-500">
-              ⚠ {undefinedNames.length} undefined: {undefinedNames.join(", ")}. The run will fail until they are
-              defined here or in the selected environment.
+            <p style={warningTextStyle}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                warning
+              </span>
+              <span>
+                {undefinedNames.length} undefined: {undefinedNames.join(", ")}. The run will fail until they are defined
+                here or in the selected environment.
+              </span>
             </p>
           )}
           {environmentVariables.error && (
-            <p className="mt-2 text-[11px] text-error">Environment variables: {environmentVariables.error}</p>
+            <p style={fieldErrorStyle}>Environment variables: {environmentVariables.error}</p>
           )}
         </section>
 
         {/* Scenario variables */}
-        <h4 className="mb-2 text-[12px] font-medium text-on-surface-variant">Scenario variables</h4>
+        <h4 style={{ ...sectionTitleStyle, marginBottom: "8px" }}>Scenario variables</h4>
         {scenarioId === null ? (
-          <p className="rounded-lg border border-dashed border-outline-variant px-3 py-3 text-[12px] text-on-surface-variant">
+          <p style={{ ...emptyTableStyle, margin: 0 }}>
             Save the scenario first to define scenario variables. Environment variables still apply.
           </p>
         ) : scenarioVariables.error && !scenarioVariables.loading ? (
-          <div className="rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-[12px] text-error">
-            <p>{scenarioVariables.error}</p>
-            <button type="button" onClick={() => void scenarioVariables.reload()} className="mt-1 underline">
+          <div style={errorBoxStyle} role="alert">
+            <p style={{ margin: 0 }}>{scenarioVariables.error}</p>
+            <button type="button" onClick={() => void scenarioVariables.reload()} style={linkButtonStyle}>
               Retry
             </button>
           </div>
@@ -384,35 +447,43 @@ export function VariablesPanel({
         )}
 
         {/* Environment summary */}
-        <section className="mt-4 border-t border-surface-container-high pt-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h4 className="m-0 text-[12px] font-medium text-on-surface-variant">
+        <section style={envSummaryStyle}>
+          <div style={sectionHeaderStyle}>
+            <h4 style={sectionTitleStyle}>
               Environment variables{environmentName ? ` · ${environmentName}` : ""}
             </h4>
-            <Link href="/environments" className="text-[11px] text-primary hover:underline">
+            <Link href="/environments" style={manageLinkStyle}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                tune
+              </span>
               Gestionar entornos
             </Link>
           </div>
           {environmentName === null ? (
-            <p className="text-[11px] text-on-surface-variant">No environment selected (Sin entorno).</p>
+            <p style={hintTextStyle}>No environment selected (Sin entorno).</p>
           ) : environmentVariables.loading ? (
-            <p className="text-[11px] text-on-surface-variant">Loading...</p>
+            <p style={hintTextStyle}>Loading...</p>
           ) : environmentVariables.variables.length === 0 ? (
-            <p className="text-[11px] text-on-surface-variant">This environment has no variables.</p>
+            <p style={hintTextStyle}>This environment has no variables.</p>
           ) : (
-            <div className="flex flex-wrap gap-1">
-              {environmentVariables.variables.map((variable) => (
-                <span
-                  key={variable.name}
-                  className={`rounded border border-outline-variant px-1 font-mono text-[11px] ${
-                    scenarioNames.has(variable.name) ? "text-on-surface-variant line-through" : "text-on-surface"
-                  }`}
-                  title={scenarioNames.has(variable.name) ? "Overridden by a scenario variable" : undefined}
-                >
-                  {variable.secret ? "🔒 " : ""}
-                  {variable.name}
-                </span>
-              ))}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+              {environmentVariables.variables.map((variable) => {
+                const overridden = scenarioNames.has(variable.name);
+                return (
+                  <span
+                    key={variable.name}
+                    style={{ ...envChipStyle, ...(overridden ? envChipOverriddenStyle : null) }}
+                    title={overridden ? "Overridden by a scenario variable" : undefined}
+                  >
+                    {variable.secret && (
+                      <span className="material-symbols-outlined" style={{ fontSize: 12 }} aria-label="secret">
+                        lock
+                      </span>
+                    )}
+                    {variable.name}
+                  </span>
+                );
+              })}
             </div>
           )}
         </section>
@@ -421,6 +492,226 @@ export function VariablesPanel({
   );
 }
 
+// -----------------------------------------------------------------------------
+// Styles
+// -----------------------------------------------------------------------------
+
+// Table (mirrors app/executions/page.tsx, compacted to fit the 560px editor panel).
+const tableContainerStyle: React.CSSProperties = {
+  background: "var(--color-surface-container-lowest)",
+  border: "1px solid var(--color-surface-container)",
+  borderRadius: "8px",
+  overflow: "hidden",
+};
+
+const tableStyle: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  tableLayout: "fixed",
+};
+
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "8px 10px",
+  fontSize: "11px",
+  fontWeight: 600,
+  textTransform: "uppercase",
+  letterSpacing: "0.5px",
+  color: "var(--color-on-surface-variant)",
+  background: "var(--color-surface-container)",
+  borderBottom: "1px solid var(--color-surface-container-high)",
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "8px 10px",
+  verticalAlign: "top",
+  fontSize: "13px",
+  color: "var(--color-on-surface)",
+};
+
+const errorRowStyle: React.CSSProperties = {
+  background: "color-mix(in srgb, var(--color-error) 8%, transparent)",
+};
+
+const errorCellMarkerStyle: React.CSSProperties = {
+  boxShadow: "inset 2px 0 0 var(--color-error)",
+};
+
+const cellInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  height: "32px",
+  padding: "6px 8px",
+  fontSize: "12px",
+};
+
+const cellInputErrorStyle: React.CSSProperties = {
+  ...cellInputStyle,
+  borderColor: "var(--color-error)",
+};
+
+const fieldErrorStyle: React.CSSProperties = {
+  margin: "4px 0 0",
+  fontSize: "11px",
+  lineHeight: "16px",
+  color: "var(--color-error)",
+};
+
+const smallBadgeStyle: React.CSSProperties = {
+  padding: "0 6px",
+  fontSize: "10px",
+  lineHeight: "16px",
+  borderRadius: "6px",
+};
+
+const overrideBadgeStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  fontWeight: 500,
+  color: "var(--color-tertiary)",
+  background: "color-mix(in srgb, var(--color-tertiary) 10%, transparent)",
+  border: "1px solid color-mix(in srgb, var(--color-tertiary) 30%, transparent)",
+};
+
+const secretToggleStyle: React.CSSProperties = {
+  position: "relative",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "32px",
+  height: "32px",
+  borderRadius: "8px",
+  border: "1px solid var(--color-outline-variant)",
+  color: "var(--color-on-surface-variant)",
+  cursor: "pointer",
+  boxSizing: "border-box",
+  transition: "background 0.15s, color 0.15s, border-color 0.15s",
+};
+
+const secretToggleOnStyle: React.CSSProperties = {
+  color: "var(--color-primary)",
+  borderColor: "var(--color-primary-container)",
+  background: "color-mix(in srgb, var(--color-primary-container) 20%, transparent)",
+};
+
+const visuallyHiddenStyle: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
+const iconButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "32px",
+  height: "32px",
+  padding: 0,
+  background: "none",
+  border: "none",
+  borderRadius: "8px",
+  color: "var(--color-on-surface-variant)",
+  cursor: "pointer",
+};
+
+const emptyTableStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: "6px",
+  padding: "20px 12px",
+  textAlign: "center",
+  fontSize: "12px",
+  lineHeight: "18px",
+  color: "var(--color-on-surface-variant)",
+  border: "1px dashed var(--color-outline-variant)",
+  borderRadius: "8px",
+};
+
+const errorBoxStyle: React.CSSProperties = {
+  padding: "8px 12px",
+  fontSize: "12px",
+  lineHeight: "18px",
+  color: "var(--color-error)",
+  background: "color-mix(in srgb, var(--color-error) 10%, transparent)",
+  border: "1px solid color-mix(in srgb, var(--color-error) 30%, transparent)",
+  borderRadius: "8px",
+};
+
+const linkButtonStyle: React.CSSProperties = {
+  marginTop: "4px",
+  padding: 0,
+  background: "none",
+  border: "none",
+  color: "inherit",
+  fontSize: "12px",
+  textDecoration: "underline",
+  cursor: "pointer",
+};
+
+const footerStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  flexWrap: "wrap",
+  gap: "8px",
+};
+
+const textButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "4px",
+  height: "32px",
+  padding: "0 10px 0 6px",
+  background: "none",
+  border: "none",
+  borderRadius: "8px",
+  color: "var(--color-primary)",
+  fontSize: "13px",
+  fontWeight: 500,
+  cursor: "pointer",
+};
+
+const footerButtonStyle: React.CSSProperties = {
+  height: "32px",
+  padding: "0 14px",
+  fontSize: "13px",
+  cursor: "pointer",
+  boxSizing: "border-box",
+};
+
+const disabledStyle: React.CSSProperties = {
+  opacity: 0.5,
+  cursor: "not-allowed",
+  boxShadow: "none",
+};
+
+const savedStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "4px",
+  fontSize: "11px",
+  color: "var(--color-secondary)",
+};
+
+const hintTextStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "11px",
+  lineHeight: "16px",
+  color: "var(--color-on-surface-variant)",
+};
+
+const codeStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  color: "var(--color-secondary)",
+};
+
+// Panel (mirrors lib/editor/RunHistoryPanel.tsx / ScriptPanel.tsx).
 const panelStyle: React.CSSProperties = {
   position: "absolute",
   top: "16px",
@@ -446,11 +737,91 @@ const headerStyle: React.CSSProperties = {
   borderBottom: "2px solid var(--color-primary)",
 };
 
+const panelTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "14px",
+  fontWeight: 600,
+  color: "var(--color-on-surface)",
+};
+
 const closeButtonStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
   background: "none",
   border: "none",
-  fontSize: "16px",
   color: "var(--color-on-surface-variant)",
   cursor: "pointer",
   padding: "4px",
+};
+
+const panelBodyStyle: React.CSSProperties = {
+  flex: 1,
+  overflowY: "auto",
+  padding: "16px",
+};
+
+const usageCardStyle: React.CSSProperties = {
+  marginBottom: "16px",
+  padding: "12px",
+  background: "var(--color-surface-container-lowest)",
+  border: "1px solid var(--color-surface-container-high)",
+  borderRadius: "8px",
+};
+
+const sectionHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "8px",
+  marginBottom: "8px",
+};
+
+const sectionTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "12px",
+  fontWeight: 500,
+  color: "var(--color-on-surface-variant)",
+};
+
+const warningTextStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: "4px",
+  margin: "8px 0 0",
+  fontSize: "11px",
+  lineHeight: "16px",
+  color: "#f59e0b",
+};
+
+const envSummaryStyle: React.CSSProperties = {
+  marginTop: "16px",
+  paddingTop: "12px",
+  borderTop: "1px solid var(--color-surface-container-high)",
+};
+
+const manageLinkStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "4px",
+  fontSize: "11px",
+  color: "var(--color-primary)",
+  textDecoration: "none",
+};
+
+const envChipStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "2px",
+  padding: "0 6px",
+  fontFamily: "var(--font-mono)",
+  fontSize: "11px",
+  lineHeight: "18px",
+  color: "var(--color-on-surface)",
+  border: "1px solid var(--color-outline-variant)",
+  borderRadius: "4px",
+};
+
+const envChipOverriddenStyle: React.CSSProperties = {
+  color: "var(--color-on-surface-variant)",
+  textDecoration: "line-through",
 };
