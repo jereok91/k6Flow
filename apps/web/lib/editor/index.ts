@@ -12,6 +12,7 @@ export { ScriptPanel } from "./ScriptPanel";
 export { RunExecutionPanel } from "./RunExecutionPanel";
 export { RunHistoryPanel, type RunHistoryEntry } from "./RunHistoryPanel";
 export { computeRunResources, type RunResources } from "./run-resources";
+export { toHistoryStatus, type HistoryStatus } from "./run-status";
 export {
   describeRunFailure,
   describeStartError,

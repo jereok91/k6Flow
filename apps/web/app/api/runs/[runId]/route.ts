@@ -5,6 +5,11 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "../../../../lib/auth/require-user";
 import { isRunOwner, updateRunStatus } from "../../../../lib/editor/run-ownership";
+import { toHistoryStatus } from "../../../../lib/editor/run-status";
+
+function finiteOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -26,9 +31,9 @@ export async function PATCH(
   try {
     const body = await request.json();
 
-    // Validate status
-    const validStatuses = ["running", "completed", "failed", "stopped"];
-    if (!body.status || !validStatuses.includes(body.status)) {
+    // Normalize orchestrator statuses (e.g. "finished") to the history vocabulary
+    const status = toHistoryStatus(body?.status);
+    if (!status) {
       return Response.json(
         { error: "Invalid status" },
         { status: 400 }
@@ -36,10 +41,10 @@ export async function PATCH(
     }
 
     await updateRunStatus(runId, {
-      status: body.status,
-      iterations: body.iterations,
-      avgDurationMs: body.avgDurationMs,
-      errorRate: body.errorRate,
+      status,
+      iterations: finiteOrUndefined(body.iterations),
+      avgDurationMs: finiteOrUndefined(body.avgDurationMs),
+      errorRate: finiteOrUndefined(body.errorRate),
     });
 
     return Response.json({ success: true });

@@ -24,6 +24,7 @@ import {
   RunExecutionPanel,
   RunHistoryPanel,
   type RunHistoryEntry,
+  toHistoryStatus,
   type K6NodeType,
   type K6Edge,
   type K6NodeData,
@@ -448,12 +449,16 @@ export default function EditorPage() {
   };
 
   const handleRunComplete = async (result: { runId: string; status: string; iterations: number; metrics: { avgDuration: number; errorRate: number } }) => {
+    // Map orchestrator status (e.g. "finished") to the history vocabulary
+    const historyStatus = toHistoryStatus(result.status);
+    if (!historyStatus) return;
+
     // Update history entry in state
     setRunHistory(prev => prev.map(entry => 
       entry.runId === result.runId 
         ? { 
             ...entry, 
-            status: result.status as "completed" | "failed" | "stopped",
+            status: historyStatus,
             completedAt: new Date(),
             iterations: result.iterations,
             avgDuration: result.metrics.avgDuration,
@@ -464,16 +469,19 @@ export default function EditorPage() {
     
     // Persist to database
     try {
-      await fetch(`/api/runs/${result.runId}`, {
+      const res = await fetch(`/api/runs/${result.runId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: result.status,
+          status: historyStatus,
           iterations: result.iterations,
           avgDurationMs: result.metrics.avgDuration,
           errorRate: result.metrics.errorRate,
         }),
       });
+      if (!res.ok) {
+        console.warn(`Failed to persist run ${result.runId} status: HTTP ${res.status}`);
+      }
     } catch {
       // Silently fail - state is already updated in memory
     }

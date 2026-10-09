@@ -43,6 +43,29 @@ interface RunResult {
 
 type RunStatus = "pending" | "running" | "finished" | "completed" | "failed" | "stopped";
 
+// Merge the orchestrator run summary (totals.iterations, latency.avgMs in ms,
+// errors/requests as a 0-1 fraction) into the current metrics.
+interface RunSummary {
+  totals?: { iterations?: number; errors?: number; requests?: number };
+  latency?: { avgMs?: number };
+  dataReceivedBytes?: number;
+  dataSentBytes?: number;
+  errors?: string[];
+}
+
+function mergeSummaryMetrics(prev: RunMetrics, summary: RunSummary): RunMetrics {
+  const errors = summary?.totals?.errors ?? 0;
+  const requests = summary?.totals?.requests ?? 0;
+  return {
+    ...prev,
+    iterations: summary?.totals?.iterations ?? prev.iterations,
+    avgDuration: summary?.latency?.avgMs ?? prev.avgDuration,
+    errorRate: errors > 0 && requests > 0 ? errors / requests : prev.errorRate,
+    dataReceived: summary?.dataReceivedBytes ?? prev.dataReceived,
+    dataSent: summary?.dataSentBytes ?? prev.dataSent,
+  };
+}
+
 export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecutionPanelProps) {
   const router = useRouter();
   const [status, setStatus] = useState<RunStatus>("pending");
@@ -81,6 +104,11 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
   const startTimeRef = useRef<number>(Date.now());
   // k6 exit code from the WebSocket end message (the run GET has no exitCode)
   const exitCodeRef = useRef<number | null>(null);
+  // Latest metrics, readable from long-lived effect/WebSocket/polling closures
+  const metricsRef = useRef<RunMetrics>(metrics);
+  useEffect(() => {
+    metricsRef.current = metrics;
+  }, [metrics]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -100,6 +128,10 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
   useEffect(() => {
     let cancelled = false;
     let ws: WebSocket | null = null;
+
+    // Final metrics for onComplete: prefer the just-fetched summary, else latest state
+    const finalMetrics = (summary?: RunSummary | null): RunMetrics =>
+      summary ? mergeSummaryMetrics(metricsRef.current, summary) : metricsRef.current;
     
     // Fetch final status (for completion and errors)
     const fetchStatus = async () => {
@@ -240,34 +272,29 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
             }
             if (finalStatus === "finished" || finalStatus === "completed" || finalStatus === "failed" || finalStatus === "stopped") {
               // Fetch summary for final metrics
+              let summary: RunSummary | null = null;
               try {
                 const summaryRes = await fetch(`/api/orchestrator/runs/${runId}/summary`);
                 if (summaryRes.ok) {
-                  const summary = await summaryRes.json();
-                  setMetrics(prev => ({
-                    ...prev,
-                    iterations: summary.totals?.iterations ?? prev.iterations,
-                    avgDuration: summary.latency?.avgMs ?? prev.avgDuration,
-                    errorRate: summary.totals?.errors > 0 && summary.totals?.requests > 0
-                      ? summary.totals.errors / summary.totals.requests
-                      : prev.errorRate,
-                    dataReceived: summary.dataReceivedBytes ?? prev.dataReceived,
-                    dataSent: summary.dataSentBytes ?? prev.dataSent,
-                  }));
+                  const fetched: RunSummary = await summaryRes.json();
+                  summary = fetched;
+                  setMetrics(prev => mergeSummaryMetrics(prev, fetched));
                   // Show errors if any
-                  if (summary.errors && summary.errors.length > 0) {
-                    setLogs(prev => [...prev, ...summary.errors.map((e: string) => `[ERROR] ${e}`)]);
+                  const summaryErrors = fetched.errors;
+                  if (summaryErrors && summaryErrors.length > 0) {
+                    setLogs(prev => [...prev, ...summaryErrors.map((e: string) => `[ERROR] ${e}`)]);
                   }
                 }
               } catch {
                 // Ignore summary fetch errors
               }
+              const completed = finalMetrics(summary);
               onComplete?.({
                 runId,
                 status: finalStatus,
                 duration: elapsed,
-                iterations: metrics.iterations,
-                metrics,
+                iterations: completed.iterations,
+                metrics: completed,
                 errors: [],
               });
             }
@@ -306,12 +333,13 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
           }
           if (data.status === "finished" || data.status === "completed" || data.status === "failed" || data.status === "stopped") {
             if (pollInterval) clearInterval(pollInterval);
+            const completed = finalMetrics();
             onComplete?.({
               runId,
               status: data.status,
               duration: elapsed,
-              iterations: metrics.iterations,
-              metrics,
+              iterations: completed.iterations,
+              metrics: completed,
               errors: data.errors || [],
             });
           }
@@ -327,12 +355,13 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
           connectWs();
         } else {
           // Already finished
+          const completed = finalMetrics();
           onComplete?.({
             runId,
             status: data.status,
             duration: elapsed,
-            iterations: metrics.iterations,
-            metrics,
+            iterations: completed.iterations,
+            metrics: completed,
             errors: data.errors || [],
           });
         }
