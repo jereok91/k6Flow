@@ -40,12 +40,14 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/gorilla/websocket"
 
 	"k6flow/apps/orchestrator/internal/config"
+	"k6flow/apps/orchestrator/internal/diagnostic"
 	"k6flow/apps/orchestrator/internal/engine"
 	"k6flow/apps/orchestrator/internal/httpapi"
 	"k6flow/apps/orchestrator/internal/k6sum"
@@ -455,6 +457,194 @@ func TestRealRunInvalidScriptFailsAndCleansUp(t *testing.T) {
 		t.Errorf("summary = %+v, want nil for failed runs", run.Summary)
 	}
 	h.waitNoManagedContainers(t, 60*time.Second)
+}
+
+// TestRealDiagnosticConformance uses no network targets. The fixture mirrors
+// the shared Counter emitter, not an actual compiled graph. No image is pulled.
+func localDiagnosticClient(t *testing.T) *client.Client {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("local Docker/k6 integration disabled in short mode")
+	}
+	cli := realClient(t) // daemon availability is checked before image access
+	t.Cleanup(func() { _ = cli.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	images, err := cli.ImageList(ctx, image.ListOptions{Filters: filters.NewArgs(filters.Arg("reference", realK6Image))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) == 0 {
+		t.Skip("local grafana/k6 image unavailable; no network pull")
+	}
+	return cli
+}
+
+func TestRealDiagnosticConformance(t *testing.T) {
+	cli := localDiagnosticClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	docker := runtime.NewDockerRuntime(cli, config.Config{K6Image: realK6Image, MaxConcurrentRuns: 1}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	rt := &demuxRT{inner: docker}
+	fixture := `import { Counter } from 'k6/metrics';
+export const options={scenarios:{hostile:{executor:'constant-vus',vus:50,duration:'1h'}}};
+const metric = new Counter('k6flow_diagnostic_event');
+let seq=0;
+function emit(nodeId,event,value,status,outcome,reason){metric.add(Math.min(30000,Math.max(0,value)),{seq:String(++seq),nodeId,event,httpStatus:String(status),outcome,reason});}
+export function setup(){return {safe:42};}
+export default function(data){
+ if(data.safe!==42) throw new Error('setup forwarding');
+ if(__VU!==1 || __ITER!==0) throw new Error('execution bounds');
+ emit('a','enter',0,0,'pending','none');
+ emit('a','exit',1,200,'success','none');
+ emit('b','skipped',0,0,'skipped','disabled');
+ emit('','complete',0,0,'success','none');
+ return 42;
+}
+export function teardown(data){if(data.safe!==42) throw new Error('teardown forwarding');}
+`
+	id, err := rt.Create(ctx, runtime.Spec{
+		Image: realK6Image, Command: []string{"run"},
+		Args: []string{"--out", "json", "--vus", "1", "--iterations", "1", "--system-tags", "", runtime.DiagnosticPath},
+		DiagnosticEntry: []byte(diagnostic.Entry), Env: map[string]string{runtime.ScriptEnvKey: fixture},
+		CPUMillis: 250, MemoryMiB: 128,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = docker.Remove(cleanupCtx, id, true)
+	})
+	if err := rt.Start(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	exit, err := rt.Wait(ctx, id)
+	if err != nil || exit != 0 {
+		t.Fatalf("exit=%d err=%v", exit, err)
+	}
+	output, err := rt.Output(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	raw, err := io.ReadAll(io.LimitReader(output, 1024*1024))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := diagnostic.New()
+	metadata := diagnostic.Metadata{NodeIDs: []string{"a", "b"}}
+	for _, line := range bytes.Split(raw, []byte("\n")) {
+		if bytes.Contains(line, []byte(`"metric":"k6flow_diagnostic_event"`)) {
+			// Fixture-only output: no URLs, payloads, source or secret variables.
+			t.Logf("controlled fixture custom point: %s", line)
+		}
+		diagnostic.Consume(&snapshot, metadata, line)
+	}
+	diagnostic.Finish(&snapshot, "finished")
+	if snapshot.State != "complete" || len(snapshot.Events) != 4 {
+		t.Fatalf("trace=%+v", snapshot)
+	}
+	for _, index := range []int{0, 2, 3} {
+		if snapshot.Events[index].ElapsedMs != 0 {
+			t.Fatal("zero Counter point changed")
+		}
+	}
+	summary, err := k6sum.Parse(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Totals.Iterations != 1 {
+		t.Fatalf("iterations=%d", summary.Totals.Iterations)
+	}
+	t.Log("actual k6: hostile source scenarios isolated; exactly one iteration; zero-valued enter/skipped/complete flushed; closed six tags")
+}
+
+// TestRealDiagnosticRuntimeLifecycle exercises the authoritative engine/store
+// pipeline, including missing markers and actual container interruption.
+func TestRealDiagnosticRuntimeLifecycle(t *testing.T) {
+	cli := localDiagnosticClient(t)
+	prelude := `import { Counter } from 'k6/metrics';
+const metric = new Counter('k6flow_diagnostic_event'); let seq=0;
+function emit(nodeId,event,value,outcome,reason){metric.add(Math.min(30000,Math.max(0,value)),{seq:String(++seq),nodeId,event,httpStatus:'0',outcome,reason});}
+`
+	for _, tc := range []struct {
+		name, source, state string
+		stop bool
+		timeout time.Duration
+	}{
+		{"success",prelude+`export default function(){emit('a','enter',0,'pending','none');emit('a','exit',1,'success','none');emit('','complete',0,'success','none');}`,"complete",false,0},
+		{"failure",prelude+`export default function(){emit('a','enter',0,'pending','none');emit('a','exit',1,'failure','check');emit('','complete',0,'failure','prior-failure');}`,"failed",false,0},
+		{"all disabled",prelude+`export default function(){emit('a','skipped',0,'skipped','disabled');emit('','complete',0,'success','none');}`,"complete",false,0},
+		{"missing marker",`export default function(){}`,"incomplete",false,0},
+		{"missing default", `export function notDefault(){}`, "incomplete", false, 0},
+		{"nonfunction default", `export default 1;`, "incomplete", false, 0},
+		{"explicit stop",`import {sleep} from 'k6';export default function(){sleep(10);}`,"interrupted",true,0},
+		{"watchdog",`import {sleep} from 'k6';export default function(){sleep(10);}`,"interrupted",false,250*time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			docker := runtime.NewDockerRuntime(cli, config.Config{K6Image: realK6Image, MaxConcurrentRuns: 1}, logger)
+			rt := &demuxRT{inner: docker}
+			store := runs.NewStore()
+			sem := runtime.NewSemaphore(1)
+			eng := engine.New(engine.Deps{
+				Store: store, Runtime: rt, Sem: sem, K6Image: realK6Image,
+				DiagnosticTimeout: tc.timeout, Log: logger,
+			})
+			run, err := store.Create(runs.Run{
+				Mode: "diagnostic", Diagnostic: &diagnostic.Metadata{NodeIDs: []string{"a"}},
+				Script: tc.source, VUs: 99, DurationMs: 3600000, CPUMillis: 250, MemoryMiB: 128,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				containers, err := cli.ContainerList(ctx, container.ListOptions{
+					All: true, Filters: filters.NewArgs(filters.Arg("label", runtime.LabelRunID+"="+run.ID)),
+				})
+				if err != nil { t.Error(err); return }
+				for _, owned := range containers { _ = docker.Remove(ctx, owned.ID, true) }
+			})
+			env := map[string]string{
+				"K6_VUS": "99", "K6_ITERATIONS": "99", "K6_DURATION": "1h",
+				"K6_STAGES": "1h:99", "K6_SCENARIOS": "hostile", "K6_SYSTEM_TAGS": "url,name",
+			}
+			if err := eng.LaunchWithEnv(context.Background(), run.ID, env); err != nil {
+				t.Fatal(err)
+			}
+			if tc.stop {
+				if err := eng.Stop(context.Background(), run.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			deadline := time.Now().Add(10*time.Second)
+			for time.Now().Before(deadline) {
+				got, _ := store.Get(run.ID)
+				if got.Status.IsTerminal() {
+					if got.Trace.State != tc.state {
+						t.Fatalf("status=%s trace=%+v", got.Status, got.Trace)
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := sem.Acquire(ctx); err != nil {
+						t.Fatal("cleanup did not release capacity", err)
+					}
+					sem.Release()
+					if tc.state == "complete" && (got.Summary == nil || got.Summary.Totals.Iterations != 1) {
+						t.Fatal("missing summary or not one iteration")
+					}
+					return
+				}
+				time.Sleep(10*time.Millisecond)
+			}
+			_ = eng.Stop(context.Background(), run.ID)
+			t.Fatal("diagnostic runtime did not terminalize")
+		})
+	}
 }
 
 // TestRealK6CheckConformance is the CRITICAL conformance probe resolving

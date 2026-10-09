@@ -5,17 +5,371 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"k6flow/apps/orchestrator/internal/diagnostic"
 	"k6flow/apps/orchestrator/internal/engine"
 	"k6flow/apps/orchestrator/internal/metrics"
 	"k6flow/apps/orchestrator/internal/runs"
 	"k6flow/apps/orchestrator/internal/runtime"
 )
+
+// cleanupDeadlineRuntime consumes the entire Stop budget. Remove must receive
+// a fresh live context, not the exhausted Stop deadline.
+type cleanupDeadlineRuntime struct {
+	*runtime.FakeRuntime
+	removed chan error
+	failRemove bool
+}
+
+func (r *cleanupDeadlineRuntime) Stop(ctx context.Context, _ string, _ time.Duration) error {
+	<-ctx.Done()
+	return errors.New("PRIVATE_SCRIPT_ENV_STOP")
+}
+
+func (r *cleanupDeadlineRuntime) Remove(ctx context.Context, id string, force bool) error {
+	err := ctx.Err()
+	r.removed <- err
+	if err != nil {
+		return err
+	}
+	if r.failRemove {
+		return errors.New("PRIVATE_SCRIPT_ENV_REMOVE")
+	}
+	return r.FakeRuntime.Remove(ctx, id, force)
+}
+
+func TestDiagnosticCleanupRemoveHasIndependentBudget(t *testing.T) {
+	for _, failRemove := range []bool{false, true} {
+		t.Run(fmt.Sprint(failRemove), func(t *testing.T) {
+			testDiagnosticCleanupRemoveBudget(t, failRemove)
+		})
+	}
+}
+
+func testDiagnosticCleanupRemoveBudget(t *testing.T, failRemove bool) {
+	rt := &cleanupDeadlineRuntime{FakeRuntime: runtime.NewFakeRuntime(), removed: make(chan error, 1), failRemove: failRemove}
+	store := runs.NewStore()
+	logs := &syncBuffer{}
+	sem := runtime.NewSemaphore(1)
+	eng := engine.New(engine.Deps{
+		Store: store, Runtime: rt, Sem: sem, DiagnosticCleanupTimeout: 10*time.Millisecond,
+		Log: slog.New(slog.NewTextHandler(logs, nil)),
+	})
+	run, err := store.Create(runs.Run{Mode: "diagnostic", Diagnostic: &diagnostic.Metadata{NodeIDs: []string{"a"}}, Script: script})
+	if err != nil { t.Fatal(err) }
+	rt.SetOutput("fake-1", diagnosticOutput("success"))
+	if err := eng.Launch(context.Background(), run.ID); err != nil { t.Fatal(err) }
+	select {
+	case err := <-rt.removed:
+		if err != nil { t.Fatalf("force Remove inherited exhausted Stop context: %v", err) }
+	case <-time.After(time.Second):
+		t.Fatal("cleanup did not reach Remove")
+	}
+	assertSemFree(t, sem)
+	if !strings.Contains(logs.String(), "diagnostic cleanup stop failed") || strings.Contains(logs.String(), "PRIVATE_SCRIPT_ENV") {
+		t.Fatalf("cleanup warning missing or raw error leaked: %s", logs.String())
+	}
+	if failRemove && !strings.Contains(logs.String(), "diagnostic cleanup remove failed") {
+		t.Fatal("Remove failure was not logged")
+	}
+}
+
+// deliveryBarrierSink holds a callback before actual delivery, not before
+// admission. Terminalization must stay bounded, but finish cannot overtake it.
+type deliveryBarrierSink struct {
+	entered chan struct{}
+	release chan struct{}
+	finished chan struct{}
+	delivered chan struct{}
+	mu sync.Mutex
+	order []string
+	panicAfterDelivery bool
+}
+
+func (s *deliveryBarrierSink) OnFrame(metrics.MetricsFrame) {
+	close(s.entered)
+	<-s.release
+	s.mu.Lock()
+	s.order = append(s.order, "frame")
+	s.mu.Unlock()
+	close(s.delivered)
+	if s.panicAfterDelivery {
+		panic("test callback panic")
+	}
+}
+
+func (s *deliveryBarrierSink) OnRunFinished(string) {
+	s.mu.Lock()
+	s.order = append(s.order, "finished")
+	s.mu.Unlock()
+	close(s.finished)
+}
+
+func TestDiagnosticFinishCannotOvertakeAdmittedFrame(t *testing.T) {
+	for _, panicAfterDelivery := range []bool{false, true} {
+		t.Run(fmt.Sprint(panicAfterDelivery), func(t *testing.T) {
+			testDiagnosticFinishDeliveryOrdering(t, panicAfterDelivery)
+		})
+	}
+}
+
+func testDiagnosticFinishDeliveryOrdering(t *testing.T, panicAfterDelivery bool) {
+	sink := &deliveryBarrierSink{
+		entered: make(chan struct{}), release: make(chan struct{}),
+		finished: make(chan struct{}), delivered: make(chan struct{}),
+		panicAfterDelivery: panicAfterDelivery,
+	}
+	release := sync.OnceFunc(func() { close(sink.release) })
+	defer release()
+	rt := runtime.NewFakeRuntime()
+	store := runs.NewStore()
+	sem := runtime.NewSemaphore(1)
+	eng := engine.New(engine.Deps{
+		Store: store, Runtime: rt, Sem: sem, Sink: sink,
+		Now: func() time.Time { return tapClock }, DiagnosticTimeout: 100*time.Millisecond,
+	})
+	run, err := store.Create(runs.Run{Mode: "diagnostic", Diagnostic: &diagnostic.Metadata{NodeIDs: []string{"a"}}, Script: script})
+	if err != nil { t.Fatal(err) }
+	rt.SetOutput("fake-1", pointAt(100, "http_reqs", "1")+"\n"+pointAt(3100, "http_reqs", "1")+"\n"+pointAt(4100, "http_reqs", "1")+"\n")
+	if err := eng.Launch(context.Background(), run.ID); err != nil { t.Fatal(err) }
+	select {
+	case <-sink.entered:
+	case <-time.After(time.Second): t.Fatal("native frame did not enter delivery barrier")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		got, _ := store.Get(run.ID)
+		if got.Status.IsTerminal() {
+			if got.Trace.State != "interrupted" { t.Fatal(got.Trace.State) }
+			break
+		}
+		if time.Now().After(deadline) { t.Fatal("blocked callback stalled watchdog terminalization") }
+		time.Sleep(time.Millisecond)
+	}
+	// Cleanup/capacity cannot wait on the uncooperative callback either.
+	assertSemFree(t, sem)
+	release()
+	select {
+	case <-sink.delivered:
+	case <-time.After(time.Second): t.Fatal("frame did not deliver after release")
+	}
+	select {
+	case <-sink.finished:
+	case <-time.After(time.Second): t.Fatal("finish notification did not follow callback release")
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.order) != 2 || sink.order[0] != "frame" || sink.order[1] != "finished" {
+		t.Fatalf("late native frame after finish: %v", sink.order)
+	}
+}
+
+type blockingDiagnosticFinisher struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (*blockingDiagnosticFinisher) OnFrame(metrics.MetricsFrame) {}
+func (s *blockingDiagnosticFinisher) OnRunFinished(string) {
+	close(s.entered)
+	<-s.release
+}
+
+func TestDiagnosticBlockedFinisherDoesNotHoldCapacity(t *testing.T) {
+	sink := &blockingDiagnosticFinisher{entered: make(chan struct{}), release: make(chan struct{})}
+	defer close(sink.release)
+	rt := runtime.NewFakeRuntime()
+	store := runs.NewStore()
+	sem := runtime.NewSemaphore(1)
+	eng := engine.New(engine.Deps{Store: store, Runtime: rt, Sem: sem, Sink: sink})
+	run, err := store.Create(runs.Run{Mode: "diagnostic", Diagnostic: &diagnostic.Metadata{NodeIDs: []string{"a"}}, Script: script})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.SetOutput("fake-1", diagnosticOutput("success"))
+	if err := eng.Launch(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-sink.entered:
+	case <-time.After(time.Second):
+		t.Fatal("finisher did not start")
+	}
+	assertSemFree(t, sem)
+	got, _ := store.Get(run.ID)
+	if got.Trace.State != "complete" {
+		t.Fatal("blocked finisher prevented terminal snapshot")
+	}
+}
+
+func diagnosticOutput(outcome string) string {
+	reason := "none"
+	if outcome == "failure" {
+		reason = "check"
+	}
+	endReason := "none"
+	if outcome == "failure" {
+		endReason = "prior-failure"
+	}
+	return fmt.Sprintf(`{"type":"Point","metric":"k6flow_diagnostic_event","data":{"value":0,"tags":{"seq":"1","nodeId":"a","event":"enter","httpStatus":"0","outcome":"pending","reason":"none"}}}
+{"type":"Point","metric":"k6flow_diagnostic_event","data":{"value":3,"tags":{"seq":"2","nodeId":"a","event":"exit","httpStatus":"200","outcome":%q,"reason":%q}}}
+{"type":"Point","metric":"k6flow_diagnostic_event","data":{"value":0,"tags":{"seq":"3","nodeId":"","event":"complete","httpStatus":"0","outcome":%q,"reason":%q}}}
+`, outcome, reason, outcome, endReason)
+}
+
+func TestDiagnosticEngineReconciliation(t *testing.T) {
+	for _, tc := range []struct {
+		name, output, state string
+		exit int
+	}{
+		{"success", diagnosticOutput("success"), "complete", 0},
+		{"failure", diagnosticOutput("failure"), "failed", 0},
+		{"empty", "", "incomplete", 0},
+		{"init crash", "", "incomplete", 1},
+		{"contradiction", diagnosticOutput("success"), "incomplete", 1},
+		{"threshold exit contradiction", diagnosticOutput("success"), "incomplete", 99},
+		{"failure nonzero", diagnosticOutput("failure"), "failed", 1},
+		{"oversized", strings.Repeat("x", 1024*1024+1)+"\n"+diagnosticOutput("success"), "incomplete", 0},
+		{"malformed custom", "{\"metric\":\"k6flow_diagnostic_event\",\"data\":null}\n", "incomplete", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(runtime.NewFakeRuntime())
+			run, err := h.st.Create(runs.Run{
+				Mode: "diagnostic", Diagnostic: &diagnostic.Metadata{NodeIDs: []string{"a"}},
+				Script: "export const options={scenarios:{hostile:{executor:'constant-vus',vus:100,duration:'1h'}}}; export default function(){}",
+				VUs: 50, DurationMs: 100000, CPUMillis: 100, MemoryMiB: 128,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.rt.SetOutput("fake-1", tc.output)
+			h.rt.SetExitCode("fake-1", tc.exit)
+			env := map[string]string{"K6_ITERATIONS": "999", "K6_DURATION": "1h", "K6_VUS": "100", "K6FLOW_VAR_SAFE": "v"}
+			if err := h.eng.LaunchWithEnv(context.Background(), run.ID, env); err != nil {
+				t.Fatal(err)
+			}
+			status := runs.StatusFinished
+			if tc.exit != 0 && tc.exit != 99 {
+				status = runs.StatusFailed
+			}
+			h.waitForStatus(t, run.ID, status)
+			got, _ := h.st.Get(run.ID)
+			if got.Trace.State != tc.state {
+				t.Fatalf("%+v", got.Trace)
+			}
+			spec := h.rt.Specs()[0]
+			args := strings.Join(spec.Args, " ")
+			if strings.Contains(args, "--duration") || !strings.Contains(args, "--vus 1 --iterations 1") ||
+				!strings.Contains(args, runtime.DiagnosticPath) || string(spec.DiagnosticEntry) != diagnostic.Entry {
+				t.Fatalf("unsafe spec: %v", spec.Args)
+			}
+			if _, ok := spec.Env["K6_ITERATIONS"]; ok {
+				t.Fatal("execution env survived")
+			}
+			if spec.Env["K6FLOW_VAR_SAFE"] != "v" {
+				t.Fatal("variable env lost")
+			}
+		})
+	}
+}
+
+// uncooperativeRuntime deliberately ignores cancellation and reader Close.
+// The engine still has to publish a bounded interrupted snapshot.
+type uncooperativeRuntime struct {
+	*runtime.FakeRuntime
+	release chan struct{}
+}
+func (r *uncooperativeRuntime) Wait(context.Context, string) (int, error) {
+	<-r.release
+	return 0, nil
+}
+
+func (r *uncooperativeRuntime) Output(context.Context, string) (io.ReadCloser, error) {
+	return &lateReader{release: r.release, Reader: strings.NewReader(diagnosticOutput("success"))}, nil
+}
+
+type lateReader struct {
+	release chan struct{}
+	*strings.Reader
+}
+
+func (r *lateReader) Read(p []byte) (int, error) {
+	<-r.release
+	return r.Reader.Read(p)
+}
+
+func (r *lateReader) Close() error { return nil }
+
+func TestDiagnosticBoundsWaitAndOutputJoin(t *testing.T) {
+	rt := &uncooperativeRuntime{FakeRuntime: runtime.NewFakeRuntime(), release: make(chan struct{})}
+	defer close(rt.release)
+	store := runs.NewStore()
+	eng := engine.New(engine.Deps{
+		Store: store, Runtime: rt, Sem: runtime.NewSemaphore(1), DiagnosticTimeout: 20*time.Millisecond,
+	})
+	run, err := store.Create(runs.Run{Mode: "diagnostic", Diagnostic: &diagnostic.Metadata{NodeIDs: []string{"a"}}, Script: script})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.Launch(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		got, _ := store.Get(run.ID)
+		if got.Status == runs.StatusStopped {
+			if got.Trace.State != "interrupted" || len(got.Trace.Events) != 0 {
+				t.Fatal(got.Trace)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("uncooperative Wait/output blocked terminalization")
+}
+
+func TestDiagnosticWatchdogAndStop(t *testing.T) {
+	for _, stop := range []bool{false, true} {
+		t.Run(fmt.Sprint(stop), func(t *testing.T) {
+			rt := newBlockingRuntime()
+			store := runs.NewStore()
+			eng := engine.New(engine.Deps{
+				Store: store, Runtime: rt, Sem: runtime.NewSemaphore(1), K6Image: "k6", DiagnosticTimeout: 30*time.Millisecond,
+			})
+			run, err := store.Create(runs.Run{Mode: "diagnostic", Diagnostic: &diagnostic.Metadata{NodeIDs: []string{"a"}}, Script: script})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rt.SetOutput("fake-1", diagnosticOutput("success"))
+			if err := eng.Launch(context.Background(), run.ID); err != nil {
+				t.Fatal(err)
+			}
+			if stop {
+				if err := eng.Stop(context.Background(), run.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			deadline := time.Now().Add(time.Second)
+			for time.Now().Before(deadline) {
+				got, _ := store.Get(run.ID)
+				if got.Status == runs.StatusStopped {
+					if got.Trace.State != "interrupted" {
+						t.Fatal(got.Trace.State)
+					}
+					return
+				}
+				time.Sleep(time.Millisecond)
+			}
+			t.Fatal("watchdog did not finalize")
+		})
+	}
+}
 
 const script = "import http from 'k6/http';\nconst SUP3RSECRET = 'do-not-log-me';\nexport default function () {}"
 

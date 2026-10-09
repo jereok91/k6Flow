@@ -7,6 +7,7 @@ package engine
 
 import (
 	"context"
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"k6flow/apps/orchestrator/internal/k6sum"
+	"k6flow/apps/orchestrator/internal/diagnostic"
 	"k6flow/apps/orchestrator/internal/metrics"
 	"k6flow/apps/orchestrator/internal/runs"
 	"k6flow/apps/orchestrator/internal/runtime"
@@ -27,6 +29,10 @@ import (
 // from config (K6_IMAGE), the structured logger and the optional live-metrics
 // seams (Sink/Now, see their docs).
 type Deps struct {
+	// DiagnosticTimeout is a test seam; production always defaults to 35s.
+	DiagnosticTimeout time.Duration
+	// DiagnosticCleanupTimeout reduces each independent cleanup budget in tests.
+	DiagnosticCleanupTimeout time.Duration
 	Store   *runs.Store
 	Runtime runtime.ContainerRuntime
 	Sem     *runtime.Semaphore
@@ -95,6 +101,8 @@ type Engine struct {
 	log     *slog.Logger
 	sink    metrics.FrameSink
 	nowFn   func() time.Time
+	diagnosticTimeout time.Duration
+	diagnosticCleanupTimeout time.Duration
 
 	mu      sync.Mutex
 	handles map[string]*handle
@@ -107,6 +115,7 @@ type handle struct {
 	mu          sync.Mutex
 	containerID string
 	stopReq     bool
+	cancel context.CancelFunc
 }
 
 func (h *handle) setContainer(id string) { h.mu.Lock(); h.containerID = id; h.mu.Unlock() }
@@ -121,6 +130,7 @@ func (h *handle) requestStop() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.stopReq = true
+	if h.cancel != nil { h.cancel() }
 	return h.containerID
 }
 
@@ -131,7 +141,17 @@ func New(d Deps) *Engine {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	timeout := d.DiagnosticTimeout
+	if timeout <= 0 || timeout > 35*time.Second {
+		timeout = 35 * time.Second
+	}
+	cleanupTimeout := d.DiagnosticCleanupTimeout
+	if cleanupTimeout <= 0 || cleanupTimeout > 5*time.Second {
+		cleanupTimeout = 5 * time.Second
+	}
 	return &Engine{
+		diagnosticCleanupTimeout: cleanupTimeout,
+		diagnosticTimeout: timeout,
 		store:   d.Store,
 		rt:      d.Runtime,
 		sem:     d.Sem,
@@ -224,11 +244,40 @@ func (e *Engine) LaunchWithEnv(ctx context.Context, runID string, env map[string
 		e.failLaunch(runID, "start", err)
 		return fmt.Errorf("engine: launch %s: start: %w", runID, err)
 	}
+	completionCtx := context.WithoutCancel(ctx)
+	var cancel context.CancelFunc
+	if run.Mode == "diagnostic" {
+		completionCtx, cancel = context.WithTimeout(completionCtx, e.diagnosticTimeout)
+		h.mu.Lock()
+		h.cancel = cancel
+		if h.stopReq {
+			cancel()
+		}
+		h.mu.Unlock()
+		// The independent deadline starts immediately after Start, not after
+		// Output attaches or Wait returns. It also covers output joining.
+		go func() {
+			<-completionCtx.Done()
+			if cur, ok := e.store.Get(runID); !ok || (cur.Status.IsTerminal() && cur.Status != runs.StatusStopped) {
+				return
+			}
+			h.requestStop()
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer stopCancel()
+			_ = e.rt.Stop(stopCtx, containerID, -time.Nanosecond)
+		}()
+	}
 	if h.stopRequested() {
 		// Stop raced the create/start window (flag set before the container
 		// id was known): now that it is running, ask it to exit so Wait
 		// returns and the completion path finalizes as stopped.
-		if err := e.rt.Stop(context.WithoutCancel(ctx), containerID, 0); err != nil {
+		stopCtx := context.WithoutCancel(ctx)
+		timeout := time.Duration(0)
+		if run.Mode == "diagnostic" {
+			stopCtx = completionCtx
+			timeout = -time.Nanosecond
+		}
+		if err := e.rt.Stop(stopCtx, containerID, timeout); err != nil {
 			e.log.Warn("stop after start failed", "runId", runID, "container", containerID, "error", err)
 		}
 	}
@@ -236,10 +285,15 @@ func (e *Engine) LaunchWithEnv(ctx context.Context, runID string, env map[string
 	// running, so windows stream while the run is live; the anchor defines
 	// run-relative window 0. A detached context keeps caller cancellation
 	// from tearing the log stream down.
-	tap := e.startTap(context.WithoutCancel(ctx), runID, containerID)
+	tap := e.startTap(completionCtx, runID, containerID)
 	// Detached: completion/cleanup must survive cancellation of the caller's
 	// context (guaranteed removal).
-	go e.complete(context.WithoutCancel(ctx), runID, h, tap)
+	go func() {
+		if cancel != nil {
+			defer cancel()
+		}
+		e.complete(completionCtx, runID, h, tap)
+	}()
 	return nil
 }
 
@@ -260,7 +314,11 @@ func (e *Engine) Stop(ctx context.Context, runID string) error {
 	if containerID == "" {
 		return nil // launch path observes the flag once Create returns
 	}
-	if err := e.rt.Stop(ctx, containerID, 0); err != nil {
+	timeout := time.Duration(0)
+	if run, ok := e.store.Get(runID); ok && run.Mode == "diagnostic" {
+		timeout = -time.Nanosecond
+	}
+	if err := e.rt.Stop(ctx, containerID, timeout); err != nil {
 		// A concurrent completion may already have removed the container;
 		// terminal runs stay a no-op instead of surfacing the stale error.
 		if run, ok := e.store.Get(runID); ok && isTerminal(run.Status) {
@@ -282,16 +340,81 @@ func (e *Engine) complete(ctx context.Context, runID string, h *handle, t *tap) 
 	containerID := h.container()
 	defer e.deregister(runID)
 	defer e.sem.Release()
-	defer e.cleanup(ctx, containerID)
+	defer func() {
+		if _, bounded := ctx.Deadline(); bounded {
+			e.cleanupDiagnostic(ctx, runID, containerID)
+		} else {
+			e.cleanup(ctx, containerID)
+		}
+	}()
 
-	exit, waitErr := e.rt.Wait(ctx, containerID)
-	if waitErr != nil {
-		t.closeOutput()
+	var exit int
+	var waitErr error
+	var parsed runs.Summary
+	var parseErr error
+	if _, bounded := ctx.Deadline(); bounded {
+		type result struct {
+			exit int
+			err error
+		}
+		waited := make(chan result, 1)
+		go func() {
+			code, err := e.rt.Wait(ctx, containerID)
+			waited <- result{code, err}
+		}()
+		select {
+		case result := <-waited:
+			exit, waitErr = result.exit, result.err
+		case <-ctx.Done():
+			waitErr = ctx.Err()
+		}
+		if waitErr != nil {
+			go t.closeOutput()
+		}
+		joined := make(chan struct{})
+		go func() {
+			t.wait()
+			close(joined)
+		}()
+		select {
+		case <-joined:
+			parsed, parseErr = t.summary, t.parseErr
+		case <-ctx.Done():
+			h.requestStop()
+			go t.closeOutput()
+			parseErr = ctx.Err()
+		}
+	} else {
+		exit, waitErr = e.rt.Wait(ctx, containerID)
+		if waitErr != nil {
+			t.closeOutput()
+		}
+		t.wait()
+		parsed, parseErr = t.summary, t.parseErr
 	}
-	t.wait()
-	status, summary := e.decide(runID, exit, waitErr, h.stopRequested(), t.summary, t.parseErr)
+	// Seal frame admission without waiting on callbacks. A callback already
+	// admitted may drain later, but final sink notification must follow it.
+	if t.delivery != nil {
+		t.delivery.seal()
+	}
+	// Serialize stop disposition with the terminal store transition.
+	h.mu.Lock()
+	if ctx.Err() != nil {
+		h.stopReq = true
+	}
+	status, summary := e.decide(runID, exit, waitErr, h.stopReq, parsed, parseErr)
+	if exit != 0 || waitErr != nil || parseErr != nil {
+		if run, ok := e.store.Get(runID); ok && run.Trace != nil {
+			events := run.Trace.Events
+			if len(events) > 0 && events[len(events)-1].Outcome == "success" {
+				e.store.InvalidateDiagnostic(runID)
+			}
+		}
+	}
 	from := e.currentStatus(runID)
-	if err := e.store.SetStatus(runID, status); err != nil {
+	statusErr := e.store.SetStatus(runID, status)
+	h.mu.Unlock()
+	if err := statusErr; err != nil {
 		// Terminal immutability: if the run already reached a terminal state
 		// (e.g. a stop landed first), the transition is rejected and no
 		// summary is stored; the condition is logged, never retried. The run
@@ -301,7 +424,7 @@ func (e *Engine) complete(ctx context.Context, runID string, h *handle, t *tap) 
 		if cur, ok := e.store.Get(runID); ok && isTerminal(cur.Status) {
 			e.emitEnd(cur)
 		}
-		e.notifyRunFinished(runID)
+		e.finishTap(runID, t)
 		return
 	}
 	if summary != nil {
@@ -312,15 +435,18 @@ func (e *Engine) complete(ctx context.Context, runID string, h *handle, t *tap) 
 	e.emitTerminal(runID, from)
 	// Terminal notification, K6F3-03 — exact ordering: EVERY terminal path
 	// (finished, failed — crash, wait or parse error — and stopped) passes
-	// this point exactly once, AFTER the tap has been joined (t.wait() above
+	// this point exactly once, AFTER the tap has been joined (or the diagnostic
+	// deadline has sealed its trace and frame admission). Diagnostic sink finish
+	// waits asynchronously for admitted callbacks; cleanup never waits for it.
+	// Normally t.wait()
 	// ⇒ every OnFrame for every closed window already reached the sink; the
 	// trailing partial window never emits, so no frame can follow the
 	// notification) and AFTER the terminal SetStatus + SetSummary are
-	// persisted, but BEFORE the deferred Cleanup (Stop→Remove), semaphore
-	// release and handle deregistration — subscribers get close 1000 while
-	// the store already shows the terminal state, and a slow container
-	// removal can never delay or skip it.
-	e.notifyRunFinished(runID)
+	// persisted. For load, notification still precedes deferred cleanup,
+	// semaphore release and handle deregistration. For diagnostic, notification
+	// can follow cleanup if a previously admitted callback is still draining;
+	// neither resource cleanup nor terminal snapshots wait for that callback.
+	e.finishTap(runID, t)
 	if waitErr != nil {
 		e.log.Info("run finalized", "runId", runID, "status", string(status), "wait_error", waitErr)
 		return
@@ -442,12 +568,71 @@ func (e *Engine) decide(runID string, exit int, waitErr error, stopped bool, sum
 	return status, &summary
 }
 
-// tap is the single-consumer view of one run's Output() stream. It owns the
-// io.Pipe that feeds k6sum (raw bytes forward, so the summary sees the very
-// same stream a direct read would deliver) and the per-run window aggregator
-// that feeds the optional FrameSink. Started once in Launch, joined once in
-// complete; its summary/parseErr are read only after wait().
+// frameDelivery is a per-diagnostic-run admission gate. The admission decision
+// and seal share a lock; arbitrary sink code runs outside that lock. Thus seal
+// stays bounded even if a callback never returns. No callback admitted after
+// seal reaches the sink, and the drained channel orders finish after all those
+// admitted earlier (including callbacks that panic).
+type frameDelivery struct {
+	sink metrics.FrameSink
+	mu sync.Mutex
+	sealed bool
+	active int
+	drained chan struct{}
+}
+
+func (d *frameDelivery) OnFrame(frame metrics.MetricsFrame) {
+	d.mu.Lock()
+	if d.sealed {
+		d.mu.Unlock()
+		return
+	}
+	d.active++
+	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		d.active--
+		if d.sealed && d.active == 0 {
+			close(d.drained)
+		}
+		d.mu.Unlock()
+	}()
+	d.sink.OnFrame(frame)
+}
+
+func (d *frameDelivery) seal() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.sealed {
+		return
+	}
+	d.sealed = true
+	if d.active == 0 {
+		close(d.drained)
+	}
+}
+
+// finishTap decouples diagnostic delivery ordering from resource lifecycle.
+// A permanently blocked OnFrame delays the final sink notification forever;
+// terminal snapshots, watchdog shutdown and cleanup are still independent.
+func (e *Engine) finishTap(runID string, t *tap) {
+	if t.delivery == nil {
+		e.notifyRunFinished(runID)
+		return
+	}
+	t.delivery.seal()
+	go func() {
+		<-t.delivery.drained
+		e.notifyRunFinished(runID)
+	}()
+}
+
+// tap is the single-consumer view of one run's Output stream, summary pipe,
+// aggregator and optional diagnostic delivery gate. Summary/parseErr are read
+// only after wait; a diagnostic deadline can instead seal delivery and finish
+// the resource lifecycle without reading those still-mutating fields.
 type tap struct {
+	delivery *frameDelivery
 	wg       sync.WaitGroup
 	summary  runs.Summary
 	parseErr error
@@ -468,7 +653,12 @@ func (t *tap) closeOutput() {
 // Output().
 func (e *Engine) startTap(ctx context.Context, runID, containerID string) *tap {
 	t := &tap{}
-	reader, err := e.rt.Output(ctx, containerID)
+	sink := e.sink
+	if _, diagnostic := ctx.Deadline(); diagnostic && sink != nil {
+		t.delivery = &frameDelivery{sink: sink, drained: make(chan struct{})}
+		sink = t.delivery
+	}
+	reader, err := e.output(ctx, containerID)
 	if err != nil {
 		t.parseErr = err
 		return t
@@ -479,7 +669,7 @@ func (e *Engine) startTap(ctx context.Context, runID, containerID string) *tap {
 	if e.nowFn != nil {
 		now = e.nowFn
 	}
-	agg := metrics.NewRunWindowAggregator(runID, now(), e.sink)
+	agg := metrics.NewRunWindowAggregator(runID, now(), sink)
 	
 	// Create and wire the EndpointsTracker for per-endpoint metrics
 	endpointsTracker := metrics.NewEndpointsTracker(20)
@@ -498,9 +688,42 @@ func (e *Engine) startTap(ctx context.Context, runID, containerID string) *tap {
 	go func() {
 		defer t.wg.Done()
 		defer t.closeOut()
-		e.pump(agg, runID, reader, pw)
+		if run, ok := e.store.Get(runID); ok && run.Mode == "diagnostic" {
+			e.pumpDiagnostic(agg, runID, reader, pw)
+		} else {
+			e.pump(agg, runID, reader, pw)
+		}
 	}()
 	return t
+}
+
+// output bounds attachment independently of SDK cooperation. A late reader is
+// closed by the attachment goroutine and can never become a second consumer.
+func (e *Engine) output(ctx context.Context, containerID string) (io.ReadCloser, error) {
+	if _, bounded := ctx.Deadline(); !bounded {
+		return e.rt.Output(ctx, containerID)
+	}
+	type result struct {
+		reader io.ReadCloser
+		err error
+	}
+	attached := make(chan result)
+	go func() {
+		reader, err := e.rt.Output(ctx, containerID)
+		select {
+		case attached <- result{reader, err}:
+		case <-ctx.Done():
+			if reader != nil {
+				_ = reader.Close()
+			}
+		}
+	}()
+	select {
+	case result := <-attached:
+		return result.reader, result.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // pump is the run's only Output() reader. Every byte is forwarded to the
@@ -538,6 +761,50 @@ func (e *Engine) pump(agg *metrics.RunWindowAggregator, runID string, reader io.
 				// Same wrapped read error k6sum would report reading Output
 				// directly ("k6sum: read stream: ...").
 				_ = pw.CloseWithError(rerr)
+			}
+			return
+		}
+	}
+}
+
+// pumpDiagnostic is still the sole Output consumer. Custom points are consumed
+// by the closed trace parser, not forwarded to summaries or native aggregators.
+// Oversized lines are discarded in bounded pieces and invalidate the trace.
+func (e *Engine) pumpDiagnostic(agg *metrics.RunWindowAggregator, runID string, reader io.Reader, pw *io.PipeWriter) {
+	buffered := bufio.NewReaderSize(reader, 32*1024)
+	var line []byte
+	oversized := false
+	for {
+		part, err := buffered.ReadSlice('\n')
+		if !oversized {
+			if len(line)+len(part) > k6sum.MaxLineBytes {
+				e.store.InvalidateDiagnostic(runID)
+				line = line[:0]
+				oversized = true
+			} else {
+				line = append(line, part...)
+			}
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if run, ok := e.store.Get(runID); !ok || run.Status.IsTerminal() {
+			_ = pw.Close()
+			return
+		}
+		if !oversized && len(line) > 0 && !e.store.DiagnosticLine(runID, line) {
+			forwardLine(agg, runID, e.log, line)
+			if _, writeErr := pw.Write(line); writeErr != nil {
+				return
+			}
+		}
+		line = line[:0]
+		oversized = false
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				_ = pw.Close()
+			} else {
+				_ = pw.CloseWithError(err)
 			}
 			return
 		}
@@ -600,16 +867,20 @@ func (e *Engine) spec(run runs.Run, extra map[string]string) runtime.Spec {
 		}
 	}
 	env[runtime.ScriptEnvKey] = run.Script
+	args := []string{"--out", "json", "--vus", strconv.Itoa(run.VUs), "--duration", strconv.FormatInt(int64(run.DurationMs), 10) + "ms", runtime.ScriptPath}
+	var entry []byte
+	if run.Mode == "diagnostic" {
+		entry = []byte(diagnostic.Entry)
+		args = []string{"--out", "json", "--vus", "1", "--iterations", "1", "--system-tags", "", runtime.DiagnosticPath}
+		// Reserved K6_* execution options never enter the container: only
+		// K6FLOW_VAR_* was copied above. Script options are not re-exported.
+	}
 	return runtime.Spec{
+		DiagnosticEntry: entry,
 		Image:   e.image,
 		Network: e.network,
 		Command: []string{"run"},
-		Args: []string{
-			"--out", "json",
-			"--vus", strconv.Itoa(run.VUs),
-			"--duration", strconv.FormatInt(int64(run.DurationMs), 10) + "ms",
-			runtime.ScriptPath,
-		},
+		Args: args,
 		Env:       env,
 		Labels:    map[string]string{runtime.LabelRunID: run.ID},
 		CPUMillis: run.CPUMillis,
@@ -641,6 +912,24 @@ func (e *Engine) failLaunch(runID, stage string, err error) {
 	e.notifyRunFinished(runID)
 	e.sem.Release()
 	e.deregister(runID)
+}
+
+// cleanupDiagnostic gives each operation its own fresh deadline. In particular,
+// a slow Stop cannot spend Remove's budget. Failure logs contain lifecycle
+// metadata only: arbitrary runtime errors might include submitted content.
+func (e *Engine) cleanupDiagnostic(ctx context.Context, runID, containerID string) {
+	base := context.WithoutCancel(ctx)
+	stopCtx, stopCancel := context.WithTimeout(base, e.diagnosticCleanupTimeout)
+	if err := e.rt.Stop(stopCtx, containerID, -time.Nanosecond); err != nil {
+		e.log.Warn("diagnostic cleanup stop failed", "runId", runID, "container", containerID, "deadlineExceeded", stopCtx.Err() == context.DeadlineExceeded)
+	}
+	stopCancel()
+
+	removeCtx, removeCancel := context.WithTimeout(base, e.diagnosticCleanupTimeout)
+	defer removeCancel()
+	if err := e.rt.Remove(removeCtx, containerID, true); err != nil {
+		e.log.Warn("diagnostic cleanup remove failed", "runId", runID, "container", containerID, "deadlineExceeded", removeCtx.Err() == context.DeadlineExceeded)
+	}
 }
 
 // cleanup guarantees removal: best-effort Stop, then forced Remove on a
