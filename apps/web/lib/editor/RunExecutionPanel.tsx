@@ -132,6 +132,45 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
     // Final metrics for onComplete: prefer the just-fetched summary, else latest state
     const finalMetrics = (summary?: RunSummary | null): RunMetrics =>
       summary ? mergeSummaryMetrics(metricsRef.current, summary) : metricsRef.current;
+
+    // Fetch the run summary for final metrics (null on failure or after unmount)
+    const fetchSummary = async (): Promise<RunSummary | null> => {
+      if (cancelled) return null;
+      try {
+        const summaryRes = await fetch(`/api/orchestrator/runs/${runId}/summary`);
+        if (!summaryRes.ok) return null;
+        const fetched: RunSummary = await summaryRes.json();
+        if (!cancelled) {
+          setMetrics(prev => mergeSummaryMetrics(prev, fetched));
+          // Show errors if any
+          const summaryErrors = fetched.errors;
+          if (summaryErrors && summaryErrors.length > 0) {
+            setLogs(prev => [...prev, ...summaryErrors.map((e: string) => `[ERROR] ${e}`)]);
+          }
+        }
+        return fetched;
+      } catch {
+        // Ignore summary fetch errors; fall back to latest metrics
+        return null;
+      }
+    };
+
+    // Fire onComplete exactly once per run, with summary-backed metrics
+    let completionStarted = false;
+    const completeRun = async (finalStatus: RunResult["status"], errors: string[]) => {
+      if (completionStarted) return;
+      completionStarted = true;
+      const summary = await fetchSummary();
+      const completed = finalMetrics(summary);
+      onComplete?.({
+        runId,
+        status: finalStatus,
+        duration: elapsed,
+        iterations: completed.iterations,
+        metrics: completed,
+        errors,
+      });
+    };
     
     // Fetch final status (for completion and errors)
     const fetchStatus = async () => {
@@ -271,32 +310,7 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
               setLogs(prev => [...prev, "[ERROR] La ejecucion de k6 fallo"]);
             }
             if (finalStatus === "finished" || finalStatus === "completed" || finalStatus === "failed" || finalStatus === "stopped") {
-              // Fetch summary for final metrics
-              let summary: RunSummary | null = null;
-              try {
-                const summaryRes = await fetch(`/api/orchestrator/runs/${runId}/summary`);
-                if (summaryRes.ok) {
-                  const fetched: RunSummary = await summaryRes.json();
-                  summary = fetched;
-                  setMetrics(prev => mergeSummaryMetrics(prev, fetched));
-                  // Show errors if any
-                  const summaryErrors = fetched.errors;
-                  if (summaryErrors && summaryErrors.length > 0) {
-                    setLogs(prev => [...prev, ...summaryErrors.map((e: string) => `[ERROR] ${e}`)]);
-                  }
-                }
-              } catch {
-                // Ignore summary fetch errors
-              }
-              const completed = finalMetrics(summary);
-              onComplete?.({
-                runId,
-                status: finalStatus,
-                duration: elapsed,
-                iterations: completed.iterations,
-                metrics: completed,
-                errors: [],
-              });
+              await completeRun(finalStatus, []);
             }
           }
         } else {
@@ -333,15 +347,7 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
           }
           if (data.status === "finished" || data.status === "completed" || data.status === "failed" || data.status === "stopped") {
             if (pollInterval) clearInterval(pollInterval);
-            const completed = finalMetrics();
-            onComplete?.({
-              runId,
-              status: data.status,
-              duration: elapsed,
-              iterations: completed.iterations,
-              metrics: completed,
-              errors: data.errors || [],
-            });
+            await completeRun(data.status, data.errors || []);
           }
         }
       }, 2000);
@@ -355,15 +361,7 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
           connectWs();
         } else {
           // Already finished
-          const completed = finalMetrics();
-          onComplete?.({
-            runId,
-            status: data.status,
-            duration: elapsed,
-            iterations: completed.iterations,
-            metrics: completed,
-            errors: data.errors || [],
-          });
+          void completeRun(data.status, data.errors || []);
         }
       }
     });
