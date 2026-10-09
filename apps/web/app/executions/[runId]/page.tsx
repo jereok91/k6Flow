@@ -17,24 +17,38 @@ interface RunMetrics {
   dataSent: number;
 }
 
+/** Flat row of GET /runs/{id}/endpoints (docs/api/runs.md). */
 interface EndpointData {
   method: string;
   url: string;
   name?: string;
   requests: number;
   failures: number;
+  /** failures / requests as a 0-1 fraction */
+  errorRate?: number;
   avgDurationMs: number;
+  minDurationMs?: number;
+  maxDurationMs?: number;
   p95DurationMs: number;
 }
 
+/** Flat row of GET /runs/{id}/failures (docs/api/runs.md). */
 interface FailureData {
   method: string;
   url: string;
+  /** 0 = network error (no HTTP response) */
   status: number;
   errorCode?: string;
   count: number;
   lastError?: string;
+  lastSeenMs?: number;
 }
+
+const LIVE_STATUSES = ["queued", "starting", "running", "stopping", "pending"];
+const TERMINAL_STATUSES = ["finished", "failed", "aborted", "errored", "stopped", "completed"];
+const isTerminalStatus = (s: string) => TERMINAL_STATUSES.includes(s);
+/** Live refresh period for the endpoints/failures tabs. */
+const LIVE_REFRESH_MS = 5000;
 
 interface RunSummary {
   totals: {
@@ -137,7 +151,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
             setRun(data);
             if (typeof data.exitCode === "number") setExitCode(data.exitCode);
             setStatus(data.status as RunStatus);
-            setIsLive(["queued", "starting", "running", "stopping"].includes(data.status));
+            setIsLive(LIVE_STATUSES.includes(data.status));
           } else {
             throw new Error("Run not found");
           }
@@ -153,28 +167,11 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
           });
           if (typeof data.exitCode === "number") setExitCode(data.exitCode);
           setStatus(data.status as RunStatus);
-          setIsLive(["queued", "starting", "running", "stopping"].includes(data.status));
+          setIsLive(LIVE_STATUSES.includes(data.status));
         }
-
-        const summaryRes = await fetch(`/api/orchestrator/runs/${runId}/summary`);
-        if (summaryRes.ok) {
-          const summaryData = await summaryRes.json();
-          setSummary(summaryData);
-        }
-        
-        // Fetch endpoints
-        const endpointsRes = await fetch(`/api/orchestrator/runs/${runId}/endpoints`);
-        if (endpointsRes.ok) {
-          const endpointsData = await endpointsRes.json();
-          setEndpoints(endpointsData.endpoints || []);
-        }
-        
-        // Fetch failures
-        const failuresRes = await fetch(`/api/orchestrator/runs/${runId}/failures`);
-        if (failuresRes.ok) {
-          const failuresData = await failuresRes.json();
-          setFailures(failuresData.failures || []);
-        }
+        // Summary, endpoints and failures are loaded by the effects below:
+        // periodically while live, once when terminal (summary only then; a
+        // nonterminal summary answers 409).
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch run");
       } finally {
@@ -229,7 +226,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
           }));
         } else if (data.type === "state") {
           setStatus(data.status as RunStatus);
-          if (!["queued", "starting", "running", "stopping"].includes(data.status)) {
+          if (!LIVE_STATUSES.includes(data.status)) {
             setIsLive(false);
           }
         } else if (data.type === "end") {
@@ -264,38 +261,56 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     return () => clearInterval(interval);
   }, [isLive]);
 
-  // Refetch endpoints/failures when run completes
+  const fetchEndpointsAndFailures = useCallback(async () => {
+    try {
+      const [endpointsRes, failuresRes] = await Promise.all([
+        fetch(`/api/orchestrator/runs/${runId}/endpoints`),
+        fetch(`/api/orchestrator/runs/${runId}/failures`),
+      ]);
+      if (endpointsRes.ok) {
+        const data = await endpointsRes.json();
+        setEndpoints(data.endpoints || []);
+      }
+      if (failuresRes.ok) {
+        const data = await failuresRes.json();
+        setFailures(data.failures || []);
+      }
+    } catch {
+      // Ignore errors; the next refresh retries
+    }
+  }, [runId]);
+
+  // While live: refresh endpoints/failures every 5s, only while the tab is visible
   useEffect(() => {
-    if (isLive) return; // Only fetch when not live (completed)
-    if (loading) return; // Don't fetch during initial load
-    
-    async function refetchEndpoints() {
+    if (loading || !isLive) return;
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") fetchEndpointsAndFailures();
+    };
+    refreshIfVisible();
+    const interval = setInterval(refreshIfVisible, LIVE_REFRESH_MS);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [isLive, loading, fetchEndpointsAndFailures]);
+
+  // Once terminal: final endpoints/failures refresh and the summary
+  const terminal = isTerminalStatus(status);
+  useEffect(() => {
+    if (loading || isLive || !terminal) return;
+    fetchEndpointsAndFailures();
+    (async () => {
       try {
-        const [endpointsRes, failuresRes, summaryRes] = await Promise.all([
-          fetch(`/api/orchestrator/runs/${runId}/endpoints`),
-          fetch(`/api/orchestrator/runs/${runId}/failures`),
-          fetch(`/api/orchestrator/runs/${runId}/summary`),
-        ]);
-        
-        if (endpointsRes.ok) {
-          const data = await endpointsRes.json();
-          setEndpoints(data.endpoints || []);
-        }
-        if (failuresRes.ok) {
-          const data = await failuresRes.json();
-          setFailures(data.failures || []);
-        }
+        const summaryRes = await fetch(`/api/orchestrator/runs/${runId}/summary`);
         if (summaryRes.ok) {
-          const data = await summaryRes.json();
-          setSummary(data);
+          setSummary(await summaryRes.json());
         }
       } catch {
         // Ignore errors
       }
-    }
-    
-    refetchEndpoints();
-  }, [isLive, runId, loading]);
+    })();
+  }, [isLive, terminal, loading, runId, fetchEndpointsAndFailures]);
 
   const handleStop = useCallback(async () => {
     try {
@@ -595,7 +610,9 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
               <div style={emptyStateStyle}>
                 <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>api</span>
                 <p>No hay datos de endpoints disponibles</p>
-                <p style={{ fontSize: 12, opacity: 0.7 }}>Los datos se mostrarán cuando el test termine</p>
+                <p style={{ fontSize: 12, opacity: 0.7 }}>
+                  {isLive ? "Los datos se actualizan cada 5 segundos durante la ejecución" : "No se registraron requests HTTP"}
+                </p>
               </div>
             ) : (
               <div style={tableContainerStyle}>
@@ -613,7 +630,11 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
                   </thead>
                   <tbody>
                     {endpoints.map((ep, i) => {
-                      const errorPct = ep.requests > 0 ? (ep.failures / ep.requests) * 100 : 0;
+                      const rate = typeof ep.errorRate === "number"
+                        ? ep.errorRate
+                        : ep.requests > 0 ? ep.failures / ep.requests : 0;
+                      const errorPct = rate * 100;
+                      const showName = !!ep.name && ep.name !== ep.url;
                       return (
                         <tr key={i} style={trStyle}>
                           <td style={tdStyle}>
@@ -624,8 +645,16 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
                               {ep.method}
                             </span>
                           </td>
-                          <td style={{ ...tdStyle, textAlign: "left", fontFamily: "monospace", fontSize: 12 }}>
-                            {ep.name || ep.url}
+                          <td
+                            style={{ ...tdStyle, textAlign: "left", fontFamily: "monospace", fontSize: 12 }}
+                            title={showName ? `name: ${ep.name}` : undefined}
+                          >
+                            <div style={truncateStyle} title={ep.url}>{ep.url}</div>
+                            {showName && (
+                              <div style={{ ...truncateStyle, fontSize: 11, color: "var(--color-on-surface-variant)" }}>
+                                {ep.name}
+                              </div>
+                            )}
                           </td>
                           <td style={tdStyle}>{ep.requests.toLocaleString()}</td>
                           <td style={{ ...tdStyle, color: ep.failures > 0 ? "#ef4444" : undefined }}>
@@ -666,7 +695,9 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
               <div style={emptyStateStyle}>
                 <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>error</span>
                 <p>Tasa de error: {(metrics.errorRate * 100).toFixed(2)}%</p>
-                <p style={{ fontSize: 12, opacity: 0.7 }}>Los detalles de errores se mostrarán cuando el test termine</p>
+                <p style={{ fontSize: 12, opacity: 0.7 }}>
+                  {isLive ? "Los detalles de errores se actualizan cada 5 segundos" : "No hay detalles de errores disponibles"}
+                </p>
               </div>
             ) : (
               <div style={tableContainerStyle}>
@@ -677,6 +708,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
                       <th style={{ ...thStyle, textAlign: "left" }}>URL</th>
                       <th style={thStyle}>Status</th>
                       <th style={thStyle}>Código</th>
+                      <th style={{ ...thStyle, textAlign: "left" }}>Mensaje</th>
                       <th style={thStyle}>Cantidad</th>
                     </tr>
                   </thead>
@@ -692,13 +724,18 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
                           </span>
                         </td>
                         <td style={{ ...tdStyle, textAlign: "left", fontFamily: "monospace", fontSize: 12 }}>
-                          {f.url}
+                          <div style={truncateStyle} title={f.url}>{f.url}</div>
                         </td>
                         <td style={{ ...tdStyle, color: "#ef4444", fontWeight: 600 }}>
-                          {f.status}
+                          {f.status === 0 ? "network" : f.status}
                         </td>
                         <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: 11 }}>
                           {f.errorCode || "-"}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "left", fontSize: 12 }}>
+                          <div style={{ ...truncateStyle, maxWidth: 360 }} title={f.lastError || undefined}>
+                            {f.lastError || "-"}
+                          </div>
                         </td>
                         <td style={tdStyle}>{f.count.toLocaleString()}</td>
                       </tr>
@@ -1015,6 +1052,13 @@ const tdStyle: React.CSSProperties = {
   padding: "12px 16px",
   textAlign: "center",
   color: "var(--color-on-surface)",
+};
+
+const truncateStyle: React.CSSProperties = {
+  maxWidth: 480,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
 const methodBadgeStyle: React.CSSProperties = {
