@@ -6,6 +6,9 @@
  */
 
 import type { GraphDraftComposition } from "./graph-composition";
+import {
+  findSecretEnvCollisions, renderTemplateExpression, secretEnvName, type ResolvedVariables,
+} from "./variables";
 
 /**
  * K6 script generation options.
@@ -17,6 +20,19 @@ export interface K6TranslatorOptions {
   duration?: string;
   /** Iterations (if set, overrides duration) */
   iterations?: number;
+  /**
+   * Resolved `{{name}}` variables. When omitted, placeholders are not interpolated
+   * (output stays byte-identical to the pre-variables translator).
+   */
+  variables?: ResolvedVariables;
+}
+
+/** A translation problem that should block running the script. */
+export interface K6TranslationError {
+  code: "unknown-variable" | "missing-value" | "secret-env-collision";
+  nodeId: string;
+  variable: string;
+  message: string;
 }
 
 /**
@@ -29,6 +45,10 @@ export interface K6TranslatorResult {
   warnings: string[];
   /** Whether the script requires external files (e.g., CSV) */
   requiresFiles: string[];
+  /** Blocking problems (e.g. unknown variables). Empty when the script is runnable. */
+  errors: K6TranslationError[];
+  /** Env names (unique, sorted) of referenced secret variables the run must inject. */
+  requiredEnv: string[];
 }
 
 type GraphNode = GraphDraftComposition["nodes"][number];
@@ -43,9 +63,41 @@ export function translateToK6(
   graph: GraphDraftComposition,
   options: K6TranslatorOptions = {},
 ): K6TranslatorResult {
-  const { vus = 1, duration = "30s", iterations } = options;
+  const { vus = 1, duration = "30s", iterations, variables } = options;
   const warnings: string[] = [];
   const requiresFiles: string[] = [];
+  const errors: K6TranslationError[] = [];
+  const errorKeys = new Set<string>();
+  const secretFirstNode = new Map<string, string>(); // secret name -> first node id
+
+  const addError = (error: K6TranslationError) => {
+    const key = `${error.code}\u0000${error.nodeId}\u0000${error.variable}`;
+    if (errorKeys.has(key)) return;
+    errorKeys.add(key);
+    errors.push(error);
+  };
+
+  /**
+   * Interpolates `{{name}}` placeholders in a literal. Returns `fallback` (the exact
+   * pre-variables output) when no variables were supplied or the text has no placeholder.
+   */
+  const interpolate = (text: string, nodeId: string, fallback: string): string => {
+    if (!variables) return fallback;
+    const rendered = renderTemplateExpression(text, variables);
+    if (!rendered) return fallback;
+    for (const name of rendered.unknown) {
+      addError({ code: "unknown-variable", nodeId, variable: name,
+        message: `Unknown variable "{{${name}}}" in node ${nodeId}` });
+    }
+    for (const name of rendered.missingValue) {
+      addError({ code: "missing-value", nodeId, variable: name,
+        message: `Variable "{{${name}}}" in node ${nodeId} has no value` });
+    }
+    for (const name of rendered.secretNames) {
+      if (!secretFirstNode.has(name)) secretFirstNode.set(name, nodeId);
+    }
+    return rendered.expression;
+  };
 
   // Build dependency graph for topological sort
   const nodeMap = new Map(graph.nodes.map((n) => [n.id, n]));
@@ -229,7 +281,8 @@ export function translateToK6(
           authBody = `${varName}_body`;
         }
         
-        bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}('${url}', ${authBody}, {`);
+        const authUrl = interpolate(url, node.id, `'${url}'`);
+        bodyLines.push(`  const ${varName}_res = http.${method.toLowerCase()}(${authUrl}, ${authBody}, {`);
         bodyLines.push("    headers: { 'Content-Type': 'application/json' },");
         bodyLines.push("  });");
 
@@ -254,7 +307,8 @@ export function translateToK6(
         const method = params.method;
         let url = "''";
         if (params.url.kind === "literal") {
-          url = `'${params.url.value.trim()}'`;
+          const trimmed = params.url.value.trim();
+          url = interpolate(trimmed, node.id, `'${trimmed}'`);
         } else if (params.url.kind === "reference") {
           const ref = params.url.reference;
           url = varMap.get(`${ref.producerNodeId}.${ref.output}`) ?? "''";
@@ -262,18 +316,20 @@ export function translateToK6(
 
         let body = "null";
         let contentType = "application/json";
+        // JSON bodies are interpolated on the raw text; values are not JSON-escaped.
+        const literalBody = (text: string) => interpolate(text, node.id, `'${escapeString(text)}'`);
         
         if (params.body?.kind === "json" && params.body.value?.kind === "literal") {
-          body = `'${escapeString(params.body.value.value)}'`;
+          body = literalBody(params.body.value.value);
           contentType = "application/json";
         } else if (params.body?.kind === "xml" && params.body.value?.kind === "literal") {
-          body = `'${escapeString(params.body.value.value)}'`;
+          body = literalBody(params.body.value.value);
           contentType = "application/xml";
         } else if (params.body?.kind === "form" && params.body.value?.kind === "literal") {
-          body = `'${escapeString(params.body.value.value)}'`;
+          body = literalBody(params.body.value.value);
           contentType = "application/x-www-form-urlencoded";
         } else if (params.body?.kind === "text" && params.body.value?.kind === "literal") {
-          body = `'${escapeString(params.body.value.value)}'`;
+          body = literalBody(params.body.value.value);
           contentType = "text/plain";
         }
 
@@ -294,7 +350,8 @@ export function translateToK6(
             let headerValue: string;
             
             if (header.value.kind === "literal") {
-              headerValue = `'${escapeString(header.value.value ?? "")}'`;
+              const text = header.value.value ?? "";
+              headerValue = interpolate(text, node.id, `'${escapeString(text)}'`);
             } else if (header.value.kind === "reference" && header.value.reference) {
               // Look up the variable from the varMap
               const ref = header.value.reference;
@@ -389,7 +446,21 @@ export function translateToK6(
     "",
   ].join("\n");
 
-  return { script, warnings, requiresFiles };
+  // Secrets whose names map to the same env name cannot be told apart at run time.
+  for (const collision of findSecretEnvCollisions(
+    [...secretFirstNode.keys()].map((name) => [name, { secret: true }] as [string, { secret: boolean }]),
+  )) {
+    const variable = collision.names[0];
+    const nodeId = secretFirstNode.get(variable)!;
+    addError({ code: "secret-env-collision", nodeId, variable,
+      message: `Secret variables ${collision.names.map((n) => `"{{${n}}}"`).join(", ")} ` +
+        `all map to env ${collision.envName}` });
+  }
+  const requiredEnv = [...new Set(
+    [...secretFirstNode.keys()].map(secretEnvName),
+  )].sort();
+
+  return { script, warnings, requiresFiles, errors, requiredEnv };
 }
 
 /** Sanitize a node ID to a valid JS variable name */

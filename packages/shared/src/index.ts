@@ -76,7 +76,20 @@ export type {
 } from "./recorder-contracts";
 
 // K6 translator
-export { translateToK6, type K6TranslatorOptions, type K6TranslatorResult } from './k6-translator';
+export {
+  translateToK6, type K6TranslatorOptions, type K6TranslatorResult, type K6TranslationError,
+} from './k6-translator';
+
+// {{variable}} templates (k6flow-variables)
+export {
+  VARIABLE_NAME_PATTERN, SECRET_ENV_PREFIX, isValidVariableName, parseTemplate, findVariables,
+  mergeVariables, secretEnvName, findSecretEnvCollisions, toJsStringLiteral,
+  renderTemplateExpression,
+} from './variables';
+export type {
+  TemplateSegment, VariableDefinition, VariableInput, ResolvedVariables,
+  SecretEnvCollision, RenderedTemplate,
+} from './variables';
 
 // Capture-to-graph translator (K6F8)
 export {

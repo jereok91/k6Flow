@@ -334,3 +334,213 @@ describe("translateToK6", () => {
     expect(result.script).toContain("r.timings.duration < 500");
   });
 });
+
+describe("translateToK6 variables", () => {
+  type Call = { method: string; url: unknown; body: unknown; params: { headers: Record<string, unknown> } };
+
+  /** Executes the generated default function with fake k6 globals and records http calls. */
+  function execute(script: string, env: Record<string, string> = {}): Call[] {
+    const calls: Call[] = [];
+    const response = { json: () => "tok", status: 200, body: "", timings: { duration: 1 } };
+    const http = new Proxy({}, {
+      get: (_target, method: string) => (url: unknown, ...rest: unknown[]) => {
+        const hasBody = rest.length === 2;
+        calls.push({
+          method, url, body: hasBody ? rest[0] : undefined,
+          params: (hasBody ? rest[1] : rest[0]) as Call["params"],
+        });
+        return response;
+      },
+    });
+    const runnable = script
+      .split("\n")
+      .filter((line) => !line.startsWith("import "))
+      .join("\n")
+      .replace("export const options", "const options")
+      .replace("export default function ()", "function __default()");
+    new Function("http", "__ENV", "check", "__VU", `${runnable}\n__default();`)(http, env, () => true, 1);
+    return calls;
+  }
+
+  const httpNode = (parameters: Record<string, unknown>, id = "req-1") => ({
+    id, kind: "http-request" as const, references: [], parameters,
+  }) as unknown as GraphDraftComposition["nodes"][number];
+  const graphOf = (...nodes: GraphDraftComposition["nodes"]): GraphDraftComposition => ({
+    version: 1, nodes, connections: [],
+  });
+  const lit = (value: string) => ({ kind: "literal" as const, value });
+
+  const vars = new Map([
+    ["baseUrl", { value: "https://api.example.com", secret: false }],
+    ["token", { secret: true }],
+    ["user", { value: "alice", secret: false }],
+  ]);
+
+  it("keeps exact output when no placeholders are present", () => {
+    const graph = graphOf(httpNode({
+      method: "POST", url: lit("https://x.test/a"),
+      headers: [{ name: "X-A", value: lit("b") }],
+      body: { kind: "json", value: lit('{"a":1}') },
+    }));
+    const plain = translateToK6(graph);
+    const withVars = translateToK6(graph, { variables: vars });
+    expect(withVars.script).toBe(plain.script);
+    expect(withVars.errors).toEqual([]);
+    expect(withVars.requiredEnv).toEqual([]);
+  });
+
+  it("leaves placeholders untouched when no variables option is supplied", () => {
+    const result = translateToK6(graphOf(httpNode({ method: "GET", url: lit("{{baseUrl}}/x") })));
+    expect(result.script).toContain("http.get('{{baseUrl}}/x'");
+    expect(result.errors).toEqual([]);
+    expect(result.requiredEnv).toEqual([]);
+  });
+
+  it("inlines a non-secret variable in the URL", () => {
+    const result = translateToK6(
+      graphOf(httpNode({ method: "GET", url: lit("{{baseUrl}}/auth/login") })),
+      { variables: vars },
+    );
+    expect(result.script).toContain('http.get("https://api.example.com" + "/auth/login", {');
+    expect(result.errors).toEqual([]);
+    expect(execute(result.script)[0].url).toBe("https://api.example.com/auth/login");
+  });
+
+  it("interpolates the authentication request URL", () => {
+    const graph = graphOf({
+      id: "auth-1", kind: "authentication", references: [],
+      parameters: {
+        method: { kind: "http", request: { method: "POST", url: lit("{{baseUrl}}/auth/login") } },
+        outputs: [], onOutputFailure: "stop-current-vu-iteration",
+      },
+    } as GraphDraftComposition["nodes"][number]);
+    const result = translateToK6(graph, { variables: vars });
+    expect(result.script).toContain('http.post("https://api.example.com" + "/auth/login", null, {');
+    expect(execute(result.script)[0].url).toBe("https://api.example.com/auth/login");
+  });
+
+  it("reads a secret header from __ENV and reports requiredEnv", () => {
+    const result = translateToK6(
+      graphOf(httpNode({
+        method: "GET", url: lit("https://x.test"),
+        headers: [{ name: "Authorization", value: lit("Bearer {{token}}") }],
+      })),
+      { variables: vars },
+    );
+    expect(result.script).toContain(`headers: { 'Authorization': "Bearer " + __ENV["K6FLOW_VAR_TOKEN"] },`);
+    expect(result.requiredEnv).toEqual(["K6FLOW_VAR_TOKEN"]);
+    const [call] = execute(result.script, { K6FLOW_VAR_TOKEN: "s3cr3t" });
+    expect(call.params.headers.Authorization).toBe("Bearer s3cr3t");
+  });
+
+  it("never writes a secret value into the script", () => {
+    const result = translateToK6(
+      graphOf(httpNode({ method: "GET", url: lit("https://x.test/{{token}}") })),
+      { variables: new Map([["token", { value: "TOP-SECRET", secret: true }]]) },
+    );
+    expect(result.script).not.toContain("TOP-SECRET");
+    expect(result.requiredEnv).toEqual(["K6FLOW_VAR_TOKEN"]);
+  });
+
+  it("interpolates a JSON body on the raw text", () => {
+    const result = translateToK6(
+      graphOf(httpNode({
+        method: "POST", url: lit("{{baseUrl}}/login"),
+        body: { kind: "json", value: lit('{"user":"{{user}}","pass":"{{token}}"}') },
+      })),
+      { variables: vars },
+    );
+    expect(result.script).toContain("'Content-Type': 'application/json'");
+    const [call] = execute(result.script, { K6FLOW_VAR_TOKEN: "pw" });
+    expect(call.body).toBe('{"user":"alice","pass":"pw"}');
+    expect(JSON.parse(call.body as string)).toEqual({ user: "alice", pass: "pw" });
+  });
+
+  it("interpolates text, xml and form bodies", () => {
+    for (const kind of ["text", "xml", "form"]) {
+      const result = translateToK6(
+        graphOf(httpNode({ method: "PUT", url: lit("https://x.test"), body: { kind, value: lit("u={{user}}") } })),
+        { variables: vars },
+      );
+      expect(execute(result.script)[0].body).toBe("u=alice");
+    }
+  });
+
+  it("handles mixed strings with several variables", () => {
+    const result = translateToK6(
+      graphOf(httpNode({ method: "GET", url: lit("{{baseUrl}}/users/{{user}}?t={{token}}&x={{user}}") })),
+      { variables: vars },
+    );
+    const [call] = execute(result.script, { K6FLOW_VAR_TOKEN: "T" });
+    expect(call.url).toBe("https://api.example.com/users/alice?t=T&x=alice");
+    expect(result.requiredEnv).toEqual(["K6FLOW_VAR_TOKEN"]);
+  });
+
+  it("cannot be broken out of by hostile values or literal parts", () => {
+    const hostile = "`${globalThis.pwned=1}`'\"\\\n\u2028</script><script>x</script>";
+    const literal = "'); globalThis.pwned = 1; ('`${2}`\"\n</script>";
+    const result = translateToK6(
+      graphOf(httpNode({
+        method: "POST", url: lit(`https://x.test/${literal}{{evil}}`),
+        headers: [{ name: "X-Evil", value: lit(`${literal}{{evil}}`) }],
+        body: { kind: "json", value: lit(`${literal}{{evil}}${literal}`) },
+      })),
+      { variables: new Map([["evil", { value: hostile, secret: false }]]) },
+    );
+    expect(result.script).not.toContain("</script>");
+    const [call] = execute(result.script);
+    expect((globalThis as Record<string, unknown>).pwned).toBeUndefined();
+    expect(call.url).toBe(`https://x.test/${literal}${hostile}`);
+    expect(call.params.headers["X-Evil"]).toBe(`${literal}${hostile}`);
+    expect(call.body).toBe(`${literal}${hostile}${literal}`);
+  });
+
+  it("reports unknown variables as errors without throwing", () => {
+    const result = translateToK6(
+      graphOf(
+        httpNode({ method: "GET", url: lit("{{nope}}/a"), headers: [{ name: "X", value: lit("{{nope}}{{other}}") }] }),
+      ),
+      { variables: vars },
+    );
+    expect(result.errors).toEqual([
+      { code: "unknown-variable", nodeId: "req-1", variable: "nope", message: expect.stringContaining("nope") },
+      { code: "unknown-variable", nodeId: "req-1", variable: "other", message: expect.stringContaining("other") },
+    ]);
+    expect(execute(result.script)[0].url).toBe("{{nope}}/a");
+  });
+
+  it("reports a non-secret variable without a value", () => {
+    const result = translateToK6(
+      graphOf(httpNode({ method: "GET", url: lit("{{empty}}") })),
+      { variables: new Map([["empty", { secret: false }]]) },
+    );
+    expect(result.errors).toEqual([
+      { code: "missing-value", nodeId: "req-1", variable: "empty", message: expect.stringContaining("empty") },
+    ]);
+  });
+
+  it("returns requiredEnv unique and sorted", () => {
+    const secrets = new Map([
+      ["zeta", { secret: true }], ["alpha", { secret: true }], ["unused", { secret: true }],
+    ]);
+    const result = translateToK6(
+      graphOf(
+        httpNode({ method: "GET", url: lit("https://x.test/{{zeta}}/{{alpha}}") }, "a"),
+        httpNode({ method: "GET", url: lit("https://x.test/{{zeta}}") }, "b"),
+      ),
+      { variables: secrets },
+    );
+    expect(result.requiredEnv).toEqual(["K6FLOW_VAR_ALPHA", "K6FLOW_VAR_ZETA"]);
+  });
+
+  it("reports referenced secrets whose env names collide", () => {
+    const result = translateToK6(
+      graphOf(httpNode({ method: "GET", url: lit("https://x.test/{{api.key}}/{{api-key}}") })),
+      { variables: new Map([["api.key", { secret: true }], ["api-key", { secret: true }]]) },
+    );
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: "secret-env-collision", variable: "api-key", nodeId: "req-1" }),
+    ]);
+    expect(result.errors[0].message).toContain("K6FLOW_VAR_API_KEY");
+  });
+});

@@ -341,3 +341,38 @@ supplies that slot. References are inspected only in supported slots.
 
 Neither schema validates actual response values, extraction, CSV data or load
 execution; passing ready composition is declaration-level readiness, not a run.
+
+## `{{variable}}` placeholders in literal strings (k6flow-variables T1)
+
+Placeholders live inside **literal** string parameters; the graph schema is
+unchanged and validation does not resolve them. Exports: `parseTemplate`,
+`findVariables`, `mergeVariables`, `secretEnvName`, `findSecretEnvCollisions`,
+`renderTemplateExpression`, `VARIABLE_NAME_PATTERN`.
+
+| Rule | Behavior |
+|------|----------|
+| Syntax | `{{name}}` or `{{ name }}` (inner whitespace trimmed). Name: `[A-Za-z_][A-Za-z0-9_.-]{0,63}`. |
+| Malformed | `{{}}`, `{{bad name}}`, unclosed `{{x` stay literal text. |
+| Escaping | None. `\{{x}}` is a literal `\` followed by a placeholder. |
+| Merge | `mergeVariables(environmentVars, scenarioVars)`: scenario wins by name. |
+| Secret env name | `K6FLOW_VAR_` + name uppercased, chars outside `[A-Z0-9_]` → `_`. Not injective (`api.key`, `api-key`, `API_KEY` collide); `findSecretEnvCollisions` reports such groups. |
+
+`translateToK6(graph, { variables })` interpolates the HTTP request URL, literal
+header values, text/json/xml/form literal bodies and the authentication request URL:
+
+- No `variables` option, or a string without placeholders → output is byte-identical
+  to the pre-variables translator (placeholders stay as literal text).
+- Otherwise the string becomes a concatenation of escaped JS literals
+  (`JSON.stringify` plus `\u2028`, `\u2029` and `<` escaped). Non-secret values are
+  inlined; secret values are never written to the script and become
+  `__ENV["K6FLOW_VAR_<NAME>"]`. Example: `{{baseUrl}}/auth/login` →
+  `"https://api.example.com" + "/auth/login"`; `Bearer {{token}}` (secret) →
+  `"Bearer " + __ENV["K6FLOW_VAR_TOKEN"]`.
+- JSON bodies are interpolated on the raw body text and values are inserted
+  without JSON escaping: place placeholders inside JSON string quotes with values
+  that need no escaping, or make sure the value yields valid JSON.
+- Problems are returned in `result.errors` (`unknown-variable`, `missing-value` for a
+  non-secret without value, `secret-env-collision`) with `nodeId` and `variable`; the
+  translator never throws for them and keeps the `{{name}}` text in place.
+- `result.requiredEnv` lists the env names of referenced secrets (unique, sorted) for
+  the run layer to inject.
