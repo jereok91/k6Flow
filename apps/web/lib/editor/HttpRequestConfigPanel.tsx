@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { ConfigPanel, FormField, TextInput, SelectInput, TextArea } from "./ConfigPanel";
 import { parseCurl } from "./curl-import";
+import { VariableInput } from "../variables/VariableInput";
 
 const HTTP_METHODS = [
   { value: "GET", label: "GET" },
@@ -47,9 +48,13 @@ interface HttpRequestParams {
     | { kind: "form"; value: { kind: "literal"; value: string } };
 }
 
+const NO_VARIABLES: readonly string[] = [];
+
 interface HttpRequestConfigPanelProps {
   parameters?: HttpRequestParams;
   availableOutputs?: AvailableOutput[];
+  /** `{{name}}` variables defined in the merged set (selected environment + scenario). */
+  variableNames?: readonly string[];
   onChange: (params: HttpRequestParams) => void;
   onClose: () => void;
 }
@@ -57,6 +62,7 @@ interface HttpRequestConfigPanelProps {
 export function HttpRequestConfigPanel({
   parameters,
   availableOutputs = [],
+  variableNames = NO_VARIABLES,
   onChange,
   onClose,
 }: HttpRequestConfigPanelProps) {
@@ -269,10 +275,11 @@ export function HttpRequestConfigPanel({
         <SelectInput value={method} onChange={updateMethod} options={HTTP_METHODS} />
       </FormField>
 
-      <FormField label="URL" hint="The endpoint to request">
-        <TextInput
+      <FormField label="URL" hint="The endpoint to request. Type {{ to insert a variable.">
+        <VariableInput
           value={url}
           onChange={updateUrl}
+          variableNames={variableNames}
           placeholder="https://api.example.com/endpoint"
         />
       </FormField>
@@ -300,9 +307,10 @@ export function HttpRequestConfigPanel({
                   ]}
                 />
                 {header.value.kind === "literal" ? (
-                  <TextInput
+                  <VariableInput
                     value={header.value.value ?? ""}
                     onChange={(v) => updateHeaderLiteralValue(index, v)}
+                    variableNames={variableNames}
                     placeholder="Header value"
                   />
                 ) : (
@@ -360,12 +368,15 @@ export function HttpRequestConfigPanel({
           hint={jsonError ? `❌ ${jsonError}` : bodyKind === "json" ? "JSON object" : bodyKind === "xml" ? "XML document" : bodyKind === "form" ? "key=value&key2=value2" : "Raw text"}
           error={!!jsonError}
         >
-          <TextArea
+          <VariableInput
             value={bodyText}
             onChange={updateBodyText}
+            variableNames={variableNames}
             placeholder={bodyKind === "json" ? '{"key": "value"}' : bodyKind === "xml" ? '<root>...</root>' : bodyKind === "form" ? 'username=test&password=123' : "Request body..."}
+            multiline
             rows={6}
             mono
+            preview="chips"
           />
         </FormField>
       )}

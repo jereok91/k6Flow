@@ -5,6 +5,9 @@
 
 import { useMemo } from "react";
 import { ConfigPanel, FormField, TextInput, SelectInput } from "./ConfigPanel";
+import { VariableInput } from "../variables/VariableInput";
+
+const NO_VARIABLES: readonly string[] = [];
 
 const HTTP_METHODS = [
   { value: "GET", label: "GET" },
@@ -33,6 +36,8 @@ interface AuthParams {
 
 interface AuthenticationConfigPanelProps {
   parameters?: AuthParams;
+  /** `{{name}}` variables defined in the merged set (selected environment + scenario). */
+  variableNames?: readonly string[];
   onChange: (params: AuthParams) => void;
   onClose: () => void;
 }
@@ -45,6 +50,7 @@ const DEFAULT_BODY_TEMPLATE: BodyField[] = [
 
 export function AuthenticationConfigPanel({
   parameters,
+  variableNames = NO_VARIABLES,
   onChange,
   onClose,
 }: AuthenticationConfigPanelProps) {
@@ -128,10 +134,11 @@ export function AuthenticationConfigPanel({
         />
       </FormField>
 
-      <FormField label="Login URL" hint="Authentication endpoint">
-        <TextInput
+      <FormField label="Login URL" hint="Authentication endpoint. Type {{ to insert a variable.">
+        <VariableInput
           value={url}
           onChange={(v) => update({ url: v })}
+          variableNames={variableNames}
           placeholder="https://api.example.com/auth/login"
         />
       </FormField>

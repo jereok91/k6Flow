@@ -205,7 +205,8 @@ const hintStyle: React.CSSProperties = {
   marginBottom: 0,
 };
 
-const inputStyle: React.CSSProperties = {
+/** Shared field style, also used by inputs built outside this file (e.g. VariableInput). */
+export const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "10px 12px",
   fontSize: "13px",

@@ -21,6 +21,7 @@ const navItems = [
   { path: "/recordings", label: "Grabaciones", icon: "fiber_manual_record" },
   { path: "/recorder", label: "Grabar", icon: "videocam" },
   { path: "/editor", label: "Editor", icon: "edit_square" },
+  { path: "/environments", label: "Entornos", icon: "layers" },
 ];
 
 export function Sidebar() {

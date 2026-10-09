@@ -4,7 +4,7 @@
 // K6F8-04: Import from recorder support.
 // Authenticated users only.
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -31,6 +31,16 @@ import {
 } from "../../lib/editor";
 import { useScenario } from "../../lib/editor/use-scenario";
 import { useRun } from "../../lib/editor/use-run";
+import {
+  VariablesPanel,
+  EnvironmentSelector,
+  collectGraphVariables,
+  mergedVariableNames,
+  useEnvironments,
+  useEnvironmentVariables,
+  useScenarioVariables,
+  useSelectedEnvironment,
+} from "../../lib/variables";
 
 interface AuthState {
   loading: boolean;
@@ -66,11 +76,31 @@ export default function EditorPage() {
   const [editorDuration, setEditorDuration] = useState("30s");
   const [showExecutionPanel, setShowExecutionPanel] = useState(false);
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [showVariablesPanel, setShowVariablesPanel] = useState(false);
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
 
   const scenario = useScenario();
   const run = useRun();
+  // k6flow-variables V-T4: environments, selected environment and variable sets.
+  const environments = useEnvironments();
+  const environmentSelection = useSelectedEnvironment(
+    environments.environments,
+    environments.loaded && environments.error === null,
+  );
+  const selectedEnvironment =
+    environments.environments.find((env) => env.id === environmentSelection.selectedId) ?? null;
+  const scenarioVariables = useScenarioVariables(scenario.scenarioId);
+  const environmentVariables = useEnvironmentVariables(selectedEnvironment?.id ?? null);
+  const usedVariableNames = useMemo(() => collectGraphVariables(nodes), [nodes]);
+  const definedVariableNames = useMemo(
+    () => mergedVariableNames(environmentVariables.variables, scenarioVariables.variables),
+    [environmentVariables.variables, scenarioVariables.variables],
+  );
+  const undefinedVariableCount = useMemo(() => {
+    const defined = new Set(definedVariableNames);
+    return usedVariableNames.filter((name) => !defined.has(name)).length;
+  }, [definedVariableNames, usedVariableNames]);
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -428,6 +458,7 @@ export default function EditorPage() {
       scenarioName: scenario.scenarioName || "Sin nombre",
       vus: editorVus,
       durationMs,
+      environmentId: selectedEnvironment?.id,
     });
     if (result.success && result.runId) {
       setCurrentRunId(result.runId);
@@ -536,6 +567,7 @@ export default function EditorPage() {
           <HttpRequestConfigPanel
             parameters={parameters as Parameters<typeof HttpRequestConfigPanel>[0]["parameters"]}
             availableOutputs={getAvailableOutputs()}
+            variableNames={definedVariableNames}
             onChange={(params) => updateNodeParameters(nodeId, params)}
             onClose={closeConfigPanel}
           />
@@ -544,6 +576,7 @@ export default function EditorPage() {
         return (
           <AuthenticationConfigPanel
             parameters={parameters as Parameters<typeof AuthenticationConfigPanel>[0]["parameters"]}
+            variableNames={definedVariableNames}
             onChange={(params) => updateNodeParameters(nodeId, params)}
             onClose={closeConfigPanel}
           />
@@ -598,7 +631,11 @@ export default function EditorPage() {
 
         <div className="flex items-center gap-space-md">
           {(scenario.error || run.error) && (
-            <span className="text-body-sm text-error">
+            <span
+              className="text-body-sm text-error max-w-[420px] line-clamp-2 break-words"
+              title={scenario.error || run.error || undefined}
+              role="alert"
+            >
               {scenario.error || run.error}
             </span>
           )}
@@ -606,7 +643,10 @@ export default function EditorPage() {
             {nodes.length} nodos · {edges.length} conexiones
           </span>
           <button
-            onClick={() => setShowHistoryPanel(!showHistoryPanel)}
+            onClick={() => {
+              setShowHistoryPanel(!showHistoryPanel);
+              if (!showHistoryPanel) setShowVariablesPanel(false);
+            }}
             className={`btn-secondary ${showHistoryPanel ? 'bg-secondary/20' : ''}`}
             title="Ver historial de ejecuciones"
           >
@@ -619,12 +659,39 @@ export default function EditorPage() {
             )}
           </button>
           <button
-            onClick={() => setShowScriptPanel(!showScriptPanel)}
+            onClick={() => {
+              setShowScriptPanel(!showScriptPanel);
+              if (!showScriptPanel) setShowVariablesPanel(false);
+            }}
             className={`btn-secondary ${showScriptPanel ? 'bg-secondary/20' : ''}`}
             title="Ver script K6 generado"
           >
             <span className="material-symbols-outlined text-[16px]">code</span>
             <span>Script</span>
+          </button>
+          <button
+            onClick={() => {
+              const next = !showVariablesPanel;
+              setShowVariablesPanel(next);
+              if (next) {
+                setShowScriptPanel(false);
+                setShowHistoryPanel(false);
+              }
+            }}
+            className={`btn-secondary ${showVariablesPanel ? 'bg-secondary/20' : ''}`}
+            title={
+              undefinedVariableCount > 0
+                ? `${undefinedVariableCount} variable(s) used but not defined`
+                : "Variables del escenario"
+            }
+          >
+            <span className="material-symbols-outlined text-[16px]">data_object</span>
+            <span>Variables</span>
+            {undefinedVariableCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-amber-500 text-black rounded-full">
+                {undefinedVariableCount}
+              </span>
+            )}
           </button>
           <button onClick={handleNew} className="btn-secondary">
             <span className="material-symbols-outlined text-[16px]">add</span>
@@ -638,6 +705,14 @@ export default function EditorPage() {
             <span className="material-symbols-outlined text-[16px]">save</span>
             <span>{scenario.saving ? "Guardando..." : "Guardar"}</span>
           </button>
+          <EnvironmentSelector
+            environments={environments.environments}
+            selectedId={selectedEnvironment?.id ?? null}
+            onChange={environmentSelection.setSelectedId}
+            loading={environments.loading && !environments.loaded}
+            error={environments.error}
+            disabled={run.running}
+          />
           <button
             onClick={handleRunClick}
             disabled={run.running || nodes.length === 0 || run.orchestratorAvailable === false}
@@ -740,6 +815,10 @@ export default function EditorPage() {
                 <div className="text-on-surface-variant italic">No se detectaron targets HTTP</div>
               )}
             </div>
+            <p className="text-body-sm text-on-surface-variant mb-space-md">
+              Entorno:{" "}
+              <span className="text-on-surface font-medium">{selectedEnvironment?.name ?? "Sin entorno"}</span>
+            </p>
             <div className="p-space-md rounded-lg bg-amber-500/10 border border-amber-500/30 mb-space-lg">
               <div className="flex items-start gap-space-sm">
                 <span className="material-symbols-outlined text-amber-500 text-[18px]">electric_bolt</span>
@@ -774,6 +853,16 @@ export default function EditorPage() {
           onNodeSelect={setSelectedNode}
         />
         {renderConfigPanel()}
+        {showVariablesPanel && (
+          <VariablesPanel
+            scenarioId={scenario.scenarioId}
+            scenarioVariables={scenarioVariables}
+            environmentName={selectedEnvironment?.name ?? null}
+            environmentVariables={environmentVariables}
+            usedNames={usedVariableNames}
+            onClose={() => setShowVariablesPanel(false)}
+          />
+        )}
         {showScriptPanel && (
           <ScriptPanel
             nodes={nodes}
