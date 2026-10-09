@@ -4,7 +4,10 @@
 // K6F8-04: Import from recorder support.
 // Authenticated users only.
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
+import { snapshot, SaveBaseline, durationSeconds as parseDurationToSeconds } from "../../lib/editor/save-state";
+import { useToast } from "../../lib/notifications/ToastProvider";
+import { AsyncLifetime } from "../../lib/editor/async-lifetime";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -120,6 +123,26 @@ export default function EditorPage() {
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
 
   const scenario = useScenario();
+  const notify = useToast();
+  const baseline = useRef(new SaveBaseline(snapshot("", [], [], 1, "30s")));
+  const [, refreshBaseline] = useState(0);
+  const saveInFlight = useRef(false);
+  const lifetime = useRef(new AsyncLifetime());
+  const flowLifetime = useRef(new AsyncLifetime());
+  useLayoutEffect(() => {
+    const session = lifetime.current;
+    const flowSession = flowLifetime.current;
+    session.mount();
+    flowSession.mount();
+    saveInFlight.current = false;
+    return () => { session.unmount(); flowSession.unmount(); };
+  }, []);
+  const invalidateContinuations = useCallback(() => {
+    flowLifetime.current.invalidate();
+    saveInFlight.current = false;
+  }, []);
+  const currentSnapshot = snapshot(scenario.scenarioName || scenarioNameInput.trim(), nodes, edges, editorVus, editorDuration);
+  const dirty = baseline.current.dirty(currentSnapshot);
   const run = useRun();
   // k6flow-variables V-T4: environments, selected environment and variable sets.
   const environments = useEnvironments();
@@ -158,11 +181,14 @@ export default function EditorPage() {
 
   // Load run history on mount
   useEffect(() => {
+    const session = lifetime.current;
+    const ticket = session.capture();
     const loadHistory = async () => {
       try {
         const res = await fetch("/api/runs?limit=20");
         if (res.ok) {
           const data = await res.json();
+          if (!session.isCurrent(ticket)) return;
           setRunHistory(data.runs.map((r: any) => ({
             runId: r.runId,
             scenarioName: r.scenarioName,
@@ -185,8 +211,11 @@ export default function EditorPage() {
 
   // Check authentication on mount
   useEffect(() => {
+    const session = lifetime.current;
+    const ticket = session.capture();
     fetch("/api/auth/me")
       .then((res) => {
+        if (!session.isCurrent(ticket)) return;
         if (res.ok) {
           setAuth({ loading: false, authenticated: true });
         } else if (res.status === 401) {
@@ -196,6 +225,7 @@ export default function EditorPage() {
         }
       })
       .catch(() => {
+        if (!session.isCurrent(ticket)) return;
         setAuth({ loading: false, authenticated: false, error: "Error de red" });
       });
   }, []);
@@ -210,13 +240,21 @@ export default function EditorPage() {
     const scenarioId = idParam ? parseInt(idParam, 10) : scenarioParam;
     
     if (scenarioId) {
+      invalidateContinuations();
+      const session = flowLifetime.current;
+      const ticket = session.capture();
+      baseline.current.reset(currentSnapshot);
       scenario.loadScenario(scenarioId).then((result) => {
+        if (!session.isCurrent(ticket)) return;
         if (result) {
           replaceFlow();
           setNodes(result.nodes);
           setEdges(result.edges);
           setEditorVus(result.vus);
           setEditorDuration(`${result.durationSeconds}s`);
+          setScenarioNameInput("");
+          baseline.current.reset(snapshot(result.name, result.nodes, result.edges, result.vus, `${result.durationSeconds}s`));
+          refreshBaseline(value => value + 1);
         }
       });
       if (typeof scenarioId === 'number') {
@@ -266,6 +304,13 @@ export default function EditorPage() {
         target: conn.target,
       }));
 
+      invalidateContinuations();
+      scenario.clearScenario();
+      setShowSaveDialog(false);
+      setScenarioNameInput("");
+      setEditorVus(1);
+      setEditorDuration("30s");
+      baseline.current.reset(snapshot("", [], [], 1, "30s"));
       replaceFlow();
       setNodes(nodesWithPositions);
       setEdges(edgesFromCaptures);
@@ -277,10 +322,13 @@ export default function EditorPage() {
   }, [auth.authenticated, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAttachments = useCallback(async (scenarioId: number) => {
+    const session = flowLifetime.current;
+    const ticket = session.capture();
     try {
       const res = await fetch(`/api/scenarios/${scenarioId}/attachments`);
       if (res.ok) {
         const data = await res.json();
+        if (!session.isCurrent(ticket)) return;
         setAttachments(data.attachments ?? []);
       }
     } catch {
@@ -289,7 +337,9 @@ export default function EditorPage() {
   }, []);
 
   const uploadFile = useCallback(async (file: File): Promise<AttachmentInfo | null> => {
-    if (!scenario.scenarioId) return null;
+    const session = flowLifetime.current;
+    const ticket = session.capture();
+    if (!session.isCurrent(ticket) || !scenario.scenarioId) return null;
 
     const reader = new FileReader();
     const base64 = await new Promise<string>((resolve, reject) => {
@@ -301,6 +351,7 @@ export default function EditorPage() {
       reader.readAsDataURL(file);
     });
 
+    if (!session.isCurrent(ticket)) return null;
     const res = await fetch(`/api/scenarios/${scenario.scenarioId}/attachments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -311,25 +362,30 @@ export default function EditorPage() {
       }),
     });
 
+    if (!session.isCurrent(ticket)) return null;
     if (!res.ok) {
       const error = await res.json();
+      if (!session.isCurrent(ticket)) return null;
       throw new Error(error.error || "Upload failed");
     }
 
     const data = await res.json();
+    if (!session.isCurrent(ticket)) return null;
     setAttachments((prev) => [...prev, data.attachment]);
     return data.attachment;
   }, [scenario.scenarioId]);
 
   const deleteAttachment = useCallback(async (attachmentId: string): Promise<boolean> => {
-    if (!scenario.scenarioId) return false;
+    const session = flowLifetime.current;
+    const ticket = session.capture();
+    if (!session.isCurrent(ticket) || !scenario.scenarioId) return false;
 
     const res = await fetch(
       `/api/scenarios/${scenario.scenarioId}/attachments/${attachmentId}`,
       { method: "DELETE" },
     );
 
-    if (res.ok) {
+    if (res.ok && session.isCurrent(ticket)) {
       setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
       return true;
     }
@@ -359,38 +415,57 @@ export default function EditorPage() {
     setNodes((current) => current.map((n) => ({ ...n, selected: false })));
   }, []);
 
-  // Parse duration string to seconds (e.g., "30s" -> 30, "1m" -> 60, "1m30s" -> 90)
-  const parseDurationToSeconds = (dur: string): number => {
-    let total = 0;
-    const minuteMatch = dur.match(/(\d+)m/);
-    const secondMatch = dur.match(/(\d+)s/);
-    if (minuteMatch) total += parseInt(minuteMatch[1], 10) * 60;
-    if (secondMatch) total += parseInt(secondMatch[1], 10);
-    if (total === 0 && /^\d+$/.test(dur)) total = parseInt(dur, 10);
-    return total || 30;
-  };
-
-  const handleSave = async () => {
-    if (!scenario.scenarioId) {
-      setShowSaveDialog(true);
-      return;
-    }
-    const durationSecs = parseDurationToSeconds(editorDuration);
-    await scenario.updateScenario(scenario.scenarioId, scenario.scenarioName, nodes, edges, editorVus, durationSecs);
-  };
-
-  const handleCreateScenario = async () => {
-    if (!scenarioNameInput.trim()) return;
-    const durationSecs = parseDurationToSeconds(editorDuration);
-    const result = await scenario.saveScenario(scenarioNameInput.trim(), nodes, edges, editorVus, durationSecs);
-    if (result) {
-      setShowSaveDialog(false);
-      setScenarioNameInput("");
+  const save = async (create: boolean) => {
+    const session = flowLifetime.current;
+    const epoch = session.capture();
+    if (!session.isCurrent(epoch) || saveInFlight.current || scenario.loading) return;
+    const name = create ? scenarioNameInput.trim() : scenario.scenarioName;
+    if (create && !name) return;
+    saveInFlight.current = true;
+    const ticket = baseline.current.submit(snapshot(name, nodes, edges, editorVus, editorDuration));
+    try {
+      const result = await scenario.persistScenario(create ? null : scenario.scenarioId, name, nodes, edges, editorVus, parseDurationToSeconds(editorDuration));
+      // The hook can return before cleanup: recheck at the page boundary too.
+      if (!session.isCurrent(epoch)) return;
+      if (result.kind === "saved" && baseline.current.accept(ticket)) {
+        refreshBaseline(value => value + 1);
+        setShowSaveDialog(false);
+        setScenarioNameInput("");
+        notify({ type: "success", message: "Escenario guardado" });
+      } else if (result.kind === "error") {
+        notify({ type: "error", message: result.error });
+      }
+    } finally {
+      if (session.isCurrent(epoch)) saveInFlight.current = false;
     }
   };
+  const handleSave = () => {
+    if (saveInFlight.current || scenario.loading) return;
+    if (showSaveDialog) return save(true);
+    if (scenario.scenarioId === null) { setShowSaveDialog(true); return; }
+    return save(false);
+  };
+  const handleCreateScenario = () => save(true);
+  const saveCallback = useRef(handleSave);
+  saveCallback.current = handleSave;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "s") return;
+      event.preventDefault();
+      if (!event.repeat && !event.isComposing && auth.authenticated) void saveCallback.current();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [auth.authenticated]);
 
   const handleNew = () => {
+    invalidateContinuations();
     scenario.clearScenario();
+    baseline.current.reset(snapshot("", [], [], 1, "30s"));
+    setScenarioNameInput("");
+    setShowSaveDialog(false);
+    setEditorVus(1);
+    setEditorDuration("30s");
     replaceFlow();
     setNodes([]);
     setEdges([]);
@@ -459,6 +534,9 @@ export default function EditorPage() {
   };
 
   const handleRunConfirmed = async () => {
+    const session = flowLifetime.current;
+    const ticket = session.capture();
+    if (!session.isCurrent(ticket)) return;
     setShowRunConfirmation(false);
     if (nodes.length === 0) {
       return;
@@ -471,6 +549,7 @@ export default function EditorPage() {
       durationMs,
       environmentId: selectedEnvironment?.id,
     });
+    if (!session.isCurrent(ticket)) return;
     if (result.success && result.runId) {
       setCurrentRunId(result.runId);
       setShowExecutionPanel(true);
@@ -637,6 +716,7 @@ export default function EditorPage() {
           <h1 className="text-headline-sm text-on-surface font-semibold">
             {scenario.scenarioName || "Nuevo Escenario"}
           </h1>
+          <span className="text-xs text-on-surface-variant" role="status">{scenario.saving ? "Guardando…" : dirty ? "Cambios sin guardar" : "Sin cambios"}</span>
           {scenario.scenarioId && (
             <span className="text-label-code-sm text-on-surface-variant font-mono">
               #{scenario.scenarioId}
@@ -785,6 +865,7 @@ export default function EditorPage() {
             <input
               type="text"
               value={scenarioNameInput}
+              disabled={scenario.saving}
               onChange={(e) => setScenarioNameInput(e.target.value)}
               placeholder="Nombre del escenario"
               className="input mb-space-lg"

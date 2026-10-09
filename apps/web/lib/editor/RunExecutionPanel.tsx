@@ -2,10 +2,13 @@
 
 // Panel to display live K6 test execution with metrics and results.
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { AsyncLifetime } from "./async-lifetime";
 import { useRouter } from "next/navigation";
 import { RpsChart, LatencyChart, Sparkline } from "./MetricsChart";
 import { describeRunFailure } from "./run-failure";
+import { normalizedRunStatus, runNotifications } from "./run-notifications";
+import { useToast } from "../notifications/ToastProvider";
 
 // k6 exit code to human-readable error message (see run-failure.ts)
 function formatRunFailure(input: { exitCode?: number | null; status?: string; vus?: number }): string {
@@ -88,6 +91,10 @@ async function fetchRunWsUrl(runId: string): Promise<string | null> {
 
 export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecutionPanelProps) {
   const router = useRouter();
+  const notify = useToast();
+  const callbacks = useRef({ onComplete, notify, vus });
+  callbacks.current = { onComplete, notify, vus };
+  const [stopPending, setStopPending] = useState(false);
   const [status, setStatus] = useState<RunStatus>("pending");
   const [metrics, setMetrics] = useState<RunMetrics>({
     vus: 0,
@@ -102,6 +109,18 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
   const [logs, setLogs] = useState<string[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const stopLifetime = useRef(new AsyncLifetime());
+  const stopInFlight = useRef(false);
+  const stopRunId = useRef(runId);
+  useLayoutEffect(() => {
+    const session = stopLifetime.current;
+    session.mount();
+    stopRunId.current = runId;
+    stopInFlight.current = false;
+    setStopPending(false);
+    setError(null);
+    return () => session.unmount();
+  }, [runId]);
   const [wsConnected, setWsConnected] = useState(false);
   const [chartData, setChartData] = useState<{
     time: number[];
@@ -148,6 +167,15 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
   useEffect(() => {
     let cancelled = false;
     let ws: WebSocket | null = null;
+    setStatus("pending");
+    setLogs([]);
+    setElapsed(0);
+    setChartData({ time: [], rps: [], avgLatency: [], p95Latency: [], p99Latency: [], vus: [], errorRate: [] });
+    const emptyMetrics = { vus: 0, iterations: 0, requestRate: 0, avgDuration: 0, p95Duration: 0, errorRate: 0, dataReceived: 0, dataSent: 0 };
+    metricsRef.current = emptyMetrics;
+    setMetrics(emptyMetrics);
+    startTimeRef.current = Date.now();
+    exitCodeRef.current = null;
 
     // Final metrics for onComplete: prefer the just-fetched summary, else latest state
     const finalMetrics = (summary?: RunSummary | null): RunMetrics =>
@@ -181,26 +209,43 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
       if (completionStarted) return;
       completionStarted = true;
       const summary = await fetchSummary();
+      if (cancelled) return;
       const completed = finalMetrics(summary);
-      onComplete?.({
+      callbacks.current.onComplete?.({
         runId,
         status: finalStatus,
-        duration: elapsed,
+        duration: Math.floor((Date.now() - startTimeRef.current) / 1000),
         iterations: completed.iterations,
         metrics: completed,
         errors,
       });
     };
     
+    const observeStatus = (value: unknown, errors: string[] = []) => {
+      if (cancelled) return;
+      const normalized = normalizedRunStatus(value);
+      if (!normalized) return;
+      // Never regress a terminal observation due to a delayed GET or WS frame.
+      if (completionStarted) return;
+      setStatus(normalized);
+      const event = runNotifications.observe(runId, value);
+      if (event) callbacks.current.notify({
+        key: `run:${runId}:${event}`, type: event === "failed" ? "error" : event === "completed" ? "success" : "info",
+        message: event === "running" ? "Ejecución iniciada" : event === "completed" ? "Ejecución completada" : event === "failed" ? "Ejecución fallida" : "Ejecución detenida",
+      });
+      if (normalized === "failed") setError(formatRunFailure({ exitCode: exitCodeRef.current, status: normalized, vus: callbacks.current.vus }));
+      if (normalized !== "pending" && normalized !== "running") {
+        setStopPending(false);
+        void completeRun(normalized, errors);
+      }
+    };
+
     // Fetch final status (for completion and errors)
     const fetchStatus = async () => {
       try {
         const res = await fetch(`/api/orchestrator/runs/${runId}`);
         if (!res.ok) {
-          if (res.status === 404) {
-            setError("Run not found");
-            setStatus("failed");
-          }
+          if (res.status === 404 && !cancelled) setError("Ejecución no encontrada");
           return null;
         }
         return await res.json();
@@ -227,24 +272,26 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
       ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
+        if (cancelled) return;
         setWsConnected(true);
         setLogs(prev => [...prev, "[WS] Connected to metrics stream"]);
       };
       
       ws.onmessage = (event) => {
+        if (cancelled) return;
         try {
           const msg = JSON.parse(event.data);
           
           // Handle hello message (sent on connection)
           if (msg.type === "hello") {
-            setStatus(msg.status as RunStatus || "running");
+            observeStatus(msg.status);
             setLogs(prev => [...prev, `[WS] Hello received - status: ${msg.status}, lastSeq: ${msg.lastSeq}`]);
             return;
           }
 
           // Handle state change messages
           if (msg.type === "state") {
-            setStatus(msg.toState as RunStatus);
+            observeStatus(msg.toState);
             setLogs(prev => [...prev, `[STATE] ${msg.fromState} -> ${msg.toState}`]);
             return;
           }
@@ -254,7 +301,7 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
             if (typeof msg.exitCode === "number") {
               exitCodeRef.current = msg.exitCode;
             }
-            setStatus(msg.status as RunStatus);
+            observeStatus(msg.status);
             setLogs(prev => [...prev, `[END] Run ${msg.status} - exit code: ${msg.exitCode}`]);
             if (msg.status === "failed" || msg.status === "errored") {
               setError(formatRunFailure({ exitCode: exitCodeRef.current, status: msg.status, vus }));
@@ -317,37 +364,16 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
         }
       };
       
-      ws.onclose = async (event) => {
+      ws.onclose = async () => {
+        if (cancelled) return;
         setWsConnected(false);
-        // Close code 1000 = normal completion
-        if (event.code === 1000 || event.code === 1001) {
-          // Fetch final status to get completion details
-          const data = await fetchStatus();
-          if (data && !cancelled) {
-            const finalStatus = data.status as RunStatus;
-            setStatus(finalStatus);
-            if (finalStatus === "failed") {
-              setError(formatRunFailure({ exitCode: exitCodeRef.current ?? data.exitCode, status: finalStatus, vus }));
-              setLogs(prev => [...prev, "[ERROR] La ejecucion de k6 fallo"]);
-            }
-            if (finalStatus === "finished" || finalStatus === "completed" || finalStatus === "failed" || finalStatus === "stopped") {
-              await completeRun(finalStatus, []);
-            }
-          }
-        } else {
-          // Unexpected close - fetch status to check what happened
-          const data = await fetchStatus();
-          if (data && !cancelled) {
-            setStatus(data.status as RunStatus);
-            if (data.error) {
-              setError(data.error);
-              setLogs(prev => [...prev, `[ERROR] ${data.error}`]);
-            }
-          }
-        }
+        const data = await fetchStatus();
+        if (data && !cancelled) observeStatus(data.status, data.errors || []);
+        if (!cancelled && !completionStarted) startPolling();
       };
       
       ws.onerror = () => {
+        if (cancelled) return;
         setLogs(prev => [...prev, "[WS] Connection error - falling back to polling"]);
         // Fall back to polling on WS error
         startPolling();
@@ -357,19 +383,12 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
     // Polling fallback
     let pollInterval: NodeJS.Timeout | null = null;
     const startPolling = () => {
-      if (pollInterval) return;
+      if (pollInterval || cancelled || completionStarted) return;
       pollInterval = setInterval(async () => {
         const data = await fetchStatus();
         if (data && !cancelled) {
-          setStatus(data.status);
-          if (data.status === "failed") {
-            setError(formatRunFailure({ exitCode: exitCodeRef.current ?? data.exitCode, status: data.status, vus }));
-            setLogs(prev => [...prev, "[ERROR] La ejecucion de k6 fallo"]);
-          }
-          if (data.status === "finished" || data.status === "completed" || data.status === "failed" || data.status === "stopped") {
-            if (pollInterval) clearInterval(pollInterval);
-            await completeRun(data.status, data.errors || []);
-          }
+          observeStatus(data.status, data.errors || []);
+          if (completionStarted && pollInterval) clearInterval(pollInterval);
         }
       }, 2000);
     };
@@ -377,13 +396,11 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
     // Start with initial status check, then connect WS
     fetchStatus().then(data => {
       if (data && !cancelled) {
-        setStatus(data.status);
-        if (data.status === "running" || data.status === "pending") {
-          void connectWs();
-        } else {
-          // Already finished
-          void completeRun(data.status, data.errors || []);
-        }
+        observeStatus(data.status, data.errors || []);
+      }
+      if (!cancelled && !completionStarted) {
+        startPolling();
+        void connectWs();
       }
     });
 
@@ -399,17 +416,30 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
   }, [runId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStop = useCallback(async () => {
+    const session = stopLifetime.current;
+    const ticket = session.capture();
+    const isCurrent = () => session.isCurrent(ticket) && stopRunId.current === runId;
+    if (!isCurrent() || stopPending || stopInFlight.current) return;
+    stopInFlight.current = true;
+    setStopPending(true);
+    setError(null);
     try {
       const res = await fetch(`/api/orchestrator/runs/${runId}/stop`, { method: "POST" });
+      if (!isCurrent()) return;
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? `Stop failed: ${res.status}`);
+        if (!isCurrent()) return;
+        throw new Error(data.error ?? `No se pudo detener la ejecución: ${res.status}`);
       }
-      setStatus("stopped");
+      // Acknowledgement is not terminal: continue observing WS/GET status.
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to stop run");
+      if (!isCurrent()) return;
+      setStopPending(false);
+      setError(err instanceof Error ? err.message : "No se pudo detener la ejecución");
+    } finally {
+      if (isCurrent()) stopInFlight.current = false;
     }
-  }, [runId]);
+  }, [runId, stopPending]);
 
   const formatDuration = (ms: number) => {
     if (ms < 1000) return `${ms.toFixed(0)}ms`;
@@ -488,8 +518,8 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           {(status === "running" || status === "pending") && (
-            <button onClick={handleStop} style={stopButtonStyle}>
-              Detener
+            <button onClick={handleStop} disabled={stopPending} style={stopButtonStyle}>
+              {stopPending ? "Deteniendo…" : "Detener"}
             </button>
           )}
           <button 
