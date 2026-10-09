@@ -171,9 +171,6 @@ func (t *EndpointsTracker) GetFailures() []FailureGroup {
 
 // ToJSON encodes the tracker state to JSON.
 func (t *EndpointsTracker) ToJSON() ([]byte, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	data := struct {
 		Endpoints []EndpointMetrics `json:"endpoints"`
 		Failures  []FailureGroup    `json:"failures"`
@@ -182,6 +179,30 @@ func (t *EndpointsTracker) ToJSON() ([]byte, error) {
 		Failures:  t.GetFailures(),
 	}
 	return json.Marshal(data)
+}
+
+// GetEndpointsJSON returns the endpoints as JSON (implements runs.EndpointsData).
+func (t *EndpointsTracker) GetEndpointsJSON() ([]byte, error) {
+	endpoints := t.GetEndpoints()
+	return json.Marshal(struct {
+		Version   int               `json:"version"`
+		Endpoints []EndpointMetrics `json:"endpoints"`
+	}{
+		Version:   1,
+		Endpoints: endpoints,
+	})
+}
+
+// GetFailuresJSON returns the failures as JSON (implements runs.EndpointsData).
+func (t *EndpointsTracker) GetFailuresJSON() ([]byte, error) {
+	failures := t.GetFailures()
+	return json.Marshal(struct {
+		Version  int            `json:"version"`
+		Failures []FailureGroup `json:"failures"`
+	}{
+		Version:  1,
+		Failures: failures,
+	})
 }
 
 func (t *EndpointsTracker) keyString(key EndpointKey) string {

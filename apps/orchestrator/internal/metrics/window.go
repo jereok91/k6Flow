@@ -40,6 +40,7 @@ import (
 	"encoding/json"
 	"math"
 	"sort"
+	"strconv"
 	"time"
 
 	"k6flow/apps/orchestrator/internal/k6sum"
@@ -129,6 +130,7 @@ type RunWindowAggregator struct {
 	anchor time.Time
 	sink   FrameSink
 	now    func() time.Time // arrival-time fallback clock (test seam)
+	endpoints *EndpointsTracker // optional per-endpoint tracking
 
 	seq    int64 // next seq to assign (0-based, +1 per emitted window)
 	winIdx int64 // window currently collecting
@@ -148,6 +150,16 @@ func newRunWindowAggregator(runID string, anchor time.Time, sink FrameSink, now 
 		now = time.Now
 	}
 	return &RunWindowAggregator{runID: runID, anchor: anchor, sink: sink, now: now}
+}
+
+// SetEndpointsTracker sets the optional per-endpoint tracker.
+func (a *RunWindowAggregator) SetEndpointsTracker(t *EndpointsTracker) {
+	a.endpoints = t
+}
+
+// GetEndpointsTracker returns the per-endpoint tracker (may be nil).
+func (a *RunWindowAggregator) GetEndpointsTracker() *EndpointsTracker {
+	return a.endpoints
 }
 
 // OnLine folds one raw JSON-LINES line (newline optional, trailing whitespace
@@ -183,6 +195,12 @@ func (a *RunWindowAggregator) OnLine(line []byte) {
 	var data struct {
 		Time  *string  `json:"time"`
 		Value *float64 `json:"value"`
+		Tags  *struct {
+			Method string `json:"method"`
+			URL    string `json:"url"`
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"tags"`
 	}
 	if err := json.Unmarshal(msg.Data, &data); err != nil || data.Value == nil {
 		return
@@ -199,6 +217,11 @@ func (a *RunWindowAggregator) OnLine(line []byte) {
 		return // late/out-of-order point for an already-emitted window
 	}
 	a.fold(name, *data.Value)
+	
+	// Record per-endpoint metrics if tracker is configured
+	if a.endpoints != nil && data.Tags != nil && data.Tags.URL != "" {
+		a.recordEndpoint(name, *data.Value, data.Tags.Method, data.Tags.URL, data.Tags.Name, data.Tags.Status)
+	}
 }
 
 // knownMetric reports whether the point feeds any frame field; everything
@@ -262,6 +285,32 @@ func (a *RunWindowAggregator) fold(name string, value float64) {
 			v = maxSafeInteger
 		}
 		a.bucket.activeVUs = int(v) // gauge: last value seen for this window
+	}
+}
+
+// recordEndpoint feeds the per-endpoint tracker with request data.
+// Called for http_reqs and http_req_duration metrics.
+func (a *RunWindowAggregator) recordEndpoint(metric string, value float64, method, url, name, status string) {
+	if a.endpoints == nil {
+		return
+	}
+	
+	switch metric {
+	case k6sum.MetricRequests:
+		// Count request (duration will come from http_req_duration)
+		// We don't have duration here, so we only use this for counting
+	case k6sum.MetricDurationMs:
+		// Record the request with its duration
+		a.endpoints.RecordRequest(method, url, name, value)
+	case k6sum.MetricFailed:
+		// Record failure if value > 0 (failure rate sample)
+		if value > 0 {
+			statusInt := 0
+			if status != "" {
+				statusInt, _ = strconv.Atoi(status)
+			}
+			a.endpoints.RecordFailure(method, url, statusInt, "", "", 0, time.Now().UnixMilli())
+		}
 	}
 }
 

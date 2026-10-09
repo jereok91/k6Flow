@@ -138,18 +138,26 @@ type Run struct {
 	FinishedAt     *time.Time
 }
 
+// EndpointsData is an interface for per-run endpoint metrics.
+type EndpointsData interface {
+	GetEndpointsJSON() ([]byte, error)
+	GetFailuresJSON() ([]byte, error)
+}
+
 // Store is a mutex-protected in-memory run registry safe for concurrent use.
 type Store struct {
-	mu     sync.RWMutex
-	runs   map[string]*Run
-	dedupe map[string]string
+	mu        sync.RWMutex
+	runs      map[string]*Run
+	dedupe    map[string]string
+	endpoints map[string]EndpointsData // per-run endpoint trackers
 }
 
 // NewStore returns an empty run store.
 func NewStore() *Store {
 	return &Store{
-		runs:   map[string]*Run{},
-		dedupe: map[string]string{},
+		runs:      map[string]*Run{},
+		dedupe:    map[string]string{},
+		endpoints: map[string]EndpointsData{},
 	}
 }
 
@@ -329,4 +337,19 @@ func copyRun(run Run) Run {
 		run.Summary = &summary
 	}
 	return run
+}
+
+// SetEndpoints stores the per-run endpoints tracker.
+func (s *Store) SetEndpoints(id string, data EndpointsData) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.endpoints[id] = data
+}
+
+// GetEndpoints returns the per-run endpoints tracker.
+func (s *Store) GetEndpoints(id string) (EndpointsData, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	data, ok := s.endpoints[id]
+	return data, ok
 }

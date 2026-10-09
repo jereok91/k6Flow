@@ -361,6 +361,12 @@ func (e *Engine) startTap(ctx context.Context, runID, containerID string) *tap {
 		now = e.nowFn
 	}
 	agg := metrics.NewRunWindowAggregator(runID, now(), e.sink)
+	
+	// Create and wire the EndpointsTracker for per-endpoint metrics
+	endpointsTracker := metrics.NewEndpointsTracker(20)
+	agg.SetEndpointsTracker(endpointsTracker)
+	e.store.SetEndpoints(runID, endpointsTracker)
+	
 	t.wg.Add(2)
 	go func() {
 		defer t.wg.Done()

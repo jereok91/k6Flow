@@ -487,11 +487,30 @@ func (h *handler) getEndpoints(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, codeRunNotFound, msgRunNotFound)
 		return
 	}
-	// TODO: Wire endpoint tracker to engine
-	writeJSON(w, http.StatusOK, endpointsResponse{
-		Version:   contractVersion,
-		Endpoints: []endpointData{},
-	})
+	
+	// Get endpoint data from store
+	data, ok := h.store.GetEndpoints(id)
+	if !ok || data == nil {
+		writeJSON(w, http.StatusOK, endpointsResponse{
+			Version:   contractVersion,
+			Endpoints: []endpointData{},
+		})
+		return
+	}
+	
+	// Return the pre-serialized JSON
+	jsonData, err := data.GetEndpointsJSON()
+	if err != nil {
+		writeJSON(w, http.StatusOK, endpointsResponse{
+			Version:   contractVersion,
+			Endpoints: []endpointData{},
+		})
+		return
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(jsonData)
 }
 
 // getFailures returns grouped failures for a run.
@@ -502,11 +521,30 @@ func (h *handler) getFailures(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, codeRunNotFound, msgRunNotFound)
 		return
 	}
-	// TODO: Wire endpoint tracker to engine
-	writeJSON(w, http.StatusOK, failuresResponse{
-		Version:  contractVersion,
-		Failures: []failureData{},
-	})
+	
+	// Get endpoint data from store
+	data, ok := h.store.GetEndpoints(id)
+	if !ok || data == nil {
+		writeJSON(w, http.StatusOK, failuresResponse{
+			Version:  contractVersion,
+			Failures: []failureData{},
+		})
+		return
+	}
+	
+	// Return the pre-serialized JSON
+	jsonData, err := data.GetFailuresJSON()
+	if err != nil {
+		writeJSON(w, http.StatusOK, failuresResponse{
+			Version:  contractVersion,
+			Failures: []failureData{},
+		})
+		return
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(jsonData)
 }
 
 type endpointData struct {
