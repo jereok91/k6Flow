@@ -14,8 +14,16 @@ Runs with many VUs (e.g. 1900) fail with exit code 137 (OOM kill) after ~15s.
 
 ## Tasks
 - [x] T1 Orchestrator: enforce VU/memory/CPU limits on start + preflight, config + tests, compose/env docs — `6d01f1c` (deploy/.env.example not updated: blocked by safety policy; error codes kebab-case)
-- [ ] T2 Web: compute run resources from VUs (tested helper) and surface orchestrator limit errors in the editor
-- [ ] T3 Web: show OOM-specific message for exit code 137 (run panel + executions page)
+- [x] T2 Web: compute run resources from VUs (tested helper) and surface orchestrator limit errors in the editor — `679d3b4`
+- [x] T3 Web: show OOM-specific message for exit code 137 (run panel + executions page) — `679d3b4` (shares run-failure.ts with T2)
 
 ## Evidence
 - T1: `6d01f1c` — go test ./... all ok, go vet clean
+- T2+T3: `679d3b4` — vitest apps/web 19 files / 242 tests pass, tsc clean; smoke: preflight 2500 VUs -> 422 vus-limit-exceeded, 1900 VUs/3928 MiB -> valid
+- Side fix: `7b1c27a` schema.test expected columns (regression from 63dce1e)
+
+## Follow-ups
+- Orchestrator GET /api/runs/{id} lacks exitCode: OOM message only via WS end message
+- Executions page WS "state" handler reads data.status but orchestrator sends toState
+- Preflight proxy uses ORCHESTRATOR_URL/ORCHESTRATOR_TOKEN and no requireUser (unused by web)
+- deploy/.env.example: document MAX_* limits (blocked for the agent by safety policy)
