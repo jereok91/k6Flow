@@ -28,7 +28,7 @@ interface ResponseCheck {
 
 interface ValidationParams {
   version: "1.0";
-  response: { node: string; output: string };
+  response: { producerNodeId: string; output: string };
   checks: ResponseCheck[];
   onCheckFailure: "record-failure-and-continue";
 }
@@ -51,13 +51,13 @@ export function ResponseValidationConfigPanel({
   const [operator, setOperator] = useState("eq");
   const [expected, setExpected] = useState("200");
 
-  const responseNode = parameters?.response?.node ?? "";
+  const responseNode = parameters?.response?.producerNodeId ?? "";
   const checks = parameters?.checks ?? [];
 
   const updateResponseNode = (nodeId: string) => {
     onChange({
       version: "1.0",
-      response: { node: nodeId, output: "response" },
+      response: { producerNodeId: nodeId, output: "response" },
       checks,
       onCheckFailure: "record-failure-and-continue",
     });
@@ -73,7 +73,7 @@ export function ResponseValidationConfigPanel({
 
     onChange({
       version: "1.0",
-      response: parameters?.response ?? { node: "", output: "response" },
+      response: parameters?.response ?? { producerNodeId: "", output: "response" },
       checks: [...checks, newCheck],
       onCheckFailure: "record-failure-and-continue",
     });

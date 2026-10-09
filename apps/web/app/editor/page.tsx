@@ -14,6 +14,7 @@ import {
   detectDynamicValues,
   type RecorderCaptureEntry,
 } from "@k6flow/shared";
+import { parameterReferences, renameNode, toggleDisabled } from "../../lib/editor/node-interactions";
 import {
   FlowEditor,
   HttpRequestConfigPanel,
@@ -56,10 +57,45 @@ interface AttachmentInfo {
   createdAt: string;
 }
 
+function NodeMetadataInspector({ node, onRename, onToggle }: {
+  node: K6NodeType;
+  onRename: (name: string) => string | undefined;
+  onToggle: () => void;
+}) {
+  const [name, setName] = useState(node.data.label);
+  const [error, setError] = useState<string | undefined>();
+  return <section style={{ padding: 16, background: "var(--color-surface-container-low)",
+    border: "1px solid var(--color-surface-container-high)", borderRadius: 12 }}>
+    <form onSubmit={event => {
+      event.preventDefault();
+      const failure = onRename(name);
+      setError(failure);
+      if (!failure) setName(name.trim());
+    }}>
+      <label htmlFor="node-name">Nombre del nodo</label>
+      <input id="node-name" value={name} maxLength={120} aria-invalid={!!error}
+        aria-describedby={error ? "node-name-error" : undefined}
+        onChange={event => { setName(event.target.value); setError(undefined); }}
+        className="w-full rounded border p-2 my-2" />
+      <button type="submit" className="btn-secondary">Renombrar</button>
+      {error && <p id="node-name-error" role="alert">{error}</p>}
+    </form>
+    <label style={{ display: "flex", gap: 8, marginTop: 12 }}>
+      <input type="checkbox" checked={!!node.data.disabled} onChange={onToggle} />
+      Desactivar nodo
+    </label>
+  </section>;
+}
+
 export default function EditorPage() {
   const [auth, setAuth] = useState<AuthState>({ loading: true, authenticated: false });
   const [nodes, setNodes] = useState<K6NodeType[]>([]);
   const [edges, setEdges] = useState<K6Edge[]>([]);
+  const [flowGeneration, setFlowGeneration] = useState(0);
+  const replaceFlow = useCallback(() => {
+    setFlowGeneration(value => value + 1);
+    setSelectedNodeId(null);
+  }, []);
   // Store only the selected id and derive the node from `nodes` during render. A copied
   // node synced in an effect reached the config panel one commit late, so React reverted
   // the controlled field to the stale value and the caret jumped to the end on each key.
@@ -176,6 +212,7 @@ export default function EditorPage() {
     if (scenarioId) {
       scenario.loadScenario(scenarioId).then((result) => {
         if (result) {
+          replaceFlow();
           setNodes(result.nodes);
           setEdges(result.edges);
           setEditorVus(result.vus);
@@ -219,6 +256,7 @@ export default function EditorPage() {
           kind: node.kind,
           label: `${node.parameters.method} ${new URL(node.parameters.url.kind === "literal" ? node.parameters.url.value : "").pathname}`,
           parameters: node.parameters,
+          references: parameterReferences(node.kind, node.parameters),
         } as K6NodeData,
       }));
 
@@ -228,6 +266,7 @@ export default function EditorPage() {
         target: conn.target,
       }));
 
+      replaceFlow();
       setNodes(nodesWithPositions);
       setEdges(edgesFromCaptures);
       sessionStorage.removeItem("k6flow-import-captures");
@@ -298,42 +337,12 @@ export default function EditorPage() {
   }, [scenario.scenarioId]);
 
   const updateNodeParameters = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (nodeId: string, parameters: any) => {
+    (nodeId: string, parameters: unknown) => {
       setNodes((current) =>
         current.map((node) => {
           if (node.id !== nodeId) return node;
           
-          // Extract references from parameters (headers, url, body)
-          const references: { producerNodeId: string; output: string }[] = [];
-          const seen = new Set<string>();
-          
-          const addRef = (ref: { producerNodeId: string; output: string }) => {
-            const key = `${ref.producerNodeId}::${ref.output}`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              references.push(ref);
-            }
-          };
-          
-          // Check URL
-          if (parameters?.url?.kind === "reference" && parameters.url.reference) {
-            addRef(parameters.url.reference);
-          }
-          
-          // Check headers
-          if (Array.isArray(parameters?.headers)) {
-            for (const header of parameters.headers) {
-              if (header?.value?.kind === "reference" && header.value.reference) {
-                addRef(header.value.reference);
-              }
-            }
-          }
-          
-          // Check body
-          if (parameters?.body?.value?.kind === "reference" && parameters.body.value.reference) {
-            addRef(parameters.body.value.reference);
-          }
+          const references = parameterReferences(node.data.kind, parameters);
           
           return {
             ...node,
@@ -382,6 +391,7 @@ export default function EditorPage() {
 
   const handleNew = () => {
     scenario.clearScenario();
+    replaceFlow();
     setNodes([]);
     setEdges([]);
     setSelectedNodeId(null);
@@ -851,13 +861,26 @@ export default function EditorPage() {
       {/* Editor canvas */}
       <div className="flex-1 relative">
         <FlowEditor
+          key={flowGeneration}
           nodes={nodes}
           edges={edges}
+          flowSession={String(flowGeneration)}
           onNodesChange={setNodes}
           onEdgesChange={setEdges}
           onNodeSelect={selectNode}
         />
-        {renderConfigPanel()}
+        {selectedNode && <aside aria-label="Inspector del nodo"
+          className="absolute top-4 right-4 z-30 w-80 overflow-y-auto flex flex-col gap-2 [&>div]:!static [&>div]:!w-full [&>div]:!max-h-none"
+          style={{ maxHeight: "calc(100% - 32px)" }}>
+          <NodeMetadataInspector key={selectedNode.id} node={selectedNode}
+            onRename={name => {
+              const result = renameNode(nodes, selectedNode.id, name);
+              if (!result.error) setNodes(result.nodes);
+              return result.error;
+            }}
+            onToggle={() => setNodes(current => toggleDisabled(current, [selectedNode.id]))} />
+          {renderConfigPanel()}
+        </aside>}
         {showVariablesPanel && (
           <VariablesPanel
             scenarioId={scenario.scenarioId}

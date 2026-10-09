@@ -42,6 +42,7 @@ function K6NodeComponent({ data, selected }: K6NodeProps) {
           : "0 1px 3px rgba(0,0,0,0.3)",
         minWidth: "150px",
         fontFamily: "var(--font-sans)",
+        opacity: data.disabled ? 0.6 : 1,
       }}
     >
       {/* Input handle */}
@@ -86,6 +87,7 @@ function K6NodeComponent({ data, selected }: K6NodeProps) {
           }}>
             {data.label}
           </div>
+          {data.disabled && <span style={{ fontSize: 11, color: "var(--color-on-surface-variant)" }}>Desactivado</span>}
         </div>
       </div>
 

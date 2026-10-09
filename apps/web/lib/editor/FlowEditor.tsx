@@ -3,7 +3,10 @@
 // K6F4-05b: Main editor component with React Flow canvas and node palette.
 // State management and scenario persistence handled by the page (05c/06).
 
-import { useCallback, useRef, useMemo, type DragEvent } from "react";
+import { useCallback, useRef, useMemo, useState, type DragEvent } from "react";
+import { useNodeInteractions } from "./use-node-interactions";
+import { NodeContextMenu } from "./NodeContextMenu";
+import { isEditingTarget, shortcutAction } from "./node-interactions";
 import {
   ReactFlow,
   Controls,
@@ -40,6 +43,8 @@ interface FlowEditorProps {
   onEdgesChange: (edges: K6Edge[]) => void;
   onNodeSelect?: (node: K6NodeType | null) => void;
   readOnly?: boolean;
+  /** Changes whenever the page replaces the graph, even when node IDs are reused. */
+  flowSession: string;
 }
 
 export function FlowEditor({
@@ -49,11 +54,19 @@ export function FlowEditor({
   onEdgesChange,
   onNodeSelect,
   readOnly = false,
+  flowSession,
 }: FlowEditorProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
   const { theme } = useTheme();
   const colorMode: ColorMode = theme === "dark" ? "dark" : "light";
+  const interactions = useNodeInteractions({ nodes, edges, flow: flowSession, readOnly,
+    onNodesChange, onEdgesChange, onNodeSelect });
+  const [menu, setMenu] = useState<{ x: number; y: number; ids: string[] } | null>(null);
+  const closeMenu = useCallback(() => {
+    setMenu(null);
+    reactFlowWrapper.current?.focus();
+  }, []);
 
   // Memoize nodeTypes to prevent re-renders
   const nodeTypes: NodeTypes = useMemo(
@@ -68,7 +81,7 @@ export function FlowEditor({
     ({ nodes: selectedNodes }) => {
       if (selectedNodes.length === 1) {
         onNodeSelect?.(selectedNodes[0] as K6NodeType);
-      } else if (selectedNodes.length === 0) {
+      } else {
         onNodeSelect?.(null);
       }
     },
@@ -78,19 +91,22 @@ export function FlowEditor({
   // Handle node changes - controlled mode
   const handleNodesChange = useCallback(
     (changes: NodeChange<Node>[]) => {
-      const updatedNodes = applyNodeChanges(changes, nodes as Node[]);
+      if (readOnly) return;
+      // Removal must go through reference-safe deleteSelection, never React Flow's built-in path.
+      const updatedNodes = applyNodeChanges(changes.filter(c => c.type !== "remove"), nodes as Node[]);
       onNodesChange(updatedNodes as K6NodeType[]);
     },
-    [nodes, onNodesChange],
+    [nodes, onNodesChange, readOnly],
   );
 
   // Handle edge changes - controlled mode
   const handleEdgesChange = useCallback(
     (changes: EdgeChange<Edge>[]) => {
+      if (readOnly) return;
       const updatedEdges = applyEdgeChanges(changes, edges as Edge[]);
       onEdgesChange(updatedEdges as K6Edge[]);
     },
-    [edges, onEdgesChange],
+    [edges, onEdgesChange, readOnly],
   );
 
   // Handle new connections
@@ -148,7 +164,18 @@ export function FlowEditor({
     <div className="flex h-full w-full">
       {!readOnly && <NodePalette />}
 
-      <div ref={reactFlowWrapper} style={{ flex: 1, height: "100%", background: "var(--color-surface)" }}>
+      <div ref={reactFlowWrapper} tabIndex={0} aria-label="Lienzo del flujo"
+        onPointerDown={event => {
+          if (!isEditingTarget(event.target)) reactFlowWrapper.current?.focus({ preventScroll: true });
+        }}
+        onKeyDown={event => {
+          const action = shortcutAction(event.nativeEvent, isEditingTarget(event.target), readOnly);
+          if (!action) return;
+          event.preventDefault(); event.stopPropagation();
+          interactions.execute(action, menu?.ids);
+          closeMenu();
+        }}
+        style={{ flex: 1, height: "100%", background: "var(--color-surface)" }}>
         <ReactFlow
           nodes={nodes as Node[]}
           edges={edges as Edge[]}
@@ -159,6 +186,23 @@ export function FlowEditor({
           onDragOver={onDragOver}
           onDrop={onDrop}
           onSelectionChange={handleSelectionChange}
+          deleteKeyCode={null}
+          multiSelectionKeyCode={["Control", "Meta", "Shift"]}
+          onNodeContextMenu={(event, node) => {
+            event.preventDefault();
+            if (readOnly) return;
+            const selected = node.selected ? nodes.filter(n => n.selected) : [node as K6NodeType];
+            const ids = selected.map(n => n.id);
+            onNodesChange(nodes.map(n => ({ ...n, selected: ids.includes(n.id) })));
+            onNodeSelect?.(selected.length === 1 ? selected[0] : null);
+            setMenu({ x: event.clientX, y: event.clientY, ids });
+          }}
+          onPaneContextMenu={event => {
+            event.preventDefault();
+            if (readOnly) return;
+            setMenu({ x: event.clientX, y: event.clientY, ids: nodes.filter(n => n.selected).map(n => n.id) });
+          }}
+          onPaneClick={() => setMenu(null)}
           nodeTypes={nodeTypes}
           colorMode={colorMode}
           fitView
@@ -183,6 +227,16 @@ export function FlowEditor({
             color="var(--color-surface-container-high)"
           />
         </ReactFlow>
+        {interactions.message && <div role="status" aria-live="polite"
+          style={{ position: "absolute", left: 240, bottom: 16, maxWidth: "60%", padding: "8px 12px",
+            borderRadius: 8, background: "var(--color-surface-container-low)", color: "var(--color-on-surface)", zIndex: 20 }}>
+          {interactions.message}
+        </div>}
+        {menu && !readOnly && <NodeContextMenu x={menu.x} y={menu.y} hasNodes={menu.ids.length > 0}
+          canPaste={!!interactions.canPaste} onClose={closeMenu} onAction={action => {
+            interactions.execute(action, menu.ids);
+            closeMenu();
+          }} />}
       </div>
     </div>
   );
