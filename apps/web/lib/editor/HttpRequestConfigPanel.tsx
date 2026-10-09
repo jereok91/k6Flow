@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import { ConfigPanel, FormField, TextInput, SelectInput, TextArea } from "./ConfigPanel";
+import { parseCurl } from "./curl-import";
 
 const HTTP_METHODS = [
   { value: "GET", label: "GET" },
@@ -53,86 +54,6 @@ interface HttpRequestConfigPanelProps {
   onClose: () => void;
 }
 
-// Parse cURL command into request parameters
-function parseCurl(curl: string): Partial<HttpRequestParams> | null {
-  try {
-    // Normalize: remove line continuations and extra whitespace
-    const normalized = curl
-      .replace(/\\\n/g, " ")
-      .replace(/\\\r\n/g, " ")
-      .trim();
-
-    // Must start with curl
-    if (!normalized.toLowerCase().startsWith("curl")) {
-      return null;
-    }
-
-    const result: Partial<HttpRequestParams> = {
-      method: "GET",
-      headers: [],
-    };
-
-    // Extract URL (usually the last argument or after curl command)
-    const urlMatch = normalized.match(/['"]?(https?:\/\/[^\s'"]+)['"]?/);
-    if (urlMatch) {
-      result.url = { kind: "literal", value: urlMatch[1] };
-    }
-
-    // Extract method: -X or --request
-    const methodMatch = normalized.match(/-X\s+(['"]?)(\w+)\1|--request\s+(['"]?)(\w+)\3/i);
-    if (methodMatch) {
-      result.method = (methodMatch[2] || methodMatch[4]).toUpperCase();
-    }
-
-    // Extract headers: -H or --header
-    const headerRegex = /-H\s+['"]([^'"]+)['"]|--header\s+['"]([^'"]+)['"]/gi;
-    let headerMatch;
-    while ((headerMatch = headerRegex.exec(normalized)) !== null) {
-      const headerStr = headerMatch[1] || headerMatch[2];
-      const colonIdx = headerStr.indexOf(":");
-      if (colonIdx > 0) {
-        const name = headerStr.slice(0, colonIdx).trim();
-        const value = headerStr.slice(colonIdx + 1).trim();
-        // Skip Content-Type if we're setting body (will be auto-set)
-        if (name.toLowerCase() !== "content-type") {
-          result.headers!.push({
-            name,
-            value: { kind: "literal", value },
-          });
-        }
-      }
-    }
-
-    // Extract data/body: -d or --data or --data-raw
-    const dataMatch = normalized.match(/-d\s+['"]([^'"]+)['"]|--data(?:-raw)?\s+['"]([^'"]+)['"]/i);
-    if (dataMatch) {
-      const bodyContent = dataMatch[1] || dataMatch[2];
-      // Try to detect if it's JSON
-      try {
-        JSON.parse(bodyContent);
-        result.body = { kind: "json", value: { kind: "literal", value: bodyContent } };
-        if (!result.method || result.method === "GET") {
-          result.method = "POST";
-        }
-      } catch {
-        // Not JSON, treat as form or text
-        if (bodyContent.includes("=")) {
-          result.body = { kind: "form", value: { kind: "literal", value: bodyContent } };
-        } else {
-          result.body = { kind: "text", value: { kind: "literal", value: bodyContent } };
-        }
-        if (!result.method || result.method === "GET") {
-          result.method = "POST";
-        }
-      }
-    }
-
-    return result;
-  } catch {
-    return null;
-  }
-}
-
 export function HttpRequestConfigPanel({
   parameters,
   availableOutputs = [],
@@ -142,6 +63,7 @@ export function HttpRequestConfigPanel({
   const [showCurlImport, setShowCurlImport] = useState(false);
   const [curlInput, setCurlInput] = useState("");
   const [curlError, setCurlError] = useState<string | null>(null);
+  const [curlSuccess, setCurlSuccess] = useState<{ message: string; warnings: string[] } | null>(null);
 
   const method = parameters?.method ?? "GET";
   const url = parameters?.url?.kind === "literal" ? parameters.url.value : "";
@@ -251,19 +173,35 @@ export function HttpRequestConfigPanel({
   // cURL import
   const handleCurlImport = () => {
     const parsed = parseCurl(curlInput);
-    if (parsed) {
-      updateParams({
-        method: parsed.method ?? method,
-        url: parsed.url ?? parameters?.url,
-        headers: [...headers, ...(parsed.headers ?? [])],
-        body: parsed.body ?? parameters?.body,
-      });
-      setShowCurlImport(false);
-      setCurlInput("");
-      setCurlError(null);
-    } else {
-      setCurlError("Could not parse cURL command. Make sure it starts with 'curl'.");
+    if (!parsed.ok) {
+      setCurlError(parsed.error);
+      setCurlSuccess(null);
+      return;
     }
+    // An import replaces the request: headers and body are not merged.
+    updateParams({
+      method: parsed.method,
+      url: { kind: "literal", value: parsed.url },
+      headers: parsed.headers.map((h) => ({
+        name: h.name,
+        value: { kind: "literal", value: h.value },
+      })),
+      body: parsed.body
+        ? ({ kind: parsed.body.kind, value: { kind: "literal", value: parsed.body.value } } as HttpRequestParams["body"])
+        : { kind: "none" },
+    });
+    const headerCount = parsed.headers.length;
+    setCurlError(null);
+    setCurlSuccess({
+      message: `Imported ${parsed.method} ${parsed.url} · ${headerCount} header${headerCount === 1 ? "" : "s"}`,
+      warnings: parsed.warnings,
+    });
+  };
+
+  const handleCurlInputChange = (value: string) => {
+    setCurlInput(value);
+    setCurlError(null);
+    setCurlSuccess(null);
   };
 
   // Validate JSON when body type is json
@@ -300,18 +238,26 @@ export function HttpRequestConfigPanel({
           <div className="mt-2 space-y-2">
             <TextArea
               value={curlInput}
-              onChange={setCurlInput}
+              onChange={handleCurlInputChange}
               placeholder={'curl -X POST "https://api.example.com" -H "Authorization: Bearer token" -d \'{"key":"value"}\''}
 
               rows={3}
               mono
             />
-            {curlError && <p className="text-sm text-red-500">{curlError}</p>}
+            {curlError && <p className="text-sm text-error">{curlError}</p>}
+            {curlSuccess && (
+              <div className="text-sm space-y-1">
+                <p className="text-secondary break-all">✓ {curlSuccess.message}</p>
+                {curlSuccess.warnings.map((w, i) => (
+                  <p key={i} className="text-on-surface-variant">⚠ {w}</p>
+                ))}
+              </div>
+            )}
             <button
               type="button"
               onClick={handleCurlImport}
               disabled={!curlInput.trim()}
-              className="px-3 py-1 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm font-semibold rounded-lg bg-primary-container text-on-primary-container hover:bg-tertiary-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Import
             </button>
