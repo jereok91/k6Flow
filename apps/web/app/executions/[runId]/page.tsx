@@ -256,6 +256,39 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
     return () => clearInterval(interval);
   }, [isLive]);
 
+  // Refetch endpoints/failures when run completes
+  useEffect(() => {
+    if (isLive) return; // Only fetch when not live (completed)
+    if (loading) return; // Don't fetch during initial load
+    
+    async function refetchEndpoints() {
+      try {
+        const [endpointsRes, failuresRes, summaryRes] = await Promise.all([
+          fetch(`/api/orchestrator/runs/${runId}/endpoints`),
+          fetch(`/api/orchestrator/runs/${runId}/failures`),
+          fetch(`/api/orchestrator/runs/${runId}/summary`),
+        ]);
+        
+        if (endpointsRes.ok) {
+          const data = await endpointsRes.json();
+          setEndpoints(data.endpoints || []);
+        }
+        if (failuresRes.ok) {
+          const data = await failuresRes.json();
+          setFailures(data.failures || []);
+        }
+        if (summaryRes.ok) {
+          const data = await summaryRes.json();
+          setSummary(data);
+        }
+      } catch {
+        // Ignore errors
+      }
+    }
+    
+    refetchEndpoints();
+  }, [isLive, runId, loading]);
+
   const handleStop = useCallback(async () => {
     try {
       await fetch(`/api/orchestrator/runs/${runId}/stop`, { method: "POST" });

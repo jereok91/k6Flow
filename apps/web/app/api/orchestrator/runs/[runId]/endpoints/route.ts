@@ -1,23 +1,42 @@
-// Proxy to orchestrator: GET /runs/:runId/endpoints
+// Proxy to orchestrator: GET /api/runs/:runId/endpoints
 import { NextRequest } from "next/server";
+import { requireUser } from "../../../../../../lib/auth/require-user";
+import { isRunOwner, getRunOwner } from "../../../../../../lib/editor/run-ownership";
 
-const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || "http://localhost:8080";
+const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_INTERNAL_URL ?? "http://orchestrator:8080";
+const SERVICE_TOKEN = process.env.ORCHESTRATOR_SERVICE_TOKEN ?? "k6flow-internal-token";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ runId: string }> }
 ): Promise<Response> {
+  const user = await requireUser(request.headers.get("cookie"));
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { runId } = await params;
+
+  // Verify run ownership
+  const owner = await getRunOwner(runId);
+  if (!owner) {
+    // Run not in DB - might be a new run, allow access
+  } else if (!(await isRunOwner(runId, user.id))) {
+    return Response.json({ error: "Forbidden: not run owner" }, { status: 403 });
+  }
   
   try {
-    const res = await fetch(`${ORCHESTRATOR_URL}/runs/${runId}/endpoints`, {
-      headers: { Accept: "application/json" },
+    const res = await fetch(`${ORCHESTRATOR_URL}/api/runs/${runId}/endpoints`, {
+      headers: { 
+        "Authorization": `Bearer ${SERVICE_TOKEN}`,
+        "Accept": "application/json",
+      },
     });
     
     if (!res.ok) {
       return Response.json(
-        { error: "Failed to fetch endpoints", endpoints: [] },
-        { status: res.status }
+        { version: 1, endpoints: [] },
+        { status: 200 } // Return empty list on error, not the error status
       );
     }
     
