@@ -462,34 +462,46 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
         {/* Tab Content */}
         {activeTab === "overview" && (
           <>
-            {/* Live KPIs */}
-            <div style={kpiGridStyle}>
-              <KpiCard 
-                label="VUs Activos" 
-                value={metrics.vus.toString()} 
-                sparkData={chartData.vus.slice(-30)}
-                color="#10b981"
-              />
-              <KpiCard 
-                label="Req/s" 
-                value={metrics.requestRate.toFixed(1)} 
-                sparkData={chartData.rps.slice(-30)}
-                color="#8b5cf6"
-              />
-              <KpiCard 
-                label="Latencia Promedio" 
-                value={`${Math.round(metrics.avgDuration)}ms`} 
-                sparkData={chartData.avgLatency.slice(-30)}
-                color="#f59e0b"
-              />
-              <KpiCard 
-                label="Tasa de Error" 
-                value={`${(metrics.errorRate * 100).toFixed(1)}%`} 
-                sparkData={chartData.errorRate.slice(-30)}
-                color={metrics.errorRate > 0.01 ? "#ef4444" : "#6b7280"}
-                highlight={metrics.errorRate > 0.01}
-              />
-            </div>
+            {/* KPIs - use summary data when run is finished, live data when running */}
+            {(() => {
+              const showSummary = !isLive && summary;
+              const displayVus = showSummary ? (run?.vus || 0) : metrics.vus;
+              const displayIterations = showSummary ? summary.totals.iterations : metrics.iterations;
+              const displayLatency = showSummary ? summary.latency.avgMs : metrics.avgDuration;
+              const displayErrorRate = showSummary && summary.totals.requests > 0
+                ? summary.totals.errors / summary.totals.requests
+                : metrics.errorRate;
+              
+              return (
+                <div style={kpiGridStyle}>
+                  <KpiCard 
+                    label={isLive ? "VUs Activos" : "VUs Configurados"}
+                    value={displayVus.toString()} 
+                    sparkData={chartData.vus.slice(-30)}
+                    color="#10b981"
+                  />
+                  <KpiCard 
+                    label={isLive ? "Req/s" : "Iteraciones"}
+                    value={isLive ? metrics.requestRate.toFixed(1) : displayIterations.toLocaleString()} 
+                    sparkData={chartData.rps.slice(-30)}
+                    color="#8b5cf6"
+                  />
+                  <KpiCard 
+                    label="Latencia Promedio" 
+                    value={`${Math.round(displayLatency)}ms`} 
+                    sparkData={chartData.avgLatency.slice(-30)}
+                    color="#f59e0b"
+                  />
+                  <KpiCard 
+                    label="Tasa de Error" 
+                    value={`${(displayErrorRate * 100).toFixed(1)}%`} 
+                    sparkData={chartData.errorRate.slice(-30)}
+                    color={displayErrorRate > 0.01 ? "#ef4444" : "#6b7280"}
+                    highlight={displayErrorRate > 0.01}
+                  />
+                </div>
+              );
+            })()}
 
             {/* Charts */}
             <div style={chartsGridStyle}>
