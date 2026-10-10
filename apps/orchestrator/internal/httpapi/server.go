@@ -122,6 +122,7 @@ func NewHandler(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/runs/{runId}", h.getRun)
 	mux.HandleFunc("POST /api/runs/{runId}/stop", h.stopRun)
 	mux.HandleFunc("GET /api/runs/{runId}/summary", h.getSummary)
+	mux.HandleFunc("GET /api/runs/{runId}/diagnostic", h.getDiagnostic)
 	mux.HandleFunc("GET /api/runs/{runId}/endpoints", h.getEndpoints)
 	mux.HandleFunc("GET /api/runs/{runId}/failures", h.getFailures)
 	mux.HandleFunc("POST /api/runs/emergency-stop", h.emergencyStop)

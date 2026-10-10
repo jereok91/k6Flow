@@ -14,8 +14,10 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"k6flow/apps/orchestrator/internal/runs"
+	"k6flow/apps/orchestrator/internal/diagnostic"
 )
 
 // maxSafeInt is the JavaScript safe-integer ceiling declared by contract 04.
@@ -24,6 +26,8 @@ const maxSafeInt = 1<<53 - 1
 // startConfig mirrors runStartConfigSchema: strict fields, version literal 1.
 // RawMessage defers numeric checks to positiveSafeInt / jsonIsOne.
 type startConfig struct {
+	Mode json.RawMessage `json:"mode"`
+	Diagnostic json.RawMessage `json:"diagnostic"`
 	Version     json.RawMessage `json:"version"`
 	Script      string          `json:"script"`
 	VUs         json.RawMessage `json:"vus"`
@@ -42,6 +46,8 @@ type attachment struct {
 
 // startRequest is the validated, storage-ready form of a run start body.
 type startRequest struct {
+	Mode string
+	Diagnostic *diagnostic.Metadata
 	Script      string
 	VUs         int
 	DurationMs  int
@@ -87,6 +93,22 @@ func validateEnv(env map[string]string) error {
 // content, a non-literal version, blank script, non-positive or unsafe
 // integers, and blank attachment ids are all rejected.
 func decodeStart(raw []byte) (startRequest, error) {
+	// encoding/json matches struct fields case-insensitively. The REST
+	// contract is closed and case-sensitive, so validate the key set first.
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return startRequest{}, errors.New("invalid JSON object")
+	}
+	allowed := map[string]bool{
+		"version": true, "script": true, "mode": true, "diagnostic": true,
+		"vus": true, "durationMs": true, "cpuMillis": true, "memoryMiB": true,
+		"attachments": true, "env": true,
+	}
+	for key := range fields {
+		if !allowed[key] {
+			return startRequest{}, errors.New("unknown request field")
+		}
+	}
 	var wire startConfig
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -102,7 +124,30 @@ func decodeStart(raw []byte) (startRequest, error) {
 	if strings.TrimSpace(wire.Script) == "" {
 		return startRequest{}, errors.New("script must be a nonblank string")
 	}
-	req := startRequest{Script: wire.Script}
+	req := startRequest{Script: wire.Script, Mode: "load"}
+	if len(wire.Mode) > 0 {
+		if json.Unmarshal(wire.Mode, &req.Mode) != nil || bytes.Equal(wire.Mode, []byte("null")) || (req.Mode != "load" && req.Mode != "diagnostic") {
+			return startRequest{}, errors.New("invalid run mode")
+		}
+	}
+	if req.Mode == "diagnostic" {
+		if !utf8.Valid(wire.Diagnostic) {
+			return startRequest{}, errors.New("invalid diagnostic metadata")
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(wire.Diagnostic, &fields) != nil || len(fields) != 1 || fields["nodeIds"] == nil {
+			return startRequest{}, errors.New("invalid diagnostic metadata")
+		}
+		var metadata diagnostic.Metadata
+		decoder := json.NewDecoder(bytes.NewReader(wire.Diagnostic))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&metadata) != nil || metadata.Validate() != nil {
+			return startRequest{}, errors.New("invalid diagnostic metadata")
+		}
+		req.Diagnostic = &metadata
+	} else if len(wire.Diagnostic) > 0 {
+		return startRequest{}, errors.New("load forbids diagnostic metadata")
+	}
 	numbers := []struct {
 		name string
 		raw  json.RawMessage
@@ -203,6 +248,8 @@ func (h *handler) startRun(w http.ResponseWriter, r *http.Request) {
 	}
 	run, err := h.store.Create(runs.Run{
 		Script:         req.Script,
+		Mode: req.Mode,
+		Diagnostic: req.Diagnostic,
 		VUs:            req.VUs,
 		DurationMs:     req.DurationMs,
 		CPUMillis:      req.CPUMillis,
