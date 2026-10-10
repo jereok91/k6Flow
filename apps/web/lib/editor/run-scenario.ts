@@ -6,6 +6,12 @@
 
 import { translateToK6, type K6TranslationError, type K6TranslatorOptions } from "@k6flow/shared";
 import type { GraphDraftComposition } from "@k6flow/shared";
+import {
+  cloneDiagnosticInput,
+  prepareDiagnosticDisplay,
+  type ExecutionDisplay,
+  type OwnedDiagnosticMetadata,
+} from "./diagnostic-preparation";
 import { computeRunResources } from "./run-resources";
 import { describeStartError, parseStartErrorBody } from "./run-failure";
 import { formatTranslationErrors, loadRunVariables, parseProxyRunError } from "./run-variables";
@@ -31,6 +37,7 @@ export interface RunAttachment {
  * Run configuration for starting a scenario execution.
  */
 export interface RunConfig {
+  mode?: "load" | "diagnostic";
   /** Virtual users */
   vus?: number;
   /** Duration in milliseconds */
@@ -54,6 +61,8 @@ export interface RunConfig {
  */
 export interface RunStartResult {
   success: boolean;
+  executionDisplay?: ExecutionDisplay;
+  diagnostic?: OwnedDiagnosticMetadata;
   runId?: string;
   error?: string;
   /** Orchestrator error code, passed through unchanged (e.g. "vus-limit-exceeded") */
@@ -74,6 +83,17 @@ export async function runScenario(
   graph: GraphDraftComposition,
   config: RunConfig = {},
 ): Promise<RunStartResult> {
+  const diagnosticMode = config.mode === "diagnostic";
+  if (diagnosticMode) {
+    try {
+      graph = cloneDiagnosticInput(graph);
+      config = cloneDiagnosticInput(config);
+    } catch {
+      return { success: false, error: "Unsupported diagnostic input" };
+    }
+    config.vus = 1;
+    config.durationMs = 30000;
+  }
   const {
     vus = 1,
     durationMs = 30000,
@@ -97,6 +117,7 @@ export async function runScenario(
     vus,
     duration: `${Math.floor(durationMs / 1000)}s`,
     variables: loaded.variables,
+    ...(diagnosticMode && { mode: "diagnostic" as const }),
   };
 
   const translation = translateToK6(graph, translatorOptions);
@@ -108,6 +129,15 @@ export async function runScenario(
       translationErrors: translation.errors,
       warnings: translation.warnings,
     };
+  }
+
+  let prepared: ReturnType<typeof prepareDiagnosticDisplay> | undefined;
+  if (diagnosticMode) {
+    try {
+      prepared = prepareDiagnosticDisplay(graph, translation.diagnostic);
+    } catch {
+      return { success: false, error: "Diagnostic metadata mismatch" };
+    }
   }
 
   // Check for required files (CSV pools)
@@ -136,6 +166,7 @@ export async function runScenario(
   // and writing files to the K6 container. Currently it only accepts IDs.
   const body = {
     version: 1,
+    ...(prepared && { mode: "diagnostic", diagnostic: prepared.diagnostic }),
     script: translation.script,
     vus,
     durationMs,
@@ -182,7 +213,14 @@ export async function runScenario(
     }
 
     const result = await res.json();
+    if (
+      prepared &&
+      (typeof result?.runId !== "string" || !result.runId || result.runId.length > 128)
+    ) {
+      return { success: false, error: "Invalid diagnostic start response" };
+    }
     return {
+      ...prepared,
       success: true,
       runId: result.runId,
       warnings: translation.warnings,
