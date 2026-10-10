@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { sessions, users } from "../db/schema";
@@ -70,6 +70,22 @@ export async function getSessionUser(token: string): Promise<SafeUser | null> {
   const [user] = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
   if (!user) return null;
   return toSafeUser(user);
+}
+
+export type SessionIdentity = { user: SafeUser; sessionMarker: string };
+
+// Server-only, non-credential identity for the current raw-token session model.
+// The domain separates this public marker from credential hashes. Never use it
+// for authentication/storage verification, or log/persist it. Reassess this
+// boundary if refresh or hashed-token storage is introduced.
+export async function getSessionIdentity(token: string): Promise<SessionIdentity | null> {
+  const user = await getSessionUser(token);
+  if (user === null) return null;
+  const sessionMarker = createHash("sha256")
+    .update("k6flow.session-marker.v1\0")
+    .update(token)
+    .digest("hex");
+  return { user, sessionMarker };
 }
 
 // Idempotent: deleting a token that does not exist is a no-op, not an error.

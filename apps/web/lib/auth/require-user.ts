@@ -1,5 +1,5 @@
 import { parseSessionCookie } from "./cookie";
-import { getSessionUser } from "./session";
+import { getSessionIdentity, getSessionUser, type SessionIdentity } from "./session";
 import type { SafeUser } from "./safe-user";
 
 // K6F4-02a: thin wrapper — parse the Cookie header, resolve the session
@@ -13,6 +13,16 @@ export async function requireUser(
   const token = parseSessionCookie(cookieHeader);
   if (token === null) return null;
   return getSessionUser(token);
+}
+
+// Probe-only additive resolver: parse once and return matched user + marker
+// from one live session resolution, without changing requireUser consumers.
+export async function requireSessionIdentity(
+  cookieHeader: string | null | undefined,
+): Promise<SessionIdentity | null> {
+  const token = parseSessionCookie(cookieHeader);
+  if (token === null) return null;
+  return getSessionIdentity(token);
 }
 
 // Role gate: true only for a non-null user whose role is exactly "admin".

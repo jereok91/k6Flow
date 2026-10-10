@@ -1,24 +1,22 @@
-// K6F4-02b: GET /api/auth/me — session probe returning the SafeUser.
-//
-// DB-error contract (the key 02a→02b risk handoff): requireUser → getSessionUser
-// can throw from getDb(), including the lazy expired-row delete inside
-// getSessionUser when a session is expired. That is a server error → 500
-// generic body, NEVER a 401: a 401 would tell the client "log in again" when
-// the server actually failed, masking outages as auth problems. The original
-// error is not logged or echoed.
+// GET /api/auth/me: top-level SafeUser fields plus a non-credential session marker.
+// DB failures (including expired-row deletion) are generic 500, never 401;
+// neither the original error nor credentials are logged or echoed.
 import { jsonError } from "../../../../lib/auth/http";
-import { requireUser } from "../../../../lib/auth/require-user";
-import type { SafeUser } from "../../../../lib/auth/safe-user";
+import { requireSessionIdentity } from "../../../../lib/auth/require-user";
+
+export const runtime = "nodejs";
 
 export async function GET(request: Request): Promise<Response> {
-  let user: SafeUser | null;
+  let response: Response;
   try {
-    // requireUser = parseSessionCookie + getSessionUser (both 02a).
-    user = await requireUser(request.headers.get("cookie"));
+    const identity = await requireSessionIdentity(request.headers.get("cookie"));
+    response = identity === null
+      ? jsonError(401, "Unauthorized")
+      : Response.json({ ...identity.user, sessionMarker: identity.sessionMarker });
   } catch {
-    return jsonError(500, "Internal server error");
+    response = jsonError(500, "Internal server error");
   }
-  if (user === null) return jsonError(401, "Unauthorized");
-  // Mirrors healthz: JSON + no-store (per-user data must not be cached).
-  return Response.json(user, { headers: { "Cache-Control": "no-store" } });
+  // All probe outcomes are private and must not be cached, including failures.
+  response.headers.set("Cache-Control", "no-store");
+  return response;
 }
