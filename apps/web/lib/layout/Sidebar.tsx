@@ -7,6 +7,7 @@ import { useTheme } from "../theme";
 import { useSidebar } from "./SidebarContext";
 import { activeRunsCount as activeRunsCountOf } from "../orchestrator/active-runs";
 import { useActiveRuns } from "../orchestrator/use-active-runs";
+import { mutateSession } from "../auth/session-mutation";
 
 interface User {
   id: string;
@@ -58,7 +59,7 @@ export function Sidebar() {
   }, [menuOpen]);
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await mutateSession("logout", () => fetch("/api/auth/logout", { method: "POST" }));
     router.push("/login");
   }
 

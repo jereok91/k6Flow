@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { mutateSession } from "../../lib/auth/session-mutation";
 
 // Validate redirect to prevent open redirect attacks
 function getSafeRedirect(redirect: string | null): string {
@@ -29,11 +30,11 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await mutateSession("login", () => fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
-      });
+      }));
 
       if (res.ok) {
         router.push(redirectTo);
