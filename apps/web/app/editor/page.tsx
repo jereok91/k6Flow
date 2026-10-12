@@ -9,7 +9,7 @@ import { snapshot, SaveBaseline, durationSeconds as parseDurationToSeconds } fro
 import { useToast } from "../../lib/notifications/ToastProvider";
 import { AsyncLifetime } from "../../lib/editor/async-lifetime";
 import { useSessionGuard } from "../../lib/auth/use-session-guard";
-import { sessionViewFor, type SessionView } from "../../lib/auth/session-guard";
+import { sessionViewFor, shouldWipeEditor, type SessionView } from "../../lib/auth/session-guard";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -55,7 +55,7 @@ interface AuthState {
 }
 
 // Existing auth views for each settled session view (mapping in sessionViewFor).
-function authStateFor(view: SessionView): AuthState {
+function authStateFor(view: Exclude<SessionView, "locked">): AuthState {
   if (view === "authenticated") return { loading: false, authenticated: true };
   if (view === "login") {
     return { loading: false, authenticated: false, error: "Inicia sesión para usar el editor" };
@@ -103,9 +103,12 @@ function NodeMetadataInspector({ node, onRename, onToggle }: {
 
 export default function EditorPage() {
   const [auth, setAuth] = useState<AuthState>({ loading: true, authenticated: false });
-  // Latched on the first verification so URL/import loads still run once, as before,
-  // instead of re-running (and overwriting edits) after a session check recovers.
-  const [sessionEstablished, setSessionEstablished] = useState(false);
+  // User that established the editor: latched on verification so URL/import loads run
+  // once per session instead of re-running (and overwriting edits) after a re-check.
+  // Reset to null (or replaced) when the session is lost or another user verifies.
+  const [establishedUserId, setEstablishedUserId] = useState<string | null>(null);
+  const sessionEstablished = establishedUserId !== null;
+  const [environmentsStale, setEnvironmentsStale] = useState(false);
   const [nodes, setNodes] = useState<K6NodeType[]>([]);
   const [edges, setEdges] = useState<K6Edge[]>([]);
   const [flowGeneration, setFlowGeneration] = useState(0);
@@ -193,16 +196,18 @@ export default function EditorPage() {
     run.checkOrchestrator();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load run history on mount
+  // Load run history for each established session
   useEffect(() => {
+    if (!sessionEstablished) return;
     const session = lifetime.current;
     const ticket = session.capture();
+    let sameUser = true; // a wipe or user change drops this user's in-flight history
     const loadHistory = async () => {
       try {
         const res = await fetch("/api/runs?limit=20");
         if (res.ok) {
           const data = await res.json();
-          if (!session.isCurrent(ticket)) return;
+          if (!sameUser || !session.isCurrent(ticket)) return;
           setRunHistory(data.runs.map((r: any) => ({
             runId: r.runId,
             scenarioName: r.scenarioName,
@@ -221,19 +226,28 @@ export default function EditorPage() {
       }
     };
     loadHistory();
-  }, []);
+    return () => { sameUser = false; };
+  }, [establishedUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Guarded session: verifies on mount and re-verifies on invalidation, focus and
-  // visibility. No protected diagnostic state is mounted yet, so clearing is a no-op
-  // placeholder until the diagnostic panel is wired to erase its context here.
-  const clearProtectedSessionData = useCallback(() => {}, []);
+  // visibility. Each invalidation locks the editor synchronously (no graph wipe, it
+  // runs on every focus); losing the session or changing user wipes it below.
+  const lockedRef = useRef(false);
+  const clearProtectedSessionData = useCallback(() => { lockedRef.current = true; }, []);
   const session = useSessionGuard(clearProtectedSessionData);
+  const wipePending = shouldWipeEditor(session, establishedUserId);
+  const locked = sessionViewFor(session, sessionEstablished) === "locked" || wipePending;
+  lockedRef.current = locked;
   useEffect(() => {
-    // After establishment a transient unavailable check keeps the editor mounted.
-    const view = sessionViewFor(session, sessionEstablished);
-    if (view) setAuth(authStateFor(view));
-    if (session.phase === "verified") setSessionEstablished(true);
-  }, [session, sessionEstablished]);
+    if (wipePending) wipeEditor();
+    const view = sessionViewFor(session, sessionEstablished && !wipePending);
+    if (view && view !== "locked") setAuth(authStateFor(view));
+    if (session.phase === "verified") setEstablishedUserId(session.identity.userId);
+    else if (wipePending) setEstablishedUserId(null);
+  }, [session, establishedUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (establishedUserId && environmentsStale) { setEnvironmentsStale(false); void environments.reload(); }
+  }, [establishedUserId, environmentsStale]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load scenario from URL params on mount
   useEffect(() => {
@@ -266,7 +280,7 @@ export default function EditorPage() {
         loadAttachments(scenarioId);
       }
     }
-  }, [sessionEstablished]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [establishedUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // K6F8-04: Process imported captures from recorder
   useEffect(() => {
@@ -324,7 +338,7 @@ export default function EditorPage() {
     } catch (err) {
       console.error("Failed to import captures:", err);
     }
-  }, [sessionEstablished, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [establishedUserId, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAttachments = useCallback(async (scenarioId: number) => {
     const session = flowLifetime.current;
@@ -423,7 +437,7 @@ export default function EditorPage() {
   const save = async (create: boolean) => {
     const session = flowLifetime.current;
     const epoch = session.capture();
-    if (!session.isCurrent(epoch) || saveInFlight.current || scenario.loading) return;
+    if (lockedRef.current || !session.isCurrent(epoch) || saveInFlight.current || scenario.loading) return;
     const name = create ? scenarioNameInput.trim() : scenario.scenarioName;
     if (create && !name) return;
     saveInFlight.current = true;
@@ -445,7 +459,7 @@ export default function EditorPage() {
     }
   };
   const handleSave = () => {
-    if (saveInFlight.current || scenario.loading) return;
+    if (lockedRef.current || saveInFlight.current || scenario.loading) return;
     if (showSaveDialog) return save(true);
     if (scenario.scenarioId === null) { setShowSaveDialog(true); return; }
     return save(false);
@@ -457,13 +471,13 @@ export default function EditorPage() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "s") return;
       event.preventDefault();
-      if (!event.repeat && !event.isComposing && auth.authenticated) void saveCallback.current();
+      if (!event.repeat && !event.isComposing && auth.authenticated && !lockedRef.current) void saveCallback.current();
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [auth.authenticated]);
 
-  const handleNew = () => {
+  const resetEditor = () => {
     invalidateContinuations();
     scenario.clearScenario();
     baseline.current.reset(snapshot("", [], [], 1, "30s"));
@@ -478,7 +492,22 @@ export default function EditorPage() {
     setAttachments([]);
     setImportedCaptures(null);
     setImportAnalysis(null);
+  };
+  const handleNew = () => {
+    resetEditor();
     router.replace("/editor");
+  };
+  // Session lost or user changed: erase identity-scoped data; unsaved edits are lost.
+  const wipeEditor = () => {
+    resetEditor();
+    environmentSelection.setSelectedId(null);
+    setEnvironmentsStale(true);
+    run.clearRun();
+    setRunHistory([]);
+    setCurrentRunId(null);
+    setShowExecutionPanel(false);
+    setShowRunConfirmation(false);
+    setRunTargets([]);
   };
 
   const getHttpRequestNodes = () => {
@@ -706,8 +735,8 @@ export default function EditorPage() {
     }
   };
 
-  return (
-    <div className="h-screen flex flex-col bg-background">
+  return (<>
+    <div className="h-screen flex flex-col bg-background" inert={locked} aria-hidden={locked || undefined}>
       {/* Header */}
       <header className="h-14 flex items-center justify-between px-4 bg-surface-container-lowest border-b border-surface-container">
         <div className="flex items-center gap-space-md">
@@ -806,7 +835,7 @@ export default function EditorPage() {
             <span>{scenario.saving ? "Guardando..." : "Guardar"}</span>
           </button>
           <EnvironmentSelector
-            environments={environments.environments}
+            environments={environmentsStale || environments.loading || environments.error ? [] : environments.environments}
             selectedId={selectedEnvironment?.id ?? null}
             onChange={environmentSelection.setSelectedId}
             loading={environments.loading && !environments.loaded}
@@ -1018,5 +1047,14 @@ export default function EditorPage() {
         )}
       </div>
     </div>
-  );
+    {locked && (
+      <div role="status" className="fixed inset-0 bg-background/90 flex items-center justify-center z-50">
+        <div className="flex flex-col items-center gap-space-md">
+          {session.phase !== "blocked" && <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />}
+          <span className="text-body-md text-on-surface-variant">Verificando sesión…</span>
+          {session.phase === "blocked" && <button onClick={session.retry} className="btn-primary">Reintentar</button>}
+        </div>
+      </div>
+    )}
+  </>);
 }

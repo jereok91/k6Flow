@@ -33,25 +33,38 @@ export interface GuardEnv {
 export interface SessionGuard {
   start(): void;
   stop(): void;
+  /** Re-verifies with the remembered identity; no-op once stopped. */
+  retry(): void;
 }
 
-export type SessionView = "authenticated" | "login" | "error";
+export type SessionView = "authenticated" | "locked" | "login" | "error";
 
 /**
- * Maps settled probe phases to a page view; null means keep the current view.
- * Pending phases (unknown, verifying, reason-less blocked invalidation) never
- * change the view. Once a session was established, a transient
- * blocked/unavailable keeps the view too: the probe has already erased
- * protected data and the next signal re-verifies. identity-changed and denied
- * always switch. Views never grant access to protected data.
+ * Maps probe phases to a page view; null means keep the current view.
+ * identity-changed and denied always switch. Once a session was established,
+ * every other non-verified phase locks the editor (kept mounted, unusable)
+ * until the same identity verifies again. Before establishment, pending phases
+ * keep the loading view and an unavailable first check shows the error view.
  */
 export function sessionViewFor(session: ProbeState, established: boolean): SessionView | null {
   if (session.phase === "verified") return "authenticated";
   if (session.phase === "denied") return "login";
-  if (session.phase !== "blocked") return null;
-  if (session.reason === "identity-changed") return "error";
-  if (session.reason === "unavailable" && !established) return "error";
+  if (session.phase === "blocked" && session.reason === "identity-changed") return "error";
+  if (established) return "locked";
+  if (session.phase === "blocked" && session.reason === "unavailable") return "error";
   return null;
+}
+
+/**
+ * True when identity-scoped editor data must be erased: the session that
+ * established the editor was lost (denied), silently swapped
+ * (identity-changed) or replaced by a different verified user.
+ */
+export function shouldWipeEditor(session: ProbeState, establishedUserId: string | null): boolean {
+  if (establishedUserId === null) return false;
+  if (session.phase === "denied") return true;
+  if (session.phase === "blocked") return session.reason === "identity-changed";
+  return session.phase === "verified" && session.identity.userId !== establishedUserId;
 }
 
 function quietly(action: () => void): void {
@@ -126,6 +139,10 @@ export function createSessionGuard(env: GuardEnv): SessionGuard {
       quietly(() => env.removeEventListener("visibilitychange", onVisibility));
       quietly(() => probe.dispose());
       quietly(() => env.clearProtectedData());
+    },
+
+    retry() {
+      handle(reverify);
     },
   };
 }

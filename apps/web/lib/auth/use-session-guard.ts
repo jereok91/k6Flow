@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createGuardedSessionProbe, type ProbeState } from "./guarded-session-probe";
-import { createSessionGuard } from "./session-guard";
+import { createSessionGuard, type SessionGuard } from "./session-guard";
 import { getBrowserSessionInvalidationHub } from "./session-invalidation";
 
 const INITIAL: ProbeState = Object.freeze({ phase: "unknown", epoch: 0 });
@@ -12,8 +12,9 @@ const INITIAL: ProbeState = Object.freeze({ phase: "unknown", epoch: 0 });
  * are created only inside the effect, so server rendering never touches
  * window/document and StrictMode remounts get a fresh probe and controller.
  */
-export function useSessionGuard(clearProtectedData: () => void): ProbeState {
+export function useSessionGuard(clearProtectedData: () => void): ProbeState & { retry(): void } {
   const [state, setState] = useState<ProbeState>(INITIAL);
+  const guardRef = useRef<SessionGuard | null>(null);
   const clearRef = useRef(clearProtectedData);
   clearRef.current = clearProtectedData;
 
@@ -36,9 +37,14 @@ export function useSessionGuard(clearProtectedData: () => void): ProbeState {
       isVisible: () => document.visibilityState === "visible",
       clearProtectedData: clear,
     });
+    guardRef.current = guard;
     guard.start();
-    return () => guard.stop();
+    return () => {
+      guard.stop();
+      if (guardRef.current === guard) guardRef.current = null;
+    };
   }, []);
 
-  return state;
+  // Memoized per state so consumers can keep depending on its identity.
+  return useMemo(() => ({ ...state, retry: () => guardRef.current?.retry() }), [state]);
 }

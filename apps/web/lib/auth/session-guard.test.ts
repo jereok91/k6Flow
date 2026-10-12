@@ -3,7 +3,7 @@ import {
   createGuardedSessionProbe, type GuardedSessionProbe, type ProbeState,
 } from "./guarded-session-probe";
 import type { SessionInvalidationPhase } from "./session-invalidation";
-import { createSessionGuard, sessionViewFor, type GuardSignal } from "./session-guard";
+import { createSessionGuard, sessionViewFor, shouldWipeEditor, type GuardSignal } from "./session-guard";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -161,6 +161,21 @@ describe("session guard", { timeout: 3000 }, () => {
     expect(h.log.at(-1)).toBe("guard clear");
   });
 
+  it("retry re-verifies with the remembered identity and is a no-op after stop", async () => {
+    const h = await started([A, B, A]);
+    h.emit("focus");
+    await flush();
+    expect(h.probe.current).toMatchObject({ phase: "blocked", reason: "identity-changed" });
+    h.guard.retry();
+    await flush();
+    expect(h.probe.current).toMatchObject({ phase: "verified", identity: { sessionMarker: A } });
+    h.guard.stop();
+    h.log.length = 0;
+    h.guard.retry();
+    await flush();
+    expect(h.log).toEqual([]);
+  });
+
   it("start/stop/start leaves no duplicate listeners", () => {
     const h = harness();
     h.guard.start();
@@ -205,8 +220,22 @@ describe("session view mapping", { timeout: 3000 }, () => {
   const changed: ProbeState = { phase: "blocked", epoch: 1, reason: "identity-changed" };
   const denied: ProbeState = { phase: "denied", epoch: 1 };
 
-  it("keeps the current view on a transient failure once established", () => {
-    expect(sessionViewFor(unavailable, true)).toBeNull();
+  it("locks the established editor while verifying, blocked or unknown", () => {
+    expect(sessionViewFor(unavailable, true)).toBe("locked");
+    expect(sessionViewFor({ phase: "verifying", epoch: 1 }, true)).toBe("locked");
+    expect(sessionViewFor({ phase: "blocked", epoch: 1 }, true)).toBe("locked");
+    expect(sessionViewFor({ phase: "unknown", epoch: 0 }, true)).toBe("locked");
+  });
+
+  it("wipes on session loss or identity change only once established", () => {
+    expect(shouldWipeEditor(changed, "u1")).toBe(true);
+    expect(shouldWipeEditor(denied, "u1")).toBe(true);
+    expect(shouldWipeEditor({ phase: "verified", epoch: 2, identity: { userId: "u2", sessionMarker: B } }, "u1")).toBe(true);
+    expect(shouldWipeEditor({ phase: "verified", epoch: 2, identity }, "u1")).toBe(false);
+    expect(shouldWipeEditor(unavailable, "u1")).toBe(false);
+    expect(shouldWipeEditor({ phase: "verifying", epoch: 1 }, "u1")).toBe(false);
+    expect(shouldWipeEditor(denied, null)).toBe(false);
+    expect(shouldWipeEditor(changed, null)).toBe(false);
   });
 
   it("shows the error view for identity changes and the login view for denial once established", () => {
@@ -222,10 +251,9 @@ describe("session view mapping", { timeout: 3000 }, () => {
 
   it("maps verified to authenticated and pending phases to no change", () => {
     expect(sessionViewFor({ phase: "verified", epoch: 1, identity }, false)).toBe("authenticated");
-    for (const established of [false, true]) {
-      expect(sessionViewFor({ phase: "unknown", epoch: 0 }, established)).toBeNull();
-      expect(sessionViewFor({ phase: "verifying", epoch: 1 }, established)).toBeNull();
-      expect(sessionViewFor({ phase: "blocked", epoch: 1 }, established)).toBeNull();
-    }
+    expect(sessionViewFor({ phase: "verified", epoch: 1, identity }, true)).toBe("authenticated");
+    expect(sessionViewFor({ phase: "unknown", epoch: 0 }, false)).toBeNull();
+    expect(sessionViewFor({ phase: "verifying", epoch: 1 }, false)).toBeNull();
+    expect(sessionViewFor({ phase: "blocked", epoch: 1 }, false)).toBeNull();
   });
 });
