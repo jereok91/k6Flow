@@ -8,6 +8,8 @@ import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } fr
 import { snapshot, SaveBaseline, durationSeconds as parseDurationToSeconds } from "../../lib/editor/save-state";
 import { useToast } from "../../lib/notifications/ToastProvider";
 import { AsyncLifetime } from "../../lib/editor/async-lifetime";
+import { useSessionGuard } from "../../lib/auth/use-session-guard";
+import { sessionViewFor, type SessionView } from "../../lib/auth/session-guard";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -52,6 +54,15 @@ interface AuthState {
   error?: string;
 }
 
+// Existing auth views for each settled session view (mapping in sessionViewFor).
+function authStateFor(view: SessionView): AuthState {
+  if (view === "authenticated") return { loading: false, authenticated: true };
+  if (view === "login") {
+    return { loading: false, authenticated: false, error: "Inicia sesión para usar el editor" };
+  }
+  return { loading: false, authenticated: false, error: "Error de autenticación" };
+}
+
 interface AttachmentInfo {
   id: string;
   name: string;
@@ -92,6 +103,9 @@ function NodeMetadataInspector({ node, onRename, onToggle }: {
 
 export default function EditorPage() {
   const [auth, setAuth] = useState<AuthState>({ loading: true, authenticated: false });
+  // Latched on the first verification so URL/import loads still run once, as before,
+  // instead of re-running (and overwriting edits) after a session check recovers.
+  const [sessionEstablished, setSessionEstablished] = useState(false);
   const [nodes, setNodes] = useState<K6NodeType[]>([]);
   const [edges, setEdges] = useState<K6Edge[]>([]);
   const [flowGeneration, setFlowGeneration] = useState(0);
@@ -209,30 +223,21 @@ export default function EditorPage() {
     loadHistory();
   }, []);
 
-  // Check authentication on mount
+  // Guarded session: verifies on mount and re-verifies on invalidation, focus and
+  // visibility. No protected diagnostic state is mounted yet, so clearing is a no-op
+  // placeholder until the diagnostic panel is wired to erase its context here.
+  const clearProtectedSessionData = useCallback(() => {}, []);
+  const session = useSessionGuard(clearProtectedSessionData);
   useEffect(() => {
-    const session = lifetime.current;
-    const ticket = session.capture();
-    fetch("/api/auth/me")
-      .then((res) => {
-        if (!session.isCurrent(ticket)) return;
-        if (res.ok) {
-          setAuth({ loading: false, authenticated: true });
-        } else if (res.status === 401) {
-          setAuth({ loading: false, authenticated: false, error: "Inicia sesión para usar el editor" });
-        } else {
-          setAuth({ loading: false, authenticated: false, error: "Error de autenticación" });
-        }
-      })
-      .catch(() => {
-        if (!session.isCurrent(ticket)) return;
-        setAuth({ loading: false, authenticated: false, error: "Error de red" });
-      });
-  }, []);
+    // After establishment a transient unavailable check keeps the editor mounted.
+    const view = sessionViewFor(session, sessionEstablished);
+    if (view) setAuth(authStateFor(view));
+    if (session.phase === "verified") setSessionEstablished(true);
+  }, [session, sessionEstablished]);
 
   // Load scenario from URL params on mount
   useEffect(() => {
-    if (!auth.authenticated) return;
+    if (!sessionEstablished) return;
     const params = new URLSearchParams(window.location.search);
     // Support both ?id= (numeric) and ?scenario= (UUID) formats
     const idParam = params.get("id");
@@ -261,11 +266,11 @@ export default function EditorPage() {
         loadAttachments(scenarioId);
       }
     }
-  }, [auth.authenticated]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionEstablished]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // K6F8-04: Process imported captures from recorder
   useEffect(() => {
-    if (!auth.authenticated) return;
+    if (!sessionEstablished) return;
     const isImport = searchParams.get("import") === "true";
     if (!isImport) return;
 
@@ -319,7 +324,7 @@ export default function EditorPage() {
     } catch (err) {
       console.error("Failed to import captures:", err);
     }
-  }, [auth.authenticated, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionEstablished, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAttachments = useCallback(async (scenarioId: number) => {
     const session = flowLifetime.current;
