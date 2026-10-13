@@ -110,18 +110,22 @@ function hasHostEntry(targets: AllowedTargets, host: string): boolean {
  *           metadata, multicast, unspecified, broadcast).
  * private — reachable only because the host is explicitly listed.
  */
+/**
+ * denied  — never reachable, even for a listed host (loopback, link-local,
+ *           metadata, multicast, unspecified, broadcast).
+ * private — reachable only because the host is explicitly listed.
+ */
 function classifyAddress(address: string): "denied" | "private" | "public" | "unknown" {
   const value = address.trim().toLowerCase();
   // A zone id (`fe80::1%eth0`) is not a routable target here.
   if (!value || value.includes("%")) return "unknown";
-  if (value.startsWith("::ffff:")) {
-    const embedded = value.slice("::ffff:".length);
-    // The dotted form is classified as IPv4; any other spelling fails closed.
-    return IPV4_PATTERN.test(embedded) ? classifyIPv4(embedded) : "denied";
-  }
   if (IPV4_PATTERN.test(value)) return classifyIPv4(value);
-  if (isIP(value) === 6) return classifyIPv6(value);
-  return "unknown";
+  // Any other address is trusted only as a well-formed IPv6 literal, and its
+  // groups are then classified numerically: the spelling of a mapped address
+  // (::ffff:a.b.c.d, ::ffff:aabb:ccdd, 0:0:0:0:0:ffff:...) cannot change the verdict.
+  if (isIP(value) !== 6) return "unknown";
+  const groups = parseIPv6Groups(value);
+  return groups ? classifyIPv6Groups(groups) : "unknown";
 }
 
 function classifyIPv4(value: string): "denied" | "private" | "public" | "unknown" {
@@ -138,11 +142,51 @@ function classifyIPv4(value: string): "denied" | "private" | "public" | "unknown
   return "public";
 }
 
-function classifyIPv6(value: string): "denied" | "private" | "public" | "unknown" {
-  if (value === "::" || value === "::1") return "denied";
-  if (/^fe[89ab]/.test(value)) return "denied";
-  if (value.startsWith("ff")) return "denied";
-  if (value.startsWith("fd00:ec2::")) return "denied";
-  if (value.startsWith("fc") || value.startsWith("fd")) return "private";
+/** Expands an IPv6 literal to its eight 16-bit groups, or null when malformed. */
+function parseIPv6Groups(value: string): number[] | null {
+  let head = value;
+  let embedded: number[] = [];
+  const lastColon = value.lastIndexOf(":");
+  const tail = lastColon >= 0 ? value.slice(lastColon + 1) : "";
+  if (tail.includes(".")) {
+    const octets = tail.split(".").map(part => Number(part));
+    if (!IPV4_PATTERN.test(tail) || octets.some(octet => octet > 255)) return null;
+    head = value.slice(0, lastColon + 1);
+    embedded = [(octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]];
+  }
+  const halves = head.split("::");
+  if (halves.length > 2) return null;
+  const toGroups = (part: string): number[] | null => {
+    const texts = part ? part.split(":").filter(Boolean) : [];
+    if (texts.some(text => !/^[0-9a-f]{1,4}$/.test(text))) return null;
+    return texts.map(text => parseInt(text, 16));
+  };
+  const left = toGroups(halves[0]);
+  const right = halves.length === 2 ? toGroups(halves[1]) : [];
+  if (!left || !right) return null;
+  const filled = left.length + right.length + embedded.length;
+  if (halves.length === 1) return filled === 8 ? [...left, ...right, ...embedded] : null;
+  const zeros = 8 - filled;
+  if (zeros < 1) return null;
+  return [...left, ...new Array<number>(zeros).fill(0), ...right, ...embedded];
+}
+
+function classifyIPv6Groups(groups: readonly number[]): "denied" | "private" | "public" | "unknown" {
+  if (groups.length !== 8) return "unknown";
+  const [first, second, third] = groups;
+  if (groups.every(group => group === 0)) return "denied";
+  const leading = groups.slice(0, 5);
+  // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible (::a.b.c.d) forms keep
+  // their embedded IPv4 verdict. Groups 0..4 are zero and group 5 is 0 or ffff.
+  if (leading.every(group => group === 0) && (groups[5] === 0 || groups[5] === 0xffff)) {
+    if (groups[6] === 0 && groups[7] <= 1) return "denied";
+    return classifyIPv4(
+      `${groups[6] >> 8}.${groups[6] & 0xff}.${groups[7] >> 8}.${groups[7] & 0xff}`,
+    );
+  }
+  if (first >> 8 === 0xff) return "denied";
+  if ((first & 0xffc0) === 0xfe80) return "denied";
+  if (first === 0xfd00 && second === 0x0ec2 && third === 0) return "denied";
+  if ((first & 0xfe00) === 0xfc00) return "private";
   return "public";
 }

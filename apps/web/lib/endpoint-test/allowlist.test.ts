@@ -121,6 +121,27 @@ it("denies the whole check when any single address is denied", () => {
   });
 });
 
+// IPv4-mapped IPv6 has several legal spellings. Every one must reach the same
+// address classification, or the denylist is bypassed by notation alone.
+it.each([
+  "0:0:0:0:0:ffff:127.0.0.1", "0:0:0:0:0:ffff:7f00:1", "::ffff:7f00:1",
+  "::ffff:0.0.0.0", "0:0:0:0:0:ffff:a9fe:a9fe", "::ffff:169.254.169.254",
+]) ("always denies the IPv4-mapped address %s", address => {
+  expect(checkEndpointTarget("http://internal.svc:8080/", targets, [address])).toEqual({
+    allowed: false, reason: "address-denied",
+  });
+});
+
+it.each(["::ffff:10.0.0.5", "0:0:0:0:0:ffff:a00:5", "::ffff:192.168.1.10"],
+)("classifies the IPv4-mapped address %s by its embedded address", address => {
+  expect(checkEndpointTarget("http://internal.svc:8080/", targets, [address])).toMatchObject({ allowed: true });
+});
+
+it("classifies a mapped global address as public", () => {
+  expect(checkEndpointTarget("https://api.example.test/", targets, ["::ffff:8.8.8.8"]))
+    .toMatchObject({ allowed: true });
+});
+
 it("ignores a credential-only URL and treats the host case-insensitively", () => {
   expect(checkEndpointTarget("HTTPS://API.example.Test/", targets, ["93.184.216.34"])).toMatchObject({
     allowed: true, host: "api.example.test",
