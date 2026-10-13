@@ -66,6 +66,14 @@ it("projects only observed events and maps authoritative outcomes", () => {
   ).toBe("stopped");
 });
 
+it.each([["stopped", "stopped"], ["aborted", "stopped"], ["errored", "failed"], ["failed", "failed"]])(
+  "derives a complete trace with run status %s from the run status (%s)", (status, expected) => {
+    // The parser rejects this pairing today; the mapping must still never leave a terminal unreported.
+    const unparsed = { version: 1, runId: "r", status, diagnostic: { nodeIds: [] },
+      trace: { state: "complete", events: [] } } as unknown as Parameters<typeof diagnosticHistoryStatus>[0];
+    expect(diagnosticHistoryStatus(unparsed)).toBe(expected);
+  });
+
 it("projects skipped/failing nodes without inferring absence or completion", () => {
   const input = {
     ...snapshot(),

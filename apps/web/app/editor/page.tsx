@@ -37,6 +37,12 @@ import {
 } from "../../lib/editor";
 import { useScenario } from "../../lib/editor/use-scenario";
 import { useRun } from "../../lib/editor/use-run";
+import { useDiagnosticPage } from "../../lib/editor/use-diagnostic-page";
+import { statusPatchBody, type HistoryStatus, type LaunchToken } from "../../lib/editor/diagnostic-page-controller";
+import { DiagnosticExecutionPanel } from "../../lib/editor/DiagnosticExecutionPanel";
+import { runScenario } from "../../lib/editor/run-scenario";
+import { fromReactFlowGraph } from "../../lib/editor/mapping";
+import { isSessionMarker, withSessionMarker } from "../../lib/auth/session-marker-header";
 import {
   VariablesPanel,
   EnvironmentSelector,
@@ -129,6 +135,7 @@ export default function EditorPage() {
     dynamicValues: number;
   } | null>(null);
   const [showRunConfirmation, setShowRunConfirmation] = useState(false);
+  const [runConfirmationKind, setRunConfirmationKind] = useState<"load" | "diagnostic">("load");
   const [runTargets, setRunTargets] = useState<string[]>([]);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [editorVus, setEditorVus] = useState(1);
@@ -233,11 +240,47 @@ export default function EditorPage() {
   // visibility. Each invalidation locks the editor synchronously (no graph wipe, it
   // runs on every focus); losing the session or changing user wipes it below.
   const lockedRef = useRef(false);
-  const clearProtectedSessionData = useCallback(() => { lockedRef.current = true; }, []);
+  // Diagnostic context follows privacy_first_clear: every invalidation erases it
+  // synchronously and drops the marker until the session verifies again.
+  const markerRef = useRef<string | null>(null);
+  const diagnosticRef = useRef<ReturnType<typeof useDiagnosticPage>["controller"]>(null);
+  const clearProtectedSessionData = useCallback(() => {
+    lockedRef.current = true;
+    markerRef.current = null;
+    diagnosticRef.current?.clearForSession();
+  }, []);
   const session = useSessionGuard(clearProtectedSessionData);
   const wipePending = shouldWipeEditor(session, establishedUserId);
   const locked = sessionViewFor(session, sessionEstablished) === "locked" || wipePending;
   lockedRef.current = locked;
+  const sessionMarker = !locked && session.phase === "verified" ? session.identity.sessionMarker : null;
+  markerRef.current = sessionMarker;
+  const diagnostic = useDiagnosticPage({
+    getMarker: () => markerRef.current,
+    reconcile: (runId, status) => { void reconcileDiagnostic(runId, status); },
+  });
+  diagnosticRef.current = diagnostic.controller;
+  const diagnosticSelection = diagnostic.state.selection;
+  const runBusy = diagnostic.state.busy !== null;
+  const loadTokenRef = useRef<LaunchToken | null>(null);
+  const releaseLoad = () => {
+    const token = loadTokenRef.current;
+    loadTokenRef.current = null;
+    if (token) diagnostic.controller?.release(token);
+  };
+  const diagnosticObserverOptions = useMemo(
+    () => (sessionMarker && isSessionMarker(sessionMarker)
+      ? { fetch: withSessionMarker((url, init) => window.fetch(url, init), sessionMarker) }
+      : undefined),
+    [sessionMarker],
+  );
+  // A history run confirmed as load opens the existing load view.
+  useEffect(() => {
+    if (diagnosticSelection.kind !== "load") return;
+    setCurrentRunId(diagnosticSelection.runId);
+    setShowExecutionPanel(true);
+    diagnostic.controller?.close();
+  }, [diagnosticSelection]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (wipePending) wipeEditor();
     const view = sessionViewFor(session, sessionEstablished && !wipePending);
@@ -503,6 +546,8 @@ export default function EditorPage() {
     environmentSelection.setSelectedId(null);
     setEnvironmentsStale(true);
     run.clearRun();
+    diagnostic.controller?.clearForSession();
+    releaseLoad();
     setRunHistory([]);
     setCurrentRunId(null);
     setShowExecutionPanel(false);
@@ -547,7 +592,7 @@ export default function EditorPage() {
     return outputs;
   };
 
-  const handleRunClick = () => {
+  const handleRunClick = (kind: "load" | "diagnostic" = "load") => {
     const targets = nodes
       .filter((n) => n.data.kind === "http-request")
       .map((n) => {
@@ -564,6 +609,7 @@ export default function EditorPage() {
 
     const uniqueTargets = [...new Set(targets)];
     setRunTargets(uniqueTargets);
+    setRunConfirmationKind(kind);
     setShowRunConfirmation(true);
   };
 
@@ -575,6 +621,10 @@ export default function EditorPage() {
     if (nodes.length === 0) {
       return;
     }
+    // Shared synchronous latch: a same-tick double confirm or a running diagnostic is refused.
+    const token = diagnostic.controller?.acquire("load");
+    if (!token) return;
+    loadTokenRef.current = token;
     const durationMs = parseDurationToSeconds(editorDuration) * 1000;
     const result = await run.startRun(nodes, edges, {
       scenarioId: scenario.scenarioId ? String(scenario.scenarioId) : undefined,
@@ -583,7 +633,10 @@ export default function EditorPage() {
       durationMs,
       environmentId: selectedEnvironment?.id,
     });
-    if (!session.isCurrent(ticket)) return;
+    if (!session.isCurrent(ticket) || !(result.success && result.runId)) {
+      if (loadTokenRef.current === token) releaseLoad();
+      return;
+    }
     if (result.success && result.runId) {
       setCurrentRunId(result.runId);
       setShowExecutionPanel(true);
@@ -603,7 +656,74 @@ export default function EditorPage() {
     }
   };
 
+  const handleDiagnosticConfirmed = async () => {
+    const flow = flowLifetime.current;
+    const ticket = flow.capture();
+    setShowRunConfirmation(false);
+    const controller = diagnostic.controller;
+    const marker = markerRef.current;
+    if (!controller || nodes.length === 0 || !isSessionMarker(marker)) return;
+    const token = controller.acquire("diagnostic");
+    if (!token) return;
+    const scenarioName = scenario.scenarioName || "Sin nombre";
+    let result: Awaited<ReturnType<typeof runScenario>>;
+    try {
+      result = await runScenario(fromReactFlowGraph(nodes, edges), {
+        mode: "diagnostic",
+        sessionMarker: marker,
+        scenarioId: scenario.scenarioId ? String(scenario.scenarioId) : undefined,
+        scenarioName,
+        environmentId: selectedEnvironment?.id,
+      });
+    } catch {
+      result = { success: false, error: "No se pudo iniciar el diagnóstico" };
+    }
+    if (!result.success || !result.runId) {
+      controller.release(token);
+      if (flow.isCurrent(ticket)) {
+        // Fixed messages only: never echo orchestrator or proxy text.
+        notify({ type: "error", message: result.sessionChanged
+          ? "La sesión cambió; verificá la sesión e intentá de nuevo"
+          : "No se pudo iniciar el diagnóstico" });
+      }
+      return;
+    }
+    // From here the latch belongs to the run: only its terminal, watcher or a session clear frees it.
+    if (!flow.isCurrent(ticket) || !controller.openLaunched(token, result.runId, result.executionDisplay)) {
+      controller.release(token);
+      return;
+    }
+    setShowHistoryPanel(false);
+    setRunHistory(prev => [{
+      runId: result.runId!,
+      scenarioName,
+      startedAt: new Date(),
+      status: "running",
+      vus: 1,
+      duration: "30s",
+      iterations: 0,
+    }, ...prev]);
+  };
+
+  // Status-only reconciliation: diagnostics have no load metrics to persist.
+  const reconcileDiagnostic = async (runId: string, status: HistoryStatus) => {
+    setRunHistory(prev => prev.map(entry =>
+      entry.runId === runId ? { ...entry, status, completedAt: new Date() } : entry));
+    try {
+      const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(statusPatchBody(status)),
+      });
+      if (!res.ok) console.warn(`Failed to persist diagnostic run status: HTTP ${res.status}`);
+    } catch {
+      // History keeps the server's value; local state is already updated.
+    }
+  };
+
   const handleRunComplete = async (result: { runId: string; status: string; iterations: number; metrics: { avgDuration: number; errorRate: number } }) => {
+    // Only the launched load run frees the latch; a viewed historical run does not.
+    if (result.runId === run.runId) releaseLoad();
     // Map orchestrator status (e.g. "finished") to the history vocabulary
     const historyStatus = toHistoryStatus(result.status);
     if (!historyStatus) return;
@@ -843,13 +963,22 @@ export default function EditorPage() {
             disabled={run.running}
           />
           <button
-            onClick={handleRunClick}
-            disabled={run.running || nodes.length === 0 || run.orchestratorAvailable === false}
+            onClick={() => handleRunClick("load")}
+            disabled={run.running || runBusy || nodes.length === 0 || run.orchestratorAvailable === false}
             className="flex items-center gap-space-xs px-space-md py-space-sm bg-secondary-container text-on-secondary-container font-semibold rounded-xl shadow-glow-secondary transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             title={run.orchestratorAvailable === false ? "Orchestrator no disponible" : "Ejecutar escenario"}
           >
             <span className="material-symbols-outlined text-[16px]">play_arrow</span>
             <span>{run.running ? "Ejecutando..." : "Ejecutar"}</span>
+          </button>
+          <button
+            onClick={() => handleRunClick("diagnostic")}
+            disabled={runBusy || locked || !sessionMarker || !diagnostic.controller || nodes.length === 0 || run.orchestratorAvailable === false}
+            className="btn-secondary"
+            title="Ejecución diagnóstica: 1 VU · 1 iteración, separada de la carga"
+          >
+            <span className="material-symbols-outlined text-[16px]">troubleshoot</span>
+            <span>{diagnostic.state.busy === "diagnostic" ? "Diagnosticando..." : "Ejecución diagnóstica"}</span>
           </button>
         </div>
       </header>
@@ -928,11 +1057,13 @@ export default function EditorPage() {
             <div className="flex items-center gap-space-sm mb-space-lg">
               <span className="material-symbols-outlined text-amber-500 text-[24px]">warning</span>
               <h2 className="text-headline-md text-on-surface font-semibold">
-                Confirmar Prueba de Carga
+                {runConfirmationKind === "diagnostic" ? "Confirmar Ejecución Diagnóstica" : "Confirmar Prueba de Carga"}
               </h2>
             </div>
             <p className="text-body-md text-on-surface-variant mb-space-md">
-              Vas a ejecutar una prueba de carga contra {runTargets.length > 1 ? "los siguientes destinos" : "el siguiente destino"}:
+              {runConfirmationKind === "diagnostic"
+                ? "Vas a ejecutar un diagnóstico (1 VU · 1 iteración) contra"
+                : "Vas a ejecutar una prueba de carga contra"} {runTargets.length > 1 ? "los siguientes destinos" : "el siguiente destino"}:
             </p>
             <div className="bg-surface-container-lowest border border-surface-container rounded-lg p-space-md mb-space-md max-h-[150px] overflow-auto">
               {runTargets.length > 0 ? (
@@ -962,11 +1093,11 @@ export default function EditorPage() {
                 Cancelar
               </button>
               <button
-                onClick={handleRunConfirmed}
+                onClick={runConfirmationKind === "diagnostic" ? handleDiagnosticConfirmed : handleRunConfirmed}
                 className="flex items-center gap-space-xs px-space-md py-space-sm bg-error text-on-error font-semibold rounded-xl transition-all hover:opacity-90"
               >
                 <span className="material-symbols-outlined text-[16px]">play_arrow</span>
-                <span>Ejecutar Prueba</span>
+                <span>{runConfirmationKind === "diagnostic" ? "Ejecutar Diagnóstico" : "Ejecutar Prueba"}</span>
               </button>
             </div>
           </div>
@@ -1026,6 +1157,8 @@ export default function EditorPage() {
             runId={currentRunId}
             vus={runHistory.find((r) => r.runId === currentRunId)?.vus}
             onClose={() => {
+              // No background watcher for load runs: closing the panel frees the latch.
+              if (loadTokenRef.current && run.runId === currentRunId) releaseLoad();
               setShowExecutionPanel(false);
               setCurrentRunId(null);
             }}
@@ -1039,11 +1172,46 @@ export default function EditorPage() {
             history={runHistory}
             onClose={() => setShowHistoryPanel(false)}
             onViewRun={(runId) => {
-              setCurrentRunId(runId);
-              setShowExecutionPanel(true);
+              // The live load panel owns the load latch until it completes or closes;
+              // replacing it (or a start still in flight) would break mutual exclusion.
+              if (loadTokenRef.current) {
+                notify({ type: "error", message: "Esperá a que termine o cerrá la ejecución de carga en curso" });
+                return;
+              }
+              // Classify first: only a confirmed 409 opens the load view.
               setShowHistoryPanel(false);
+              void diagnostic.controller?.view(runId);
             }}
           />
+        )}
+
+        {/* Diagnostic panel / history classification (separate from load) */}
+        {!locked && diagnosticSelection.kind !== "closed" && diagnosticSelection.kind !== "load" && (
+          <div className="absolute top-4 right-4 w-[480px] max-h-[70%] overflow-auto z-[101]">
+            {diagnosticSelection.kind === "diagnostic" && diagnosticObserverOptions ? (
+              <DiagnosticExecutionPanel
+                runId={diagnosticSelection.runId}
+                selectionKey={diagnosticSelection.key}
+                executionDisplay={diagnosticSelection.executionDisplay}
+                initialSnapshot={diagnosticSelection.initialSnapshot}
+                observerOptions={diagnosticObserverOptions}
+                onClose={() => diagnostic.controller?.close()}
+                onTerminal={({ runId, status }) => { diagnostic.controller?.terminal(runId, status); }}
+                onProtectedDataInvalidated={() => diagnostic.controller?.clearForSession()}
+              />
+            ) : (
+              <section role="status" className="rounded-lg border border-surface-container bg-surface-container p-4 text-on-surface">
+                <p>{diagnosticSelection.kind === "classifying"
+                  ? "Verificando el tipo de ejecución…"
+                  : "No se pudo verificar el tipo de ejecución · no se abre como carga"}</p>
+                <div className="flex gap-space-sm justify-end mt-space-sm">
+                  {diagnosticSelection.kind === "unavailable" &&
+                    <button type="button" className="btn-secondary" onClick={() => void diagnostic.controller?.retry()}>Reintentar</button>}
+                  <button type="button" className="btn-secondary" onClick={() => diagnostic.controller?.close()}>Cerrar</button>
+                </div>
+              </section>
+            )}
+          </div>
         )}
       </div>
     </div>

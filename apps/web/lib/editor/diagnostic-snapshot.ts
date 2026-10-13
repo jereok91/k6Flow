@@ -260,7 +260,9 @@ export function diagnosticHistoryStatus(
 ): "completed" | "failed" | "stopped" | undefined {
   switch (snapshot.trace.state) {
     case "complete":
-      return snapshot.status === "finished" ? "completed" : undefined;
+      // A complete trace whose run did not finish derives from the run status.
+      if (snapshot.status === "finished") return "completed";
+      return snapshot.status === "stopped" || snapshot.status === "aborted" ? "stopped" : "failed";
     case "failed":
     case "incomplete":
       return "failed";
