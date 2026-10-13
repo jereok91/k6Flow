@@ -25,7 +25,7 @@ const context = { params: Promise.resolve({ runId: "run/a" }) };
 describe("owned diagnostic proxy", () => {
   beforeEach(() => {
     mocks.identity.mockResolvedValue(live(LIVE));
-    mocks.owner.mockResolvedValue({ userId: "user" });
+    mocks.owner.mockResolvedValue("user");
     mocks.owns.mockResolvedValue(true);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(snapshot)));
   });

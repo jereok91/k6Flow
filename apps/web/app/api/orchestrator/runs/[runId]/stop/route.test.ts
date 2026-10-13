@@ -23,7 +23,7 @@ describe("run stop proxy session binding", () => {
   beforeEach(() => {
     mocks.user.mockResolvedValue(user);
     mocks.identity.mockResolvedValue({ user, sessionMarker: LIVE });
-    mocks.owner.mockResolvedValue({ userId: "user" });
+    mocks.owner.mockResolvedValue("user");
     mocks.owns.mockResolvedValue(true);
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json({ status: "stopping" })));
   });

@@ -38,7 +38,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   // Verify run ownership - only allow stopping runs created by this user
   // Fail-closed: if ownership is unknown (not in DB), deny access
-  let owner: string | undefined;
+  let owner: Awaited<ReturnType<typeof getRunOwner>>;
   let owns: boolean;
   try {
     owner = await getRunOwner(runId);
