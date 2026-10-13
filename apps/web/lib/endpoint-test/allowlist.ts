@@ -134,7 +134,9 @@ function classifyIPv4(value: string): "denied" | "private" | "public" | "unknown
   const [first, second] = octets;
   if (first === 0 || first === 127) return "denied";
   if (first === 169 && second === 254) return "denied";
-  if (first === 255 && octets.every(o => o === 255)) return "denied";
+  // Multicast (224/4), the reserved range (240/4) and broadcast are not unicast
+  // targets, so a listed host that resolves to one of them is still refused.
+  if (first >= 224) return "denied";
   if (first === 10) return "private";
   if (first === 172 && second >= 16 && second <= 31) return "private";
   if (first === 192 && second === 168) return "private";

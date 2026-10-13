@@ -147,3 +147,15 @@ it("ignores a credential-only URL and treats the host case-insensitively", () =>
     allowed: true, host: "api.example.test",
   });
 });
+
+// Multicast and the reserved range are not unicast targets: a listed host that
+// resolves to one of them must still be refused, exactly like loopback.
+it.each(["224.0.0.1", "239.255.255.250", "240.0.0.1", "255.255.255.254"])(
+  "always denies the non-unicast IPv4 address %s", address => {
+    expect(checkEndpointTarget("http://internal.svc:8080/", targets, [address])).toEqual({
+      allowed: false, reason: "address-denied",
+    });
+    expect(checkEndpointTarget("https://api.example.test/", targets, [address])).toEqual({
+      allowed: false, reason: "address-denied",
+    });
+  });
