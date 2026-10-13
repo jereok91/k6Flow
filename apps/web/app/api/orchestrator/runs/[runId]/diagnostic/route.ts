@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { diagnosticEventSchema, diagnosticMetadataSchema } from "@k6flow/shared";
-import { requireUser } from "../../../../../../lib/auth/require-user";
+import { checkExpectedSession, expectedSessionFailure } from "../../../../../../lib/auth/expected-session";
 import { getRunOwner, isRunOwner } from "../../../../../../lib/editor/run-ownership";
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_INTERNAL_URL ?? "http://orchestrator:8080";
@@ -38,10 +38,10 @@ async function readSnapshot(response: Response, runId: string) {
 
 export async function GET(request: NextRequest, context: { params: Promise<{ runId: string }> }) {
   try {
-    const user = await requireUser(request.headers.get("cookie"));
-    if (!user) return error(401, "Unauthorized");
+    const session = await checkExpectedSession(request);
+    if (!session.ok) return expectedSessionFailure(session.status);
     const { runId } = await context.params;
-    if (!(await getRunOwner(runId)) || !(await isRunOwner(runId, user.id))) return error(403, "Forbidden");
+    if (!(await getRunOwner(runId)) || !(await isRunOwner(runId, session.identity.user.id))) return error(403, "Forbidden");
 
     const controller = new AbortController();
     let timedOut = false;
@@ -58,7 +58,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ run
           await response.body?.cancel();
           return error(response.status === 404 ? 404 : response.status === 409 ? 409 : 502, "Diagnostic unavailable");
         }
-        return Response.json(await readSnapshot(response, runId), { headers });
+        const snapshot = await readSnapshot(response, runId);
+        // Narrow the TOCTOU window: never hand a snapshot to a session that changed mid-read.
+        const recheck = await checkExpectedSession(request);
+        if (!recheck.ok) return expectedSessionFailure(recheck.status);
+        return Response.json(snapshot, { headers });
       };
       return await Promise.race([upstream(), timeout]);
     } catch {

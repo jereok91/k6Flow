@@ -5,6 +5,7 @@
 
 import { NextRequest } from "next/server";
 import { requireUser } from "../../../../lib/auth/require-user";
+import { checkExpectedSession, expectedSessionFailure } from "../../../../lib/auth/expected-session";
 import { setRunOwner, clearRunOwner, type RunHistoryData } from "../../../../lib/editor/run-ownership";
 import { resolveVariablesForRun } from "../../../../lib/variables/store";
 import { prepareRunStart } from "./run-env";
@@ -28,13 +29,21 @@ async function rollbackRun(runId: string): Promise<void> {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await requireUser(request.headers.get("cookie"));
+  let user = await requireUser(request.headers.get("cookie"));
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
     const body = await request.json();
+
+    // Diagnostic starts must come from the session the client expects; load
+    // starts keep the cookie-only check. Reuses the parsed body (single read).
+    if (body?.mode === "diagnostic") {
+      const session = await checkExpectedSession(request);
+      if (!session.ok) return expectedSessionFailure(session.status);
+      user = session.identity.user;
+    }
 
     // Proxy-only fields (history + variables) are stripped before forwarding
     // (orchestrator rejects unknown fields). Secret env values are resolved
