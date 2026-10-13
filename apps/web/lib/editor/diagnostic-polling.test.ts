@@ -190,6 +190,34 @@ it("singleflights stop, keeps acknowledgement nonterminal and guards old stop er
   observer.dispose();
 });
 
+it("erases the snapshot when a read or stop reports a session change (412)", async () => {
+  vi.useFakeTimers();
+  const read = vi.fn()
+    .mockResolvedValueOnce(Response.json(data))
+    .mockResolvedValueOnce(new Response(null, { status: 412 }));
+  const observer = new DiagnosticObserver(vi.fn(), { fetch: read, intervalMs: 10 });
+  observer.observe("a/b");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(observer.current.snapshot).toBeDefined();
+  await vi.advanceTimersByTimeAsync(10);
+  expect(observer.current.snapshot).toBeUndefined();
+  expect(observer.current.availability).toBe("forbidden");
+  await vi.advanceTimersByTimeAsync(100);
+  expect(read).toHaveBeenCalledTimes(2);
+  observer.dispose();
+
+  const stop = vi.fn()
+    .mockResolvedValueOnce(Response.json(data))
+    .mockResolvedValueOnce(new Response(null, { status: 412 }));
+  const other = new DiagnosticObserver(vi.fn(), { fetch: stop });
+  other.observe("a/b");
+  await vi.advanceTimersByTimeAsync(0);
+  await other.stop();
+  expect(other.current.snapshot).toBeUndefined();
+  expect(other.current.availability).toBe("forbidden");
+  other.dispose();
+});
+
 it("captures current stop failures as fixed safe errors", async () => {
   vi.useFakeTimers();
   const fetcher = vi.fn()

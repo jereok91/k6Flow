@@ -12,6 +12,7 @@ import {
   type ExecutionDisplay,
   type OwnedDiagnosticMetadata,
 } from "./diagnostic-preparation";
+import { isSessionMarker, SESSION_MARKER_HEADER } from "../auth/session-marker-header";
 import { computeRunResources } from "./run-resources";
 import { describeStartError, parseStartErrorBody } from "./run-failure";
 import { formatTranslationErrors, loadRunVariables, parseProxyRunError } from "./run-variables";
@@ -54,6 +55,8 @@ export interface RunConfig {
   scenarioName?: string;
   /** Environment whose variables apply to the run (scenario variables override them) */
   environmentId?: string;
+  /** Verified session marker; required for diagnostic starts, never sent for load runs */
+  sessionMarker?: string;
 }
 
 /**
@@ -70,6 +73,8 @@ export interface RunStartResult {
   /** Orchestrator error message, passed through unchanged */
   errorMessage?: string;
   warnings?: string[];
+  /** The start was refused because the verified session is missing or changed (412) */
+  sessionChanged?: boolean;
   requiresFiles?: string[];
   missingFiles?: string[];
   /** Blocking translation errors (unknown variables, missing values, env collisions) */
@@ -85,6 +90,9 @@ export async function runScenario(
 ): Promise<RunStartResult> {
   const diagnosticMode = config.mode === "diagnostic";
   if (diagnosticMode) {
+    if (!isSessionMarker(config.sessionMarker)) {
+      return { success: false, error: "Session not verified", sessionChanged: true };
+    }
     try {
       graph = cloneDiagnosticInput(graph);
       config = cloneDiagnosticInput(config);
@@ -185,10 +193,17 @@ export async function runScenario(
   try {
     const res = await fetch(`${ORCHESTRATOR_API}/runs`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(diagnosticMode && { [SESSION_MARKER_HEADER]: config.sessionMarker! }),
+      },
       body: JSON.stringify(body),
     });
 
+    if (diagnosticMode && res.status === 412) {
+      await res.body?.cancel();
+      return { success: false, error: "Session changed", sessionChanged: true };
+    }
     if (!res.ok) {
       const errorBody = await res.text();
       const parsed = parseStartErrorBody(errorBody);

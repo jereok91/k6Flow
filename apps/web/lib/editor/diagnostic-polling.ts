@@ -270,7 +270,7 @@ export class DiagnosticObserver {
       if (!this.lifetime.isCurrent(ticket) || this.value.availability === "forbidden") {
         return;
       }
-      if (result.status === 401 || result.status === 403) {
+      if (result.status === 401 || result.status === 403 || result.status === 412) {
         this.deny(ticket);
         return;
       }
@@ -371,7 +371,7 @@ export class DiagnosticObserver {
       if (!this.canObserve(ticket)) {
         return;
       }
-      if (result.status === 401 || result.status === 403) {
+      if (result.status === 401 || result.status === 403 || result.status === 412) {
         this.deny(ticket);
         return;
       }

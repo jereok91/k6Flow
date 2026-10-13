@@ -4,9 +4,15 @@ import React, { useEffect, useLayoutEffect, useReducer, useState } from "react";
 import { createPanelSelection, resolvePanelSelection, PanelCommitBinding,
   type PanelCallbacks, type PanelInput, type PanelView } from "./diagnostic-panel-lifetime";
 import { isDiagnosticTerminal, projectDiagnosticNodes } from "./diagnostic-snapshot";
+import type { DiagnosticObserverOptions } from "./diagnostic-polling";
 
 export interface DiagnosticExecutionPanelProps extends PanelInput, PanelCallbacks {
   onClose(): void;
+  /**
+   * Observer transport for this selection (e.g. a session-marker fetch). Read once
+   * per selection setup: callers must change selectionKey when it must change.
+   */
+  observerOptions?: DiagnosticObserverOptions;
 }
 
 /** Immutable, selection-scoped view; intentionally not wired to page/auth/history. */
@@ -28,9 +34,12 @@ export function DiagnosticExecutionPanel(props: DiagnosticExecutionPanelProps) {
     });
   });
   useLayoutEffect(() => () => binding.clear(selection), [binding, selection]);
+  const observerOptions = props.observerOptions;
   useEffect(() => {
-    const active = binding.setup(selection, refresh);
+    const active = binding.setup(selection, refresh, observerOptions);
     return () => active?.dispose();
+    // observerOptions is bound per selection on purpose; see the prop doc.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [binding, selection]);
   return <DiagnosticPanelView view={selection.view} onClose={props.onClose}
     onRetry={() => binding.retry(selection)} onStop={() => binding.stop(selection)} />;

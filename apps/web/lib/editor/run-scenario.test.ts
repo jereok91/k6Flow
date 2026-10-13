@@ -36,7 +36,7 @@ it("preserves variable loading and CSV admission errors", async () => {
   const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 500 }));
   vi.stubGlobal("fetch", fetcher);
   expect(await runScenario(graph(), {
-    mode: "diagnostic", scenarioId: "s",
+    mode: "diagnostic", scenarioId: "s", sessionMarker: MARKER,
   })).toMatchObject({
     success: false,
     error: "Could not load scenario variables (HTTP 500)",
@@ -60,7 +60,7 @@ it("preserves variable loading and CSV admission errors", async () => {
     }],
     connections: [],
   };
-  const missing = await runScenario(csv, { mode: "diagnostic" });
+  const missing = await runScenario(csv, { mode: "diagnostic", sessionMarker: MARKER });
   expect(missing.success).toBe(false);
   expect(missing.missingFiles).toEqual(["users.csv"]);
   expect(fetcher).not.toHaveBeenCalled();
@@ -78,6 +78,7 @@ it("owns diagnostic inputs before variable loading and uses compiler order", asy
   const config = {
     mode: "diagnostic" as const,
     scenarioId: "s",
+    sessionMarker: MARKER,
     vus: 90,
     durationMs: 1000,
     attachments: [{ id: "csv", name: "csv", data: "secret" }],
@@ -132,6 +133,49 @@ it("does not serialize load mode and retains load resources", async () => {
   expect(body.vus).toBe(7);
 });
 
+const MARKER = "a".repeat(64);
+
+it.each([["missing", undefined], ["malformed", "A".repeat(64)]])(
+  "refuses a diagnostic start with a %s session marker before any request", async (_kind, sessionMarker) => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    expect(await runScenario(graph(), { mode: "diagnostic", sessionMarker })).toEqual({
+      success: false, error: "Session not verified", sessionChanged: true,
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+it("sends the session marker only on the diagnostic start request", async () => {
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(Response.json({ variables: [] }))
+    .mockResolvedValueOnce(Response.json({ runId: "run" }));
+  vi.stubGlobal("fetch", fetcher);
+  const result = await runScenario(graph(), { mode: "diagnostic", scenarioId: "s", sessionMarker: MARKER });
+  expect(result.success).toBe(true);
+  expect(new Headers(fetcher.mock.calls[0][1]?.headers).get("X-K6Flow-Session-Marker")).toBeNull();
+  const start = new Headers(fetcher.mock.calls[1][1].headers);
+  expect(start.get("X-K6Flow-Session-Marker")).toBe(MARKER);
+  expect(start.get("Content-Type")).toBe("application/json");
+  expect(fetcher.mock.calls[1][1].body).not.toContain(MARKER);
+});
+
+it("reports a 412 diagnostic start as a session change with a fixed error", async () => {
+  const fetcher = vi.fn().mockResolvedValue(
+    Response.json({ error: "Session changed" }, { status: 412 }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  expect(await runScenario(graph(), { mode: "diagnostic", sessionMarker: MARKER })).toEqual({
+    success: false, error: "Session changed", sessionChanged: true,
+  });
+});
+
+it("never sends a marker for load runs", async () => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ runId: "load" }));
+  vi.stubGlobal("fetch", fetcher);
+  await runScenario(graph(), { mode: "load", sessionMarker: MARKER });
+  expect(new Headers(fetcher.mock.calls[0][1].headers).get("X-K6Flow-Session-Marker")).toBeNull();
+});
+
 it("rejects unsupported diagnostic cloning without requests", async () => {
   const fetcher = vi.fn();
   vi.stubGlobal("fetch", fetcher);
@@ -142,8 +186,8 @@ it("rejects unsupported diagnostic cloning without requests", async () => {
     },
     enumerable: true,
   });
-  expect(await runScenario(g, { mode: "diagnostic" })).toMatchObject({
-    success: false,
+  expect(await runScenario(g, { mode: "diagnostic", sessionMarker: MARKER })).toEqual({
+    success: false, error: "Unsupported diagnostic input",
   });
   expect(fetcher).not.toHaveBeenCalled();
 });

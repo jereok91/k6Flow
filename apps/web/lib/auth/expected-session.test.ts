@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ identity: vi.fn() }));
 vi.mock("./require-user", () => ({ requireSessionIdentity: mocks.identity }));
 import { checkExpectedSession, expectedSessionFailure, SESSION_MARKER_HEADER } from "./expected-session";
+import { SESSION_MARKER_HEADER as CLIENT_SESSION_MARKER_HEADER } from "./session-marker-header";
 
 const COOKIE = "k6flow_session=cookie-secret-token";
 const LIVE = "a".repeat(64);
@@ -26,6 +27,10 @@ async function expectSafeFailure(marker: string | undefined, status: 401 | 412 |
   expect(JSON.parse(text)).toEqual({ error });
   for (const secret of [LIVE, OTHER, COOKIE, "cookie-secret-token"]) expect(text).not.toContain(secret);
 }
+
+it("uses the same header name as the client transport", () => {
+  expect(SESSION_MARKER_HEADER).toBe(CLIENT_SESSION_MARKER_HEADER);
+});
 
 describe("checkExpectedSession", () => {
   afterEach(() => vi.clearAllMocks());
