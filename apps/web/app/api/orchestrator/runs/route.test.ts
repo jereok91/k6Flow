@@ -40,7 +40,7 @@ describe("run start proxy session binding", () => {
   it.each([["missing", undefined], ["malformed", "A".repeat(64)], ["mismatched", OTHER]])(
     "rejects a diagnostic start with a %s marker before preparing or forwarding", async (_kind, marker) => {
       const response = await POST(request({ mode: "diagnostic", scenarioId: "s" }, marker));
-      expect(response.status).toBe(409);
+      expect(response.status).toBe(412);
       expect(response.headers.get("cache-control")).toBe("no-store");
       const text = await response.text();
       expect(JSON.parse(text)).toEqual({ error: "Session changed" });

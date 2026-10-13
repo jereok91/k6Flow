@@ -52,7 +52,7 @@ describe("run stop proxy session binding", () => {
   it.each([["malformed", "A".repeat(64)], ["mismatched", OTHER]])(
     "rejects a %s marker before ownership or forwarding", async (_kind, marker) => {
       const response = await POST(request(marker), context);
-      expect(response.status).toBe(409);
+      expect(response.status).toBe(412);
       expect(response.headers.get("cache-control")).toBe("no-store");
       const text = await response.text();
       expect(JSON.parse(text)).toEqual({ error: "Session changed" });

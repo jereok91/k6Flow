@@ -4,7 +4,7 @@ import { classifyDiagnosticRun } from "./diagnostic-classification";
 afterEach(() => vi.useRealTimers());
 
 it("only 409 confirms load; every other failure remains unavailable", async () => {
-  for (const status of [401, 403, 404, 409, 500, 502]) {
+  for (const status of [401, 403, 404, 409, 412, 500, 502]) {
     const fetcher = vi.fn().mockResolvedValue(new Response(null, { status }));
     expect((await classifyDiagnosticRun("r", { fetch: fetcher })).kind).toBe(
       status === 409 ? "load" : "unavailable",

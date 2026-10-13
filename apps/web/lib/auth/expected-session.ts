@@ -11,7 +11,7 @@ const MARKER_PATTERN = /^[a-f0-9]{64}$/;
 export type ExpectedSessionResult =
   | { ok: true; identity: SessionIdentity }
   | { ok: false; status: ExpectedSessionFailureStatus };
-export type ExpectedSessionFailureStatus = 401 | 409 | 503;
+export type ExpectedSessionFailureStatus = 401 | 412 | 503;
 
 export async function checkExpectedSession(request: Pick<Request, "headers">): Promise<ExpectedSessionResult> {
   let identity: SessionIdentity | null;
@@ -25,17 +25,17 @@ export async function checkExpectedSession(request: Pick<Request, "headers">): P
   if (identity === null) return { ok: false, status: 401 };
   const expected = request.headers.get(SESSION_MARKER_HEADER);
   if (expected === null || !MARKER_PATTERN.test(expected) || !MARKER_PATTERN.test(identity.sessionMarker)) {
-    return { ok: false, status: 409 };
+    return { ok: false, status: 412 };
   }
   // Both markers passed the 64-hex check, so the buffers have equal length.
-  if (!timingSafeEqual(Buffer.from(expected), Buffer.from(identity.sessionMarker))) return { ok: false, status: 409 };
+  if (!timingSafeEqual(Buffer.from(expected), Buffer.from(identity.sessionMarker))) return { ok: false, status: 412 };
   return { ok: true, identity };
 }
 
 // Fixed, marker-free failure bodies; never cacheable.
 const FAILURE_MESSAGES: Record<ExpectedSessionFailureStatus, string> = {
   401: "Unauthorized",
-  409: "Session changed",
+  412: "Session changed",
   503: "Session check unavailable",
 };
 

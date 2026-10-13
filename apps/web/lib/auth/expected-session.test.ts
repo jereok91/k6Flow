@@ -15,7 +15,7 @@ const request = (marker?: string) => {
   return new Request("http://localhost/api", { headers });
 };
 
-async function expectSafeFailure(marker: string | undefined, status: 401 | 409 | 503, error: string) {
+async function expectSafeFailure(marker: string | undefined, status: 401 | 412 | 503, error: string) {
   const result = await checkExpectedSession(request(marker));
   expect(result).toEqual({ ok: false, status });
   if (result.ok) return;
@@ -43,9 +43,9 @@ describe("checkExpectedSession", () => {
     ["long", "a".repeat(65)],
     ["non-hex", "g".repeat(64)],
     ["mismatched", OTHER],
-  ])("returns 409 for a %s marker", async (_kind, marker) => {
+  ])("returns 412 for a %s marker", async (_kind, marker) => {
     mocks.identity.mockResolvedValue({ user, sessionMarker: LIVE });
-    await expectSafeFailure(marker, 409, "Session changed");
+    await expectSafeFailure(marker, 412, "Session changed");
   });
 
   it("returns a generic 503 when the session lookup throws", async () => {

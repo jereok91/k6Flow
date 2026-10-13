@@ -47,7 +47,7 @@ describe("owned diagnostic proxy", () => {
   it.each([["missing", null], ["malformed", "A".repeat(64)], ["mismatched", OTHER]])(
     "rejects a %s session marker before ownership/fetch", async (_kind, marker) => {
       const response = await GET(request(marker), context);
-      expect(response.status).toBe(409);
+      expect(response.status).toBe(412);
       expect(response.headers.get("cache-control")).toBe("no-store");
       const text = await response.text();
       expect(JSON.parse(text)).toEqual({ error: "Session changed" });
@@ -76,7 +76,7 @@ describe("owned diagnostic proxy", () => {
     expect(text).not.toContain("nodeIds");
     expectNoSecrets(text);
   });
-  it.each([["changed", live(OTHER), 409], ["ended", null, 401]])(
+  it.each([["changed", live(OTHER), 412], ["ended", null, 401]])(
     "withholds the snapshot when the session %s during the upstream read", async (_kind, next, status) => {
       mocks.identity.mockResolvedValueOnce(live(LIVE)).mockResolvedValueOnce(next);
       const response = await GET(request(), context);
