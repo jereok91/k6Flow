@@ -201,6 +201,89 @@ it("does not leak any prefix of a secret that straddles the truncation boundary"
   expect(leaked).toBe(false);
 });
 
+const BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
+
+async function* rawStream(...parts: Uint8Array[]): AsyncIterable<Uint8Array> {
+  for (const part of parts) yield part;
+}
+
+it.each([0, 1, 2])(
+  "leaks no part of a secret straddling the cut after a leading BOM (secret %i bytes past the cap)",
+  async offset => {
+    const secret = "ZQSECRETZQ";
+    // The BOM is three raw bytes: the secret starts at raw byte LIMIT + offset,
+    // so the read window holds only a part of it and the cut must keep none.
+    const filler = encoder.encode("x".repeat(ENDPOINT_BODY_LIMIT - 3 + offset));
+    const h = harness(ok({ body: rawStream(BOM, filler, encoder.encode(secret + "tail")) }));
+    const result = await executeEndpointTest({ ...base, secretValues: [secret] }, h.io);
+    expect(result).toMatchObject({ kind: "ok", truncated: true });
+    if (result.kind !== "ok") return;
+    const pieces: string[] = [];
+    for (let size = 1; size <= secret.length; size += 1) {
+      pieces.push(secret.slice(0, size), secret.slice(secret.length - size));
+    }
+    expect(
+      pieces.filter(piece => result.bodyText.includes(piece)),
+      `tail ${JSON.stringify(result.bodyText.slice(-12))}`,
+    ).toEqual([]);
+    // The window ends at raw byte LIMIT: the BOM plus the filler that fits.
+    expect(result.bodyText).toBe("\uFEFF" + "x".repeat(ENDPOINT_BODY_LIMIT - 3));
+  },
+);
+
+it.each([-3, -2, -1])(
+  "keeps the leading BOM through the final byte trim when a secret crosses the cut (secret starts %i bytes before the cap)",
+  async offset => {
+    const secret = "ZQSECRETZQ";
+    // The secret starts before the cap, so it is masked whole and the marker
+    // pushes the preview past the cap: the final byte trim must run and must
+    // not drop the BOM the rest of the path deliberately keeps.
+    const filler = "x".repeat(ENDPOINT_BODY_LIMIT - 3 + offset);
+    const h = harness(ok({ body: rawStream(BOM, encoder.encode(filler + secret + "tail")) }));
+    const result = await executeEndpointTest({ ...base, secretValues: [secret] }, h.io);
+    expect(result).toMatchObject({ kind: "ok", truncated: true });
+    if (result.kind !== "ok") return;
+    const pieces: string[] = [];
+    for (let size = 1; size <= secret.length; size += 1) {
+      pieces.push(secret.slice(0, size), secret.slice(secret.length - size));
+    }
+    expect(pieces.filter(piece => result.bodyText.includes(piece))).toEqual([]);
+    expect(
+      result.bodyText.startsWith("\uFEFF"),
+      `head ${JSON.stringify(result.bodyText.slice(0, 4))} tail ${JSON.stringify(result.bodyText.slice(-6))}`
+        + ` bytes ${encoder.encode(result.bodyText).byteLength} truncated ${result.truncated}`,
+    ).toBe(true);
+    expect(encoder.encode(result.bodyText).byteLength).toBe(ENDPOINT_BODY_LIMIT);
+    expect(result.bodyText).toBe("\uFEFF" + filler + "[REDACTED]".slice(0, -offset));
+  },
+);
+
+it("keeps the leading BOM when masking expands every character past the cap", async () => {
+  const h = harness(ok({ body: rawStream(BOM, encoder.encode("a".repeat(ENDPOINT_BODY_LIMIT))) }));
+  const result = await executeEndpointTest({ ...base, secretValues: ["a"] }, h.io);
+  expect(result).toMatchObject({ kind: "ok", truncated: true });
+  if (result.kind !== "ok") return;
+  expect(result.bodyText.startsWith("\uFEFF[REDACTED]")).toBe(true);
+  expect(encoder.encode(result.bodyText).byteLength).toBeLessThanOrEqual(ENDPOINT_BODY_LIMIT);
+  expect(result.bodyText).not.toContain("a");
+});
+
+it("keeps a leading BOM as U+FEFF and charges its three bytes to the cap", async () => {
+  const small = harness(ok({ body: rawStream(BOM, encoder.encode("hello")) }));
+  expect(await executeEndpointTest(base, small.io))
+    .toMatchObject({ kind: "ok", truncated: false, bodyText: "\uFEFFhello" });
+  // Exactly the cap in raw bytes, BOM included: complete, not truncated.
+  const exact = harness(ok({ body: rawStream(BOM, encoder.encode("x".repeat(ENDPOINT_BODY_LIMIT - 3))) }));
+  expect(await executeEndpointTest(base, exact.io)).toMatchObject({
+    kind: "ok", truncated: false, bodyText: "\uFEFF" + "x".repeat(ENDPOINT_BODY_LIMIT - 3),
+  });
+  // One raw byte over the cap: the last filler byte is dropped and reported.
+  const over = harness(ok({ body: rawStream(BOM, encoder.encode("x".repeat(ENDPOINT_BODY_LIMIT - 2))) }));
+  expect(await executeEndpointTest(base, over.io)).toMatchObject({
+    kind: "ok", truncated: true, bodyText: "\uFEFF" + "x".repeat(ENDPOINT_BODY_LIMIT - 3),
+  });
+});
+
 it("never sends the request when resolution completes after the deadline", async () => {
   let release!: (addresses: readonly string[]) => void;
   const h = harness(ok(), { resolve: () => new Promise(resolve => { release = resolve; }) });
@@ -290,6 +373,32 @@ it("reports truncation when masking itself expands past the cap", async () => {
   if (result.kind !== "ok") return;
   expect(result.bodyText).not.toContain(secret);
   expect(new TextEncoder().encode(result.bodyText).byteLength).toBeLessThanOrEqual(ENDPOINT_BODY_LIMIT);
+});
+
+it("never returns more than the body limit in bytes when masks precede multibyte text", async () => {
+  // Each one-byte "a" becomes a ten-byte mask while being charged one byte, and
+  // each "€" costs three bytes but one character: a character-based final trim
+  // let this preview reach ~95 KB against a 64 KiB cap.
+  const secret = "a";
+  const h = harness(ok({ body: stream("a".repeat(3449) + "€".repeat(20_339)) }));
+  const result = await executeEndpointTest({ ...base, secretValues: [secret] }, h.io);
+  expect(result.kind).toBe("ok");
+  if (result.kind !== "ok") return;
+  const bytes = new TextEncoder().encode(result.bodyText).byteLength;
+  expect(bytes).toBeLessThanOrEqual(ENDPOINT_BODY_LIMIT);
+  // Trimmed on a character boundary, so at most one 3-byte character short.
+  expect(bytes).toBeGreaterThan(ENDPOINT_BODY_LIMIT - 3);
+  expect(result.bodyText).not.toContain(secret);
+  // The body itself fit in 64,466 bytes, but the byte trim dropped mask text.
+  expect(result.truncated).toBe(true);
+  // The trim lands on a character boundary: no replacement character appears.
+  expect(result.bodyText).not.toContain("\uFFFD");
+});
+
+it("returns a complete small body with secrets masked untouched otherwise", async () => {
+  const h = harness(ok({ body: stream("€ token=s3cr3t end") }));
+  expect(await executeEndpointTest({ ...base, secretValues: ["s3cr3t"] }, h.io))
+    .toMatchObject({ kind: "ok", truncated: false, bodyText: "€ token=[REDACTED] end" });
 });
 
 it("refuses a secret larger than the masking slack instead of leaking it", async () => {

@@ -179,7 +179,11 @@ export async function executeEndpointTest(
       return timedOut ? { kind: "timeout" } : { kind: "network" };
     }
     if (timedOut) return { kind: "timeout" };
-    const preview = maskAndCut(new TextDecoder().decode(read.bytes), secrets, ENDPOINT_BODY_LIMIT);
+    // Keep a leading BOM as U+FEFF: stripping it would shift every byte position
+    // maskAndCut counts 3 bytes behind the raw read window, so a secret that
+    // starts just past the window would survive as a prefix at the cut.
+    const decoded = new TextDecoder("utf-8", { ignoreBOM: true }).decode(read.bytes);
+    const preview = maskAndCut(decoded, secrets, ENDPOINT_BODY_LIMIT);
     return {
       kind: "ok",
       status: response.status,
@@ -262,19 +266,35 @@ function maskAndCut(
       index += secret.length;
       continue;
     }
-    const character = text[index];
+    // Step by code point so a surrogate pair is charged its real four bytes and
+    // is never split between its halves.
+    const character = String.fromCodePoint(text.codePointAt(index)!);
     const size = SECRET_ENCODER.encode(character).byteLength;
     if (consumed + size > limit) break;
     kept += character;
     consumed += size;
-    index += 1;
+    index += character.length;
   }
-  // Only ordinary characters are byte-budgeted, so anything past `limit`
-  // characters here is mask text: cutting it can never expose secret bytes.
-  const preview = kept.length > limit ? kept.slice(0, limit) : kept;
+  // `consumed` charges a mask by the secret it replaced, not by its own bytes,
+  // so `kept` can exceed `limit` BYTES. Every secret copy is already masked
+  // whole, so a trailing byte trim can only drop mask or ordinary text; it never
+  // exposes secret bytes.
+  const preview = trimToBytes(kept, limit);
   // Masking can also expand a short secret into a longer marker, so the caller has to be
   // told about a cut that the response body itself never asked for.
   return { text: preview, cut: index < text.length || preview.length < kept.length };
+}
+
+/** Keeps at most `limit` UTF-8 bytes of `text`, ending on a character boundary. */
+function trimToBytes(text: string, limit: number): string {
+  const bytes = SECRET_ENCODER.encode(text);
+  if (bytes.byteLength <= limit) return text;
+  let end = limit;
+  // Back off continuation bytes (10xxxxxx) so no multi-byte character is split.
+  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1;
+  // ignoreBOM keeps a leading U+FEFF, matching the decode of the raw window;
+  // the default decoder would silently drop it whenever this trim runs.
+  return new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes.subarray(0, end));
 }
 
 function maskSecrets(text: string, secrets: readonly string[]): string {
