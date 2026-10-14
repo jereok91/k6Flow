@@ -7,6 +7,7 @@ import {
   createEndpointTestLastResults,
   runEndpointTest,
   type EndpointTestClientIo,
+  ENDPOINT_TEST_CLIENT_TIMEOUT_MS,
 } from "./endpoint-test-client";
 
 const LIVE = "a".repeat(64);
@@ -119,6 +120,28 @@ it("tells a variables-store 403 apart from a blocked destination", async () => {
     Response.json({ kind: "denied", reason: "host-not-allowed" }, { status: 403 }),
   );
   expect((await runEndpointTest({ parameters: {} }, makeIo(blocked))).kind).toBe("denied");
+});
+
+it("bounds a request that never settles instead of leaving the latch set", async () => {
+  vi.useFakeTimers();
+  try {
+    // A transport that only ever ends when it is aborted: without a signal from the
+    // client nothing bounds the await, and the editor releases its single-flight latch
+    // in that same finally, so the button stays disabled until a page reload.
+    const fetcher = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        const bound = setTimeout(() => reject(new Error("never settled")), 2 * ENDPOINT_TEST_CLIENT_TIMEOUT_MS);
+        init?.signal?.addEventListener("abort", () => {
+          clearTimeout(bound);
+          reject(new Error("aborted"));
+        });
+      }));
+    const pending = runEndpointTest({ parameters: {} }, makeIo(fetcher));
+    await vi.advanceTimersByTimeAsync(2 * ENDPOINT_TEST_CLIENT_TIMEOUT_MS);
+    expect((await pending).kind).toBe("timeout");
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("maps a rejected transport to network", async () => {

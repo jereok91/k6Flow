@@ -16,6 +16,13 @@ export const ENDPOINT_TEST_BODY_LIMIT = 65_536;
 /** Hard cap on the JSON envelope read from the route. */
 const ENDPOINT_TEST_RESPONSE_LIMIT = 131_072;
 
+/**
+ * Client-side bound on one test request. The route's own deadline covers the target
+ * connection only and the variables store is resolved before it, so the client waits
+ * longer than the executor and still ends a request that never settles.
+ */
+export const ENDPOINT_TEST_CLIENT_TIMEOUT_MS = 10_000;
+
 /** The success payload of execute.ts, minus the discriminant we hold outside it. */
 export type EndpointTestOkResult = Omit<
   Extract<EndpointTestResult, { readonly kind: "ok" }>,
@@ -77,15 +84,24 @@ export async function runEndpointTest(
   if (input.environmentId !== undefined) body.environmentId = input.environmentId;
 
   let response: Response;
+  // The route's own deadline covers the target connection only, and the editor releases
+  // its single-flight latch in this same finally: without a client deadline a request
+  // that never settles leaves the button disabled until a reload.
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), ENDPOINT_TEST_CLIENT_TIMEOUT_MS);
   try {
     response = await marker(ENDPOINT_TEST_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch {
-    // A rejected transport is indistinguishable from an unreachable target.
-    return failure("network");
+    // A rejected transport is indistinguishable from an unreachable target, but our own
+    // deadline is a timeout, and that is the outcome the caller can act on.
+    return failure(controller.signal.aborted ? "timeout" : "network");
+  } finally {
+    clearTimeout(deadline);
   }
 
   switch (response.status) {
