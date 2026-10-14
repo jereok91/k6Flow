@@ -209,6 +209,21 @@ describe("POST /api/endpoint-tests", () => {
     expectNoSecret(JSON.stringify(json));
   });
 
+  it("drives the wrapped body slot the panel stores through to the executor", async () => {
+    const parameters = {
+      ...okParameters,
+      method: "POST",
+      body: { kind: "json", value: { kind: "literal", value: '{"a":"1"}' } },
+    };
+    const response = await POST(post(JSON.stringify({ parameters })));
+    expect(response.status).toBe(200);
+    expect((await response.json()).kind).toBe("ok");
+    expect(vi.mocked(executeEndpointTest).mock.calls[0][0]).toMatchObject({
+      method: "POST",
+      bodyText: '{"a":"1"}',
+    });
+  });
+
   it("wires the executor io to the node resolver and the node transport", async () => {
     mocks.lookup.mockResolvedValue([
       { address: PUBLIC_ADDRESS, family: 4 },

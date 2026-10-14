@@ -111,9 +111,14 @@ export function prepareEndpointTest(
       return failure("invalid-body");
     }
     if (body.kind !== "none") {
-      if (typeof body.value !== "string") return failure("invalid-body");
-      const rendered = render(body.value);
-      if (typeof rendered !== "string") return rendered;
+      // The panel and the canonical traversal keep a slot wrapped, exactly like url and
+      // headers: { kind: "literal", value } or { kind: "reference", reference: {...} }.
+      // Requiring a raw string here refused every node whose body is set.
+      const bodyValue = readValue(body.value);
+      if (typeof bodyValue !== "string") {
+        return failure(bodyValue.reason === "unresolved-reference" ? "unresolved-reference" : "invalid-body");
+      }
+      const rendered = bodyValue;
       if (body.kind === "json") {
         if (rendered.length > 0) {
           try {

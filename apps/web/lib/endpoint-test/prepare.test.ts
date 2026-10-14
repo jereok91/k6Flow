@@ -102,17 +102,28 @@ it.each([
 
 it("keeps a json body only when it parses", () => {
   const good = prepareEndpointTest(http({
-    method: "POST", body: { kind: "json", value: '{"name":"{{NAME}}"}' },
+    method: "POST", body: { kind: "json", value: { kind: "literal", value: '{"name":"{{NAME}}"}' } },
   }), options);
   expect(good).toMatchObject({ ok: true, input: { bodyText: '{"name":"ana"}', method: "POST" } });
-  expect(prepareEndpointTest(http({ method: "POST", body: { kind: "json", value: "{oops" } }), options))
+  expect(prepareEndpointTest(http({ method: "POST", body: { kind: "json", value: { kind: "literal", value: "{oops" } } }), options))
     .toEqual({ ok: false, reason: "invalid-json-body" });
 });
 
-it("renders a text body and drops an empty one", () => {
-  expect(prepareEndpointTest(http({ method: "POST", body: { kind: "text", value: "hi {{NAME}}" } }), options))
+it("accepts the wrapped body slot the panel and the graph actually store", () => {
+  // The panel writes { kind, value: { kind: "literal", value } } and the panel fixture
+  // records the same shape for body, so a raw-string body is not a graph shape at all.
+  const wrapped = { kind: "json", value: { kind: "literal", value: '{"name":"{{NAME}}"}' } };
+  expect(prepareEndpointTest(http({ method: "POST", body: wrapped }), options))
+    .toMatchObject({ ok: true, input: { bodyText: '{"name":"ana"}', method: "POST" } });
+  const wrappedText = { kind: "text", value: { kind: "literal", value: "hi {{NAME}}" } };
+  expect(prepareEndpointTest(http({ method: "POST", body: wrappedText }), options))
     .toMatchObject({ ok: true, input: { bodyText: "hi ana" } });
-  expect(prepareEndpointTest(http({ method: "POST", body: { kind: "text", value: "" } }), options))
+});
+
+it("renders a text body and drops an empty one", () => {
+  expect(prepareEndpointTest(http({ method: "POST", body: { kind: "text", value: { kind: "literal", value: "hi {{NAME}}" } } }), options))
+    .toMatchObject({ ok: true, input: { bodyText: "hi ana" } });
+  expect(prepareEndpointTest(http({ method: "POST", body: { kind: "text", value: { kind: "literal", value: "" } } }), options))
     .toMatchObject({ ok: true, input: { bodyText: undefined } });
 });
 
@@ -126,7 +137,7 @@ it("tolerates spaces inside the placeholder and reports the same secret once", (
 });
 
 it("never mutates the caller's parameters", () => {
-  const parameters = http({ body: { kind: "text", value: "{{NAME}}" } });
+  const parameters = http({ body: { kind: "text", value: { kind: "literal", value: "{{NAME}}" } } });
   const before = JSON.stringify(parameters);
   prepareEndpointTest(parameters, options);
   expect(JSON.stringify(parameters)).toBe(before);
