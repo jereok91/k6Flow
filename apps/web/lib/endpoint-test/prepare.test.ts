@@ -127,6 +127,83 @@ it("renders a text body and drops an empty one", () => {
     .toMatchObject({ ok: true, input: { bodyText: undefined } });
 });
 
+it.each(["text", "json", "xml", "form"])(
+  "keeps unknown-variable for a %s body, exactly as url and headers do",
+  kind => {
+    const result = prepareEndpointTest(http({
+      method: "POST", body: { kind, value: { kind: "literal", value: "{{MISSING}}" } },
+    }), options);
+    expect(result).toEqual({ ok: false, reason: "unknown-variable" });
+  },
+);
+
+it("keeps unresolved-reference for a body reference without a sample", () => {
+  const result = prepareEndpointTest(http({
+    method: "POST",
+    body: { kind: "text", value: { kind: "reference", reference: { producerNodeId: "auth-1", output: "other" } } },
+  }), options);
+  expect(result).toEqual({ ok: false, reason: "unresolved-reference" });
+});
+
+it.each([
+  ["missing value", { kind: "text" }],
+  ["raw string value", { kind: "xml", value: "<a/>" }],
+  ["unknown slot kind", { kind: "form", value: { kind: "weird", value: "a=1" } }],
+  ["non-string literal", { kind: "json", value: { kind: "literal", value: 7 } }],
+  ["malformed reference", { kind: "text", value: { kind: "reference", reference: { producerNodeId: "auth-1" } } }],
+  ["unsupported body kind", { kind: "multipart", value: { kind: "literal", value: "x" } }],
+  ["body not an object", "x"],
+])("answers invalid-body for a structurally wrong body: %s", (_label, body) => {
+  expect(prepareEndpointTest(http({ method: "POST", body }), options))
+    .toEqual({ ok: false, reason: "invalid-body" });
+});
+
+it.each([
+  ["xml", "<user><name>{{NAME}}</name><t>{{TOKEN}}</t></user>", "<user><name>ana</name><t>s3cr3t-token</t></user>"],
+  ["form", "name={{NAME}}&token={{TOKEN}}", "name=ana&token=s3cr3t-token"],
+])("prepares a %s body into the request input without a JSON check", (kind, template, rendered) => {
+  const result = prepareEndpointTest(http({
+    method: "POST",
+    url: { kind: "literal", value: "{{BASE}}/u" },
+    body: { kind, value: { kind: "literal", value: template } },
+  }), options);
+  expect(result).toEqual({
+    ok: true,
+    input: {
+      method: "POST",
+      url: "https://api.example.test/u",
+      headers: [],
+      bodyText: rendered,
+      secretValues: ["s3cr3t-token"],
+    },
+  });
+});
+
+it.each(["xml", "form"])("fills a %s body reference from its sample and masks it", kind => {
+  const result = prepareEndpointTest(http({
+    method: "PUT",
+    body: { kind, value: { kind: "reference", reference: { producerNodeId: "auth-1", output: "accessToken" } } },
+  }), options);
+  expect(result).toEqual({
+    ok: true,
+    input: {
+      method: "PUT",
+      url: "https://api.example.test/users/ana",
+      headers: [],
+      bodyText: "sample-token",
+      secretValues: ["sample-token"],
+    },
+  });
+});
+
+it("still refuses a json body that is not valid JSON, and only for json", () => {
+  const body = (kind: string) => ({ kind, value: { kind: "literal", value: "<oops {{NAME}}" } });
+  expect(prepareEndpointTest(http({ method: "POST", body: body("json") }), options))
+    .toEqual({ ok: false, reason: "invalid-json-body" });
+  expect(prepareEndpointTest(http({ method: "POST", body: body("xml") }), options))
+    .toMatchObject({ ok: true, input: { bodyText: "<oops ana" } });
+});
+
 it("tolerates spaces inside the placeholder and reports the same secret once", () => {
   const result = prepareEndpointTest(http({
     url: { kind: "literal", value: "{{ BASE }}/x?t={{TOKEN}}&u={{TOKEN}}" },

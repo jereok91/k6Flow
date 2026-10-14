@@ -5,7 +5,8 @@
 // the executor can mask them.
 
 const METHODS = new Set(["GET", "POST", "PUT", "PATCH", "HEAD"]);
-const BODY_KINDS = new Set(["none", "text", "json"]);
+/** The body kinds the panel offers and the shared schema accepts; only json is parsed. */
+const BODY_KINDS = new Set(["none", "text", "json", "xml", "form"]);
 /** RFC 7230 token, so a header name can never smuggle a separator. */
 const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 const PLACEHOLDER = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g;
@@ -116,7 +117,10 @@ export function prepareEndpointTest(
       // Requiring a raw string here refused every node whose body is set.
       const bodyValue = readValue(body.value);
       if (typeof bodyValue !== "string") {
-        return failure(bodyValue.reason === "unresolved-reference" ? "unresolved-reference" : "invalid-body");
+        // A malformed slot is a structurally wrong body; any specific reason the value
+        // reader produced (unknown-variable, unresolved-reference) is kept as is, so the
+        // body answers exactly like url and headers for the same mistake.
+        return failure(bodyValue.reason === "invalid-parameters" ? "invalid-body" : bodyValue.reason);
       }
       const rendered = bodyValue;
       if (body.kind === "json") {
