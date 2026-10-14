@@ -225,6 +225,20 @@ it("masks a multibyte secret whose byte length exceeds its character length", as
   expect(prefixes.some(prefix => result.bodyText.includes(prefix))).toBe(false);
 });
 
+it("never returns an unmasked prefix of a second secret copy shifted into the window", async () => {
+  // Masking shortens the text, so a character-based cut reaches past the byte
+  // limit and can expose a copy that the read window only read in part.
+  const secret = "ZQ" + "7".repeat(30); // 32 characters, longer than the marker
+  const filler = "x".repeat(ENDPOINT_BODY_LIMIT - secret.length);
+  const h = harness(ok({ body: stream(secret, filler, secret, "tail") }));
+  const result = await executeEndpointTest({ ...base, secretValues: [secret] }, h.io);
+  expect(result).toMatchObject({ kind: "ok" });
+  if (result.kind !== "ok") return;
+  for (let index = 0; index + 8 <= secret.length; index += 1) {
+    expect(result.bodyText).not.toContain(secret.slice(index, index + 8));
+  }
+});
+
 it("refuses a secret larger than the masking slack instead of leaking it", async () => {
   const h = harness(ok());
   expect(await executeEndpointTest({ ...base, secretValues: ["a".repeat(ENDPOINT_SECRET_SLACK + 1)] }, h.io))

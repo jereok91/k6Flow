@@ -184,7 +184,7 @@ export async function executeEndpointTest(
       status: response.status,
       timingMs: io.now() - started,
       headers: redactHeaders(response.headers, secrets),
-      bodyText: maskSecrets(new TextDecoder().decode(read.bytes), secrets).slice(0, ENDPOINT_BODY_LIMIT),
+      bodyText: maskAndCut(new TextDecoder().decode(read.bytes), secrets, ENDPOINT_BODY_LIMIT),
       truncated: read.overflowed || read.bytes.byteLength > ENDPOINT_BODY_LIMIT,
     };
   }
@@ -225,6 +225,42 @@ function longestSecretBytes(secrets: readonly string[]): number {
     (longest, secret) => Math.max(longest, SECRET_ENCODER.encode(secret).byteLength),
     0,
   );
+}
+
+/**
+ * Masks every secret occurrence and cuts at `limit` ORIGINAL bytes in one pass.
+ * Cutting the masked text by characters instead shifts the window left whenever
+ * the marker is shorter than the secret it replaced, which exposes bytes the
+ * read window never held in full and therefore never masked.
+ */
+function maskAndCut(text: string, secrets: readonly string[], limit: number): string {
+  const ordered = [...new Set(secrets)].filter(Boolean).sort((a, b) => b.length - a.length);
+  let kept = "";
+  let consumed = 0;
+  let index = 0;
+  while (index < text.length) {
+    const secret = ordered.find(
+      candidate => candidate.length <= text.length - index && text.startsWith(candidate, index),
+    );
+    if (secret !== undefined) {
+      // A copy starting before the limit is masked whole even when it crosses
+      // the limit, so no prefix of it can survive the cut.
+      if (consumed >= limit) break;
+      kept += MASK;
+      consumed += SECRET_ENCODER.encode(secret).byteLength;
+      index += secret.length;
+      continue;
+    }
+    const character = text[index];
+    const size = SECRET_ENCODER.encode(character).byteLength;
+    if (consumed + size > limit) break;
+    kept += character;
+    consumed += size;
+    index += 1;
+  }
+  // Only ordinary characters are byte-budgeted, so anything past `limit`
+  // characters here is mask text: cutting it can never expose secret bytes.
+  return kept.length > limit ? kept.slice(0, limit) : kept;
 }
 
 function maskSecrets(text: string, secrets: readonly string[]): string {
