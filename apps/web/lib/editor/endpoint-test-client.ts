@@ -63,6 +63,8 @@ export interface EndpointTestClientIo {
   readonly fetch?: MarkerFetch;
   /** Live session marker; a non-marker value is refused before any request. */
   readonly sessionMarker: string;
+  /** Test-only override of the whole-operation deadline; defaults to ENDPOINT_TEST_CLIENT_TIMEOUT_MS. */
+  readonly timeoutMs?: number;
 }
 
 const OK_FIELDS = new Set(["kind", "status", "timingMs", "headers", "bodyText", "truncated"]);
@@ -84,69 +86,111 @@ export async function runEndpointTest(
   if (input.scenarioId !== undefined) body.scenarioId = input.scenarioId;
   if (input.environmentId !== undefined) body.environmentId = input.environmentId;
 
-  let response: Response;
   // The editor releases its single-flight latch in this same finally, and the route
-  // bounds only its own executor, so without a client deadline a request that never
-  // settles leaves the button disabled until a reload.
+  // bounds only its own executor, so the client deadline must bound the WHOLE
+  // operation: transport, status handling and every body read or discard. A response
+  // whose headers arrive but whose body never produces data would otherwise leave the
+  // button disabled until a reload.
   const controller = new AbortController();
-  const deadline = setTimeout(() => controller.abort(), ENDPOINT_TEST_CLIENT_TIMEOUT_MS);
-  try {
-    response = await marker(ENDPOINT_TEST_PATH, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch {
-    // A rejected transport is indistinguishable from an unreachable target, but our own
-    // deadline is a timeout, and that is the outcome the caller can act on.
-    return failure(controller.signal.aborted ? "timeout" : "network");
-  } finally {
-    clearTimeout(deadline);
-  }
+  // What the deadline reports if it wins; each phase sets the outcome it stands for.
+  let onDeadline: FailureKind = "timeout";
+  let response: Response | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<EndpointTestClientResult>(resolve => {
+    timer = setTimeout(() => {
+      // Aborting cancels a locked body through readBoundedJson's listener; an unlocked
+      // body is cancelled here so an unterminated stream is not left attached.
+      controller.abort();
+      if (response) void discard(response);
+      resolve(failure(onDeadline));
+    }, io.timeoutMs ?? ENDPOINT_TEST_CLIENT_TIMEOUT_MS);
+  });
 
+  const exchange = async (): Promise<EndpointTestClientResult> => {
+    try {
+      response = await marker(ENDPOINT_TEST_PATH, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch {
+      // A rejected transport is indistinguishable from an unreachable target, but our own
+      // deadline is a timeout, and that is the outcome the caller can act on.
+      return failure(controller.signal.aborted ? "timeout" : "network");
+    }
+    // Headers that arrive after the deadline already lost; release their body.
+    if (controller.signal.aborted) {
+      void discard(response);
+      return failure("timeout");
+    }
+    return handleStatus(response, controller.signal, kind => {
+      onDeadline = kind;
+    });
+  };
+
+  try {
+    return await Promise.race([exchange(), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Maps the route's status to a fixed outcome. Before any body work, `decide` records
+ * what the deadline should report if that body work never finishes: the outcome a
+ * discard branch already fixed, or the outcome an unreadable body maps to.
+ */
+async function handleStatus(
+  response: Response,
+  signal: AbortSignal,
+  decide: (kind: FailureKind) => void,
+): Promise<EndpointTestClientResult> {
+  const settle = async (kind: FailureKind): Promise<EndpointTestClientResult> => {
+    decide(kind);
+    await discard(response);
+    return failure(kind);
+  };
   switch (response.status) {
     case 200: {
-      const payload = await readBoundedJson(response);
+      // A stalled success body is the target not answering in time.
+      decide("timeout");
+      const payload = await readBoundedJson(response, signal);
       const parsed = payload === null ? null : parseOkPayload(payload);
       return parsed ? { kind: "ok", result: parsed } : failure("invalid");
     }
     case 401:
     case 412:
-      await discard(response);
-      return failure("session-changed");
+      return settle("session-changed");
     case 403: {
       // The route answers 403 twice: for a destination the allow-list blocks, with
       // kind "denied", and for a variables-store ownership denial, which follows the
       // store's {error} convention. Only the first is a blocked destination, and
-      // blaming the target for a permission failure misreports the cause.
-      const payload = await readBoundedJson(response);
+      // blaming the target for a permission failure misreports the cause. A body that
+      // never arrives proves nothing, so it maps like any unreadable 403 body.
+      decide("unavailable");
+      const payload = await readBoundedJson(response, signal);
       const blocked =
         typeof payload === "object" && payload !== null &&
         (payload as { readonly kind?: unknown }).kind === "denied";
       return failure(blocked ? "denied" : "unavailable");
     }
     case 504:
-      await discard(response);
-      return failure("timeout");
+      return settle("timeout");
     case 502:
-      await discard(response);
-      return failure("network");
+      return settle("network");
     case 400:
-      await discard(response);
-      return failure("invalid");
+      return settle("invalid");
     case 404:
     case 409:
     case 422:
     case 503:
       // The request shape was fine; the route could not prepare the test (a
       // missing environment, for example), so "invalid request" would misreport it.
-      await discard(response);
-      return failure("unavailable");
+      return settle("unavailable");
     default:
       // Any other status is unexpected; the caller learns nothing from its body.
-      await discard(response);
-      return failure("invalid");
+      return settle("invalid");
   }
 }
 
@@ -157,7 +201,8 @@ function failure(kind: FailureKind): EndpointTestClientResult {
 /** Releases an unread body without decoding it; the outcome is already fixed. */
 async function discard(response: Response): Promise<void> {
   try {
-    await response.body?.cancel();
+    // A body locked by a reader is cancelled through that reader instead.
+    if (response.body && !response.body.locked) await response.body.cancel();
   } catch {
     /* Best effort only. */
   }
@@ -167,9 +212,22 @@ async function discard(response: Response): Promise<void> {
  * Reads the whole envelope up to a hard cap, then parses it. A body that would
  * exceed the cap, an unreadable stream and malformed JSON all answer null.
  */
-async function readBoundedJson(response: Response): Promise<unknown | null> {
+async function readBoundedJson(response: Response, signal: AbortSignal): Promise<unknown | null> {
   const reader = response.body?.getReader();
   if (!reader) return null;
+  // When the deadline aborts, cancel the stream so a pending read settles and the
+  // unterminated body is released rather than left attached.
+  const cancel = () => {
+    reader.cancel().catch(() => {
+      /* Best effort only. */
+    });
+  };
+  if (signal.aborted) {
+    cancel();
+    reader.releaseLock();
+    return null;
+  }
+  signal.addEventListener("abort", cancel, { once: true });
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
@@ -187,8 +245,10 @@ async function readBoundedJson(response: Response): Promise<unknown | null> {
   } catch {
     return null;
   } finally {
+    signal.removeEventListener("abort", cancel);
     reader.releaseLock();
   }
+  if (signal.aborted) return null;
   const joined = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {

@@ -144,6 +144,132 @@ it("bounds a request that never settles instead of leaving the latch set", async
   }
 });
 
+describe("the client deadline bounds the whole operation, body reads included", () => {
+  // A short injected deadline keeps these deterministic; the test-side race is longer
+  // than it, so a body read the deadline does not cover is observed as "pending".
+  const DEADLINE_MS = 40;
+  const OBSERVE_MS = 600;
+  const UNAVAILABLE = "No se pudo preparar la prueba con esos datos";
+
+  function settledWithin<T>(pending: Promise<T>): Promise<T | "pending"> {
+    return Promise.race([
+      pending,
+      new Promise<"pending">(resolve => setTimeout(() => resolve("pending"), OBSERVE_MS)),
+    ]);
+  }
+
+  /** A body that never produces data and records whether it was cancelled. */
+  function stalledBody() {
+    const state = { cancelled: false };
+    const stream = new ReadableStream<Uint8Array>({
+      start() {},
+      cancel() {
+        state.cancelled = true;
+      },
+    });
+    return { stream, state };
+  }
+
+  function expectNoServerText(result: unknown) {
+    expect(JSON.stringify(result)).not.toContain(SERVER_TEXT);
+  }
+
+  it("settles a 200 whose body never arrives as timeout and cancels the body", async () => {
+    const { stream, state } = stalledBody();
+    const fetcher = vi.fn().mockResolvedValue(new Response(stream, { status: 200 }));
+    const result = await settledWithin(
+      runEndpointTest({ parameters: {} }, { ...makeIo(fetcher), timeoutMs: DEADLINE_MS }),
+    );
+    expect(result).toEqual({ kind: "timeout", message: EXPECTED_MESSAGES.timeout });
+    expect(state.cancelled).toBe(true);
+    expectNoServerText(result);
+  });
+
+  it("settles a 403 whose body never arrives as unavailable and cancels the body", async () => {
+    // An unreadable 403 body cannot prove a blocked destination, so it reports the same
+    // fixed outcome as any other 403 that does not say kind "denied".
+    const { stream, state } = stalledBody();
+    const fetcher = vi.fn().mockResolvedValue(new Response(stream, { status: 403 }));
+    const result = await settledWithin(
+      runEndpointTest({ parameters: {} }, { ...makeIo(fetcher), timeoutMs: DEADLINE_MS }),
+    );
+    expect(result).toEqual({ kind: "unavailable", message: UNAVAILABLE });
+    expect(state.cancelled).toBe(true);
+    expectNoServerText(result);
+  });
+
+  it("keeps the decided outcome when discarding a body outlives the deadline", async () => {
+    // A 502 body whose cancellation never completes: the outcome was already fixed, so
+    // the deadline returns it instead of leaving the discard to hang the operation.
+    const stream = new ReadableStream<Uint8Array>({
+      start() {},
+      cancel: () => new Promise<void>(() => {}),
+    });
+    const fetcher = vi.fn().mockResolvedValue(new Response(stream, { status: 502 }));
+    const result = await settledWithin(
+      runEndpointTest({ parameters: {} }, { ...makeIo(fetcher), timeoutMs: DEADLINE_MS }),
+    );
+    expect(result).toEqual({ kind: "network", message: EXPECTED_MESSAGES.network });
+  });
+
+  it("still returns ok for a 200 whose body arrives before the deadline", async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify(OK_PAYLOAD));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        setTimeout(() => {
+          controller.enqueue(bytes);
+          controller.close();
+        }, 10);
+      },
+    });
+    const fetcher = vi.fn().mockResolvedValue(new Response(stream, { status: 200 }));
+    const result = await settledWithin(
+      runEndpointTest({ parameters: {} }, { ...makeIo(fetcher), timeoutMs: 300 }),
+    );
+    expect(result).toEqual({
+      kind: "ok",
+      result: {
+        status: 200,
+        timingMs: 12,
+        headers: [{ name: "content-type", value: "application/json" }],
+        bodyText: '{"ok":true}',
+        truncated: false,
+      },
+    });
+  });
+
+  it("still returns timeout when the headers never arrive", async () => {
+    const fetcher = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error(SERVER_TEXT)));
+      }));
+    const result = await settledWithin(
+      runEndpointTest({ parameters: {} }, { ...makeIo(fetcher), timeoutMs: DEADLINE_MS }),
+    );
+    expect(result).toEqual({ kind: "timeout", message: EXPECTED_MESSAGES.timeout });
+    expectNoServerText(result);
+  });
+
+  it("defaults to ENDPOINT_TEST_CLIENT_TIMEOUT_MS for a stalled 200 body", async () => {
+    vi.useFakeTimers();
+    try {
+      const { stream, state } = stalledBody();
+      const fetcher = vi.fn().mockResolvedValue(new Response(stream, { status: 200 }));
+      let settled: unknown = "pending";
+      void runEndpointTest({ parameters: {} }, makeIo(fetcher)).then(value => {
+        settled = value;
+      });
+      await vi.advanceTimersByTimeAsync(ENDPOINT_TEST_CLIENT_TIMEOUT_MS - 1);
+      expect(settled).toBe("pending");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toEqual({ kind: "timeout", message: EXPECTED_MESSAGES.timeout });
+      expect(state.cancelled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 it("maps a rejected transport to network", async () => {
   const fetcher = vi.fn().mockRejectedValue(new Error(SERVER_TEXT));
   const result = await runEndpointTest({ parameters: {} }, makeIo(fetcher));
