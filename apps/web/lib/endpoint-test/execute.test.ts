@@ -177,6 +177,40 @@ it("reports a failing resolver as network, not as a denial", async () => {
   expect(h.start).not.toHaveBeenCalled();
 });
 
+it("masks the longest overlapping secret first", async () => {
+  const h = harness(ok({ body: stream("value abcd end") }));
+  const result = await executeEndpointTest({ ...base, secretValues: ["abc", "abcd"] }, h.io);
+  expect(result).toMatchObject({ kind: "ok" });
+  if (result.kind !== "ok") return;
+  expect(result.bodyText).not.toContain("abcd");
+  expect(result.bodyText).not.toContain("[REDACTED]d");
+  expect(result.bodyText).toContain("[REDACTED]");
+});
+
+it("does not leak any prefix of a secret that straddles the truncation boundary", async () => {
+  const secret = "ZQSECRETZQ";
+  // The secret starts three bytes before the cap, so a naive cut keeps "ZQS".
+  const h = harness(ok({ body: stream("x".repeat(ENDPOINT_BODY_LIMIT - 3), secret) }));
+  const result = await executeEndpointTest({ ...base, secretValues: [secret] }, h.io);
+  expect(result).toMatchObject({ kind: "ok", truncated: true });
+  if (result.kind !== "ok") return;
+  expect(result.bodyText.length).toBe(ENDPOINT_BODY_LIMIT);
+  const leaked = ["ZQSECRETZQ", "ZQSECRETZ", "ZQSECRET", "ZQSECRE", "ZQSECR", "ZQSEC", "ZQSE", "ZQS"]
+    .some(prefix => result.bodyText.includes(prefix));
+  expect(leaked).toBe(false);
+});
+
+it("never sends the request when resolution completes after the deadline", async () => {
+  let release!: (addresses: readonly string[]) => void;
+  const h = harness(ok(), { resolve: () => new Promise(resolve => { release = resolve; }) });
+  const pending = executeEndpointTest(base, h.io);
+  h.fireTimer();
+  expect(await pending).toEqual({ kind: "timeout" });
+  release(["93.184.216.34"]);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(h.start).not.toHaveBeenCalled();
+});
+
 it("never echoes the request headers or the raw response", async () => {
   const h = harness(ok({ headers: { "x-request-id": "abc" } }));
   const result = await executeEndpointTest({

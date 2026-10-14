@@ -6,6 +6,8 @@ import { checkEndpointTarget, parseAllowedTargets, type TargetDenialReason } fro
 
 export const ENDPOINT_TIMEOUT_MS = 5000;
 export const ENDPOINT_BODY_LIMIT = 65_536;
+/** Extra bytes read past the cap so a secret crossing it can still be masked. */
+export const ENDPOINT_SECRET_SLACK = 4_096;
 export const ENDPOINT_METHODS = Object.freeze(["GET", "POST", "PUT", "PATCH", "HEAD"]);
 
 const MASK = "[REDACTED]";
@@ -81,13 +83,16 @@ export async function executeEndpointTest(
 ): Promise<EndpointTestResult> {
   const started = io.now();
   let abort: (() => void) | null = null;
+  let timedOut = false;
   let fireTimeout: () => void = () => {};
   // One deadline covers resolution, connect and body; the race below is what
-  // makes a stalled io.resolve settle instead of hanging forever.
+  // makes a stalled io.resolve settle instead of hanging forever. The flag is
+  // what stops a late attempt() from starting work after the caller already
+  // received the authoritative timeout result.
   const deadline = new Promise<EndpointTestResult>(resolve => {
     fireTimeout = () => {
+      timedOut = true;
       const handle = abort;
-      abort = null;
       if (handle) {
         try {
           handle();
@@ -131,12 +136,16 @@ export async function executeEndpointTest(
     try {
       addresses = await io.resolve(parsed.hostname.toLowerCase());
     } catch {
-      return { kind: "network" };
+      return timedOut ? { kind: "timeout" } : { kind: "network" };
     }
+    if (timedOut) return { kind: "timeout" };
     const checked = checkEndpointTarget(input.url, targets, addresses);
     if (!checked.allowed) return { kind: "denied", reason: checked.reason };
     const headerRecord: Record<string, string> = {};
     for (const header of input.headers ?? []) headerRecord[header.name] = header.value;
+    // The deadline already decided the outcome: never open a connection now.
+    if (timedOut) return { kind: "timeout" };
+    const secrets = (input.secretValues ?? []).filter(secret => secret.length > 0);
     let response: EndpointResponse;
     try {
       const request = io.transport.start({
@@ -149,22 +158,26 @@ export async function executeEndpointTest(
       abort = request.abort;
       response = await request.result;
     } catch {
-      return { kind: "network" };
+      return timedOut ? { kind: "timeout" } : { kind: "network" };
     }
-    let read: { text: string; truncated: boolean };
+    if (timedOut) return { kind: "timeout" };
+    // Read past the cap by the longest secret, mask, and only then cut: cutting
+    // first would keep a prefix or suffix of a secret that crosses the boundary.
+    const slack = Math.min(Math.max(longestSecret(secrets) - 1, 0), ENDPOINT_SECRET_SLACK);
+    let read: { bytes: Uint8Array; overflowed: boolean };
     try {
-      read = await readCapped(response.body, ENDPOINT_BODY_LIMIT);
+      read = await readCapped(response.body, ENDPOINT_BODY_LIMIT + slack);
     } catch {
-      return { kind: "network" };
+      return timedOut ? { kind: "timeout" } : { kind: "network" };
     }
-    const secrets = input.secretValues ?? [];
+    if (timedOut) return { kind: "timeout" };
     return {
       kind: "ok",
       status: response.status,
       timingMs: io.now() - started,
       headers: redactHeaders(response.headers, secrets),
-      bodyText: maskSecrets(read.text, secrets),
-      truncated: read.truncated,
+      bodyText: maskSecrets(new TextDecoder().decode(read.bytes), secrets).slice(0, ENDPOINT_BODY_LIMIT),
+      truncated: read.overflowed || read.bytes.byteLength > ENDPOINT_BODY_LIMIT,
     };
   }
 }
@@ -173,16 +186,16 @@ export async function executeEndpointTest(
 async function readCapped(
   body: AsyncIterable<Uint8Array> | undefined,
   limit: number,
-): Promise<{ text: string; truncated: boolean }> {
-  if (!body) return { text: "", truncated: false };
+): Promise<{ bytes: Uint8Array; overflowed: boolean }> {
+  if (!body) return { bytes: new Uint8Array(0), overflowed: false };
   const chunks: Uint8Array[] = [];
   let total = 0;
-  let truncated = false;
+  let overflowed = false;
   for await (const chunk of body) {
     if (total + chunk.byteLength > limit) {
       chunks.push(chunk.subarray(0, limit - total));
       total = limit;
-      truncated = true;
+      overflowed = true;
       break;
     }
     chunks.push(chunk);
@@ -194,12 +207,19 @@ async function readCapped(
     joined.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return { text: new TextDecoder().decode(joined), truncated };
+  return { bytes: joined, overflowed };
+}
+
+function longestSecret(secrets: readonly string[]): number {
+  return secrets.reduce((longest, secret) => Math.max(longest, secret.length), 0);
 }
 
 function maskSecrets(text: string, secrets: readonly string[]): string {
+  // Longest first: a shorter secret could otherwise split a longer one and leave
+  // its unmasked tail behind.
+  const ordered = [...new Set(secrets)].sort((a, b) => b.length - a.length);
   let masked = text;
-  for (const secret of secrets) {
+  for (const secret of ordered) {
     if (secret) masked = masked.split(secret).join(MASK);
   }
   return masked;
