@@ -45,6 +45,28 @@ interface FlowEditorProps {
   readOnly?: boolean;
   /** Changes whenever the page replaces the graph, even when node IDs are reused. */
   flowSession: string;
+  /** Notified once with the removed ids when an accepted change actually deletes nodes. */
+  onNodesRemoved?: (nodeIds: readonly string[]) => void;
+}
+
+/** Ids present in `previous` but absent from `next`, in graph order; empty when nothing was removed. */
+export function removedNodeIds(
+  previous: readonly K6NodeType[],
+  next: readonly K6NodeType[],
+): string[] {
+  const nextIds = new Set(next.map(node => node.id));
+  return previous.filter(node => !nextIds.has(node.id)).map(node => node.id);
+}
+
+/** Notifies once with the removed ids when an accepted node change removed nodes; a no-op otherwise. */
+export function notifyNodesRemoved(
+  previous: readonly K6NodeType[],
+  next: readonly K6NodeType[],
+  onNodesRemoved?: (nodeIds: readonly string[]) => void,
+): void {
+  if (!onNodesRemoved) return;
+  const removed = removedNodeIds(previous, next);
+  if (removed.length > 0) onNodesRemoved(removed);
 }
 
 export function FlowEditor({
@@ -55,13 +77,23 @@ export function FlowEditor({
   onNodeSelect,
   readOnly = false,
   flowSession,
+  onNodesRemoved,
 }: FlowEditorProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
   const { theme } = useTheme();
   const colorMode: ColorMode = theme === "dark" ? "dark" : "light";
+  // Single acceptance point for node changes: report a real removal before the
+  // page replaces the graph. A refused deletion never reaches here with fewer nodes.
+  const commitNodes = useCallback(
+    (next: K6NodeType[]) => {
+      notifyNodesRemoved(nodes, next, onNodesRemoved);
+      onNodesChange(next);
+    },
+    [nodes, onNodesChange, onNodesRemoved],
+  );
   const interactions = useNodeInteractions({ nodes, edges, flow: flowSession, readOnly,
-    onNodesChange, onEdgesChange, onNodeSelect });
+    onNodesChange: commitNodes, onEdgesChange, onNodeSelect });
   const [menu, setMenu] = useState<{ x: number; y: number; ids: string[] } | null>(null);
   const closeMenu = useCallback(() => {
     setMenu(null);
@@ -94,9 +126,9 @@ export function FlowEditor({
       if (readOnly) return;
       // Removal must go through reference-safe deleteSelection, never React Flow's built-in path.
       const updatedNodes = applyNodeChanges(changes.filter(c => c.type !== "remove"), nodes as Node[]);
-      onNodesChange(updatedNodes as K6NodeType[]);
+      commitNodes(updatedNodes as K6NodeType[]);
     },
-    [nodes, onNodesChange, readOnly],
+    [nodes, commitNodes, readOnly],
   );
 
   // Handle edge changes - controlled mode
@@ -151,9 +183,9 @@ export function FlowEditor({
       });
 
       const newNode = createNode(kind, position);
-      onNodesChange([...nodes, newNode]);
+      commitNodes([...nodes, newNode]);
     },
-    [nodes, readOnly, onNodesChange],
+    [nodes, readOnly, commitNodes],
   );
 
   const onInit = useCallback((instance: ReactFlowInstance) => {

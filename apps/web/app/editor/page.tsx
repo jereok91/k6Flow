@@ -401,6 +401,13 @@ export default function EditorPage() {
     refreshEndpointTestResults((value) => value + 1);
   }, [selectedNode]);
 
+  // A deletion removes the node entirely, so its last endpoint-test result must
+  // not survive: drop each removed id and re-render the panel away.
+  const handleNodesRemoved = useCallback((nodeIds: readonly string[]) => {
+    for (const nodeId of nodeIds) endpointTestResults.current.clear(nodeId);
+    refreshEndpointTestResults((value) => value + 1);
+  }, []);
+
   const handleRunEndpointTest = useCallback(
     (samples: Readonly<Record<string, string>>) => {
       // Synchronous single-flight latch: a same-tick double click cannot start two tests.
@@ -1170,6 +1177,7 @@ export default function EditorPage() {
           onNodesChange={setNodes}
           onEdgesChange={setEdges}
           onNodeSelect={selectNode}
+          onNodesRemoved={handleNodesRemoved}
         />
         {selectedNode && <aside aria-label="Inspector del nodo"
           className="absolute top-4 right-4 z-30 w-80 overflow-y-auto flex flex-col gap-2 [&>div]:!static [&>div]:!w-full [&>div]:!max-h-none"
