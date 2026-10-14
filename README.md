@@ -115,6 +115,7 @@ k6flow/
 ## Security
 
 - **Allowed Targets**: Configure `ALLOWED_TARGETS` to restrict test destinations
+- **Endpoint Test Allow-List**: Configure `ENDPOINT_TEST_ALLOWED_TARGETS` with exact `host:port` entries to enable "Probar endpoint" on an HTTP node. An absent, empty or malformed list denies every target. The test sends one bounded request, never follows redirects, and masks sensitive headers and resolved secrets in everything it returns
 - **Run Confirmation**: Explicit confirmation required before executing tests
 - **Network Isolation**: K6 containers isolated from internal services
 - **Credential Handling**: Passwords hashed, tokens secure, no secrets in logs

@@ -52,6 +52,7 @@ Your k6flow instance is now running at `https://your-domain.com`.
 | `ADMIN_USERNAME` | `admin` | Initial admin username |
 | `WEB_PORT` | `3000` | Internal web server port |
 | `ALLOWED_TARGETS` | (empty) | Comma-separated allowed test targets |
+| `ENDPOINT_TEST_ALLOWED_TARGETS` | (empty) | Comma-separated `host:port` entries the endpoint test may contact. Fail-closed: absent, empty or malformed denies every target, unlike `ALLOWED_TARGETS` |
 | `RECORDER_AUTH_TOKEN` | (empty) | Token for recorder authentication |
 | `LOG_LEVEL` | `info` | Logging level (debug/info/warn/error) |
 
@@ -90,6 +91,8 @@ Access at `http://localhost:3000`.
 3. **Allowed Targets**: Set `ALLOWED_TARGETS` to restrict which hosts K6 can test.
 
 4. **Credentials**: Never commit `.env` files. Use strong passwords.
+
+5. **Endpoint Test Allow-List**: `ENDPOINT_TEST_ALLOWED_TARGETS` is fail-closed, so an unset variable disables the feature instead of opening it. The test runs inside the web server behind an authenticated session, pins the connection to an address that list already approved (no second DNS resolution), never follows redirects, allows GET/POST/PUT/PATCH/HEAD only, bounds the whole operation to a 5 s deadline with 64 KiB request and response caps, and masks sensitive response headers and every resolved secret value before returning anything.
 
 ## Updating
 
