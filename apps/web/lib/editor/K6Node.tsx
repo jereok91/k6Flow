@@ -36,13 +36,12 @@ function K6NodeComponent({ data, selected }: K6NodeProps) {
         padding: "12px 16px",
         borderRadius: "8px",
         background: "var(--color-surface-container-low)",
-        border: `2px solid ${selected ? color : "var(--color-surface-container-high)"}`,
+        border: `2px ${data.disabled ? "dashed" : "solid"} ${selected ? color : "var(--color-surface-container-high)"}`,
         boxShadow: selected
           ? "var(--shadow-glow)"
           : "0 1px 3px rgba(0,0,0,0.3)",
         minWidth: "150px",
         fontFamily: "var(--font-sans)",
-        borderStyle: data.disabled ? "dashed" : "solid",
       }}
     >
       {/* Input handle */}
