@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import {
   ENDPOINT_BODY_LIMIT,
+  ENDPOINT_SECRET_SLACK,
   executeEndpointTest,
   type EndpointIo,
   type EndpointRequestOptions,
@@ -209,6 +210,26 @@ it("never sends the request when resolution completes after the deadline", async
   release(["93.184.216.34"]);
   await new Promise(resolve => setTimeout(resolve, 0));
   expect(h.start).not.toHaveBeenCalled();
+});
+
+it("masks a multibyte secret whose byte length exceeds its character length", async () => {
+  // Ten characters, thirty UTF-8 bytes: a slack derived from character count is
+  // too small, so the secret would not be fully read and masked.
+  const secret = "€€€€€€€€€€";
+  const h = harness(ok({ body: stream("x".repeat(ENDPOINT_BODY_LIMIT - 5), secret) }));
+  const result = await executeEndpointTest({ ...base, secretValues: [secret] }, h.io);
+  expect(result).toMatchObject({ kind: "ok", truncated: true });
+  if (result.kind !== "ok") return;
+  expect(result.bodyText.length).toBe(ENDPOINT_BODY_LIMIT);
+  const prefixes = ["€€€€€€€€€€", "€€€€€€€€€", "€€€€€€€€", "€€€€€€€", "€€€€€€", "€€€€€", "€€€€", "€€€", "€€", "€"];
+  expect(prefixes.some(prefix => result.bodyText.includes(prefix))).toBe(false);
+});
+
+it("refuses a secret larger than the masking slack instead of leaking it", async () => {
+  const h = harness(ok());
+  expect(await executeEndpointTest({ ...base, secretValues: ["a".repeat(ENDPOINT_SECRET_SLACK + 1)] }, h.io))
+    .toEqual({ kind: "invalid-input", reason: "secret-too-long" });
+  expect(h.resolve).not.toHaveBeenCalled();
 });
 
 it("never echoes the request headers or the raw response", async () => {

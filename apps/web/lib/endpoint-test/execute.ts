@@ -6,7 +6,9 @@ import { checkEndpointTarget, parseAllowedTargets, type TargetDenialReason } fro
 
 export const ENDPOINT_TIMEOUT_MS = 5000;
 export const ENDPOINT_BODY_LIMIT = 65_536;
-/** Extra bytes read past the cap so a secret crossing it can still be masked. */
+/** Extra bytes read past the cap so a secret crossing it can still be masked.
+ *  It is also the largest secret the masking guarantee can cover: anything
+ *  bigger is refused instead of being partially masked. */
 export const ENDPOINT_SECRET_SLACK = 4_096;
 export const ENDPOINT_METHODS = Object.freeze(["GET", "POST", "PUT", "PATCH", "HEAD"]);
 
@@ -119,6 +121,13 @@ export async function executeEndpointTest(
     if (body !== undefined && new TextEncoder().encode(body).byteLength > ENDPOINT_BODY_LIMIT) {
       return { kind: "invalid-input", reason: "body-too-large" };
     }
+    const secrets = (input.secretValues ?? []).filter(secret => secret.length > 0);
+    // Slack is measured in bytes and must cover the longest secret, or a secret
+    // crossing the body cap would not be fully read and would leak as a prefix.
+    const longestBytes = longestSecretBytes(secrets);
+    if (longestBytes > ENDPOINT_SECRET_SLACK) {
+      return { kind: "invalid-input", reason: "secret-too-long" };
+    }
     let parsed: URL;
     try {
       parsed = new URL(input.url);
@@ -145,7 +154,6 @@ export async function executeEndpointTest(
     for (const header of input.headers ?? []) headerRecord[header.name] = header.value;
     // The deadline already decided the outcome: never open a connection now.
     if (timedOut) return { kind: "timeout" };
-    const secrets = (input.secretValues ?? []).filter(secret => secret.length > 0);
     let response: EndpointResponse;
     try {
       const request = io.transport.start({
@@ -163,7 +171,7 @@ export async function executeEndpointTest(
     if (timedOut) return { kind: "timeout" };
     // Read past the cap by the longest secret, mask, and only then cut: cutting
     // first would keep a prefix or suffix of a secret that crosses the boundary.
-    const slack = Math.min(Math.max(longestSecret(secrets) - 1, 0), ENDPOINT_SECRET_SLACK);
+    const slack = Math.max(longestBytes - 1, 0);
     let read: { bytes: Uint8Array; overflowed: boolean };
     try {
       read = await readCapped(response.body, ENDPOINT_BODY_LIMIT + slack);
@@ -210,8 +218,13 @@ async function readCapped(
   return { bytes: joined, overflowed };
 }
 
-function longestSecret(secrets: readonly string[]): number {
-  return secrets.reduce((longest, secret) => Math.max(longest, secret.length), 0);
+const SECRET_ENCODER = new TextEncoder();
+
+function longestSecretBytes(secrets: readonly string[]): number {
+  return secrets.reduce(
+    (longest, secret) => Math.max(longest, SECRET_ENCODER.encode(secret).byteLength),
+    0,
+  );
 }
 
 function maskSecrets(text: string, secrets: readonly string[]): string {
