@@ -280,6 +280,18 @@ it("does not count an empty chunk as data once the cap is reached", async () => 
   expect(await executeEndpointTest(base, h.io)).toMatchObject({ kind: "ok", truncated: true });
 });
 
+it("reports truncation when masking itself expands past the cap", async () => {
+  // A one-byte secret becomes a ten-byte mask, so the masked preview passes the cap even
+  // though the response body never did: the caller must still be told it was cut.
+  const secret = "a";
+  const h = harness(ok({ body: stream(secret.repeat(ENDPOINT_BODY_LIMIT)) }));
+  const result = await executeEndpointTest({ ...base, secretValues: [secret] }, h.io);
+  expect(result).toMatchObject({ kind: "ok", truncated: true });
+  if (result.kind !== "ok") return;
+  expect(result.bodyText).not.toContain(secret);
+  expect(new TextEncoder().encode(result.bodyText).byteLength).toBeLessThanOrEqual(ENDPOINT_BODY_LIMIT);
+});
+
 it("refuses a secret larger than the masking slack instead of leaking it", async () => {
   const h = harness(ok());
   expect(await executeEndpointTest({ ...base, secretValues: ["a".repeat(ENDPOINT_SECRET_SLACK + 1)] }, h.io))

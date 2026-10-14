@@ -179,13 +179,14 @@ export async function executeEndpointTest(
       return timedOut ? { kind: "timeout" } : { kind: "network" };
     }
     if (timedOut) return { kind: "timeout" };
+    const preview = maskAndCut(new TextDecoder().decode(read.bytes), secrets, ENDPOINT_BODY_LIMIT);
     return {
       kind: "ok",
       status: response.status,
       timingMs: io.now() - started,
       headers: redactHeaders(response.headers, secrets),
-      bodyText: maskAndCut(new TextDecoder().decode(read.bytes), secrets, ENDPOINT_BODY_LIMIT),
-      truncated: read.overflowed || read.bytes.byteLength > ENDPOINT_BODY_LIMIT,
+      bodyText: preview.text,
+      truncated: read.overflowed || read.bytes.byteLength > ENDPOINT_BODY_LIMIT || preview.cut,
     };
   }
 }
@@ -239,7 +240,11 @@ function longestSecretBytes(secrets: readonly string[]): number {
  * the marker is shorter than the secret it replaced, which exposes bytes the
  * read window never held in full and therefore never masked.
  */
-function maskAndCut(text: string, secrets: readonly string[], limit: number): string {
+function maskAndCut(
+  text: string,
+  secrets: readonly string[],
+  limit: number,
+): { text: string; cut: boolean } {
   const ordered = [...new Set(secrets)].filter(Boolean).sort((a, b) => b.length - a.length);
   let kept = "";
   let consumed = 0;
@@ -266,7 +271,10 @@ function maskAndCut(text: string, secrets: readonly string[], limit: number): st
   }
   // Only ordinary characters are byte-budgeted, so anything past `limit`
   // characters here is mask text: cutting it can never expose secret bytes.
-  return kept.length > limit ? kept.slice(0, limit) : kept;
+  const preview = kept.length > limit ? kept.slice(0, limit) : kept;
+  // Masking can also expand a short secret into a longer marker, so the caller has to be
+  // told about a cut that the response body itself never asked for.
+  return { text: preview, cut: index < text.length || preview.length < kept.length };
 }
 
 function maskSecrets(text: string, secrets: readonly string[]): string {
