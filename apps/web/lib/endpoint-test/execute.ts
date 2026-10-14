@@ -200,6 +200,12 @@ async function readCapped(
   let total = 0;
   let overflowed = false;
   for await (const chunk of body) {
+    if (chunk.byteLength === 0) {
+      // An empty chunk carries no data. Yielding keeps a stream that never makes
+      // progress from starving the event loop and the deadline timer forever.
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      continue;
+    }
     if (total + chunk.byteLength > limit) {
       chunks.push(chunk.subarray(0, limit - total));
       total = limit;

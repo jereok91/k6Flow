@@ -253,6 +253,33 @@ it("keeps the byte budget while masking multibyte content", async () => {
   expect(result.bodyText).not.toContain(secret);
 });
 
+it("lets the event loop run while a stream only sends empty chunks", async () => {
+  // An empty chunk carries no data. Without a cooperative yield a stream that keeps
+  // sending them spins in microtasks, so the deadline timer never fires and the run
+  // hangs with the panel button disabled instead of returning a timeout.
+  const empties = (async function* () {
+    for (let i = 0; i < 500; i += 1) yield new Uint8Array(0);
+    yield encoder.encode("ok");
+  })();
+  const h = harness(ok({ body: empties }));
+  let yielded = false;
+  const reading = executeEndpointTest(base, h.io);
+  setTimeout(() => { yielded = true; }, 0);
+  expect(await reading).toMatchObject({ kind: "ok", bodyText: "ok" });
+  expect(yielded).toBe(true);
+});
+
+it("does not count an empty chunk as data once the cap is reached", async () => {
+  const body = (async function* () {
+    yield new Uint8Array(ENDPOINT_BODY_LIMIT);
+    yield new Uint8Array(0);
+    yield encoder.encode("x");
+  })();
+  const h = harness(ok({ body }));
+  // The byte that follows the cap still decides the truncation, empty chunk or not.
+  expect(await executeEndpointTest(base, h.io)).toMatchObject({ kind: "ok", truncated: true });
+});
+
 it("refuses a secret larger than the masking slack instead of leaking it", async () => {
   const h = harness(ok());
   expect(await executeEndpointTest({ ...base, secretValues: ["a".repeat(ENDPOINT_SECRET_SLACK + 1)] }, h.io))
