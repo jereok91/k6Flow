@@ -4,13 +4,23 @@ export { FlowEditor } from "./FlowEditor";
 export { K6Node } from "./K6Node";
 export { NodePalette } from "./NodePalette";
 export { ConfigPanel, FormField, TextInput, SelectInput, TextArea } from "./ConfigPanel";
-export { HttpRequestConfigPanel } from "./HttpRequestConfigPanel";
+export { HttpRequestConfigPanel, collectReferences, collectSampleValues, runEndpointTestWithSamples, type EndpointTestReference } from "./HttpRequestConfigPanel";
 export { AuthenticationConfigPanel } from "./AuthenticationConfigPanel";
 export { ResponseValidationConfigPanel } from "./ResponseValidationConfigPanel";
 export { UserPoolConfigPanel } from "./UserPoolConfigPanel";
 export { ScriptPanel } from "./ScriptPanel";
 export { RunExecutionPanel } from "./RunExecutionPanel";
 export { RunHistoryPanel, type RunHistoryEntry } from "./RunHistoryPanel";
+export { EndpointTestInspector, EndpointTestResultView } from "./EndpointTestInspector";
+export {
+  runEndpointTest,
+  createEndpointTestLastResults,
+  ENDPOINT_TEST_MESSAGES,
+  type EndpointTestClientResult,
+  type EndpointTestClientInput,
+  type EndpointTestClientIo,
+  type EndpointTestLastResults,
+} from "./endpoint-test-client";
 export { computeRunResources, type RunResources } from "./run-resources";
 export { toHistoryStatus, type HistoryStatus } from "./run-status";
 export {

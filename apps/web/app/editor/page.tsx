@@ -34,6 +34,9 @@ import {
   type K6NodeType,
   type K6Edge,
   type K6NodeData,
+  // T6 U5: endpoint-test client surface, imported through the editor barrel.
+  runEndpointTest,
+  createEndpointTestLastResults,
 } from "../../lib/editor";
 import { useScenario } from "../../lib/editor/use-scenario";
 import { useRun } from "../../lib/editor/use-run";
@@ -121,6 +124,8 @@ export default function EditorPage() {
   const replaceFlow = useCallback(() => {
     setFlowGeneration(value => value + 1);
     setSelectedNodeId(null);
+    // A replaced graph can reuse node ids from another scenario; never show its results here.
+    endpointTestResults.current.clear();
   }, []);
   // Store only the selected id and derive the node from `nodes` during render. A copied
   // node synced in an effect reached the config panel one commit late, so React reverted
@@ -153,6 +158,12 @@ export default function EditorPage() {
   const saveInFlight = useRef(false);
   const lifetime = useRef(new AsyncLifetime());
   const flowLifetime = useRef(new AsyncLifetime());
+  // T6 U5: one memory-only endpoint-test result per node id, plus a render tick so a
+  // finished test becomes visible. Samples and results are never persisted or logged.
+  const endpointTestResults = useRef(createEndpointTestLastResults());
+  const [, refreshEndpointTestResults] = useState(0);
+  const endpointTestLatch = useRef(false);
+  const [endpointTestInFlight, setEndpointTestInFlight] = useState(false);
   useLayoutEffect(() => {
     const session = lifetime.current;
     const flowSession = flowLifetime.current;
@@ -248,6 +259,7 @@ export default function EditorPage() {
     lockedRef.current = true;
     markerRef.current = null;
     diagnosticRef.current?.clearForSession();
+    endpointTestResults.current.clear();
   }, []);
   const session = useSessionGuard(clearProtectedSessionData);
   const wipePending = shouldWipeEditor(session, establishedUserId);
@@ -382,6 +394,45 @@ export default function EditorPage() {
       console.error("Failed to import captures:", err);
     }
   }, [establishedUserId, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleDismissEndpointTestResult = useCallback(() => {
+    if (!selectedNode) return;
+    endpointTestResults.current.clear(selectedNode.id);
+    refreshEndpointTestResults((value) => value + 1);
+  }, [selectedNode]);
+
+  const handleRunEndpointTest = useCallback(
+    (samples: Readonly<Record<string, string>>) => {
+      // Synchronous single-flight latch: a same-tick double click cannot start two tests.
+      if (endpointTestLatch.current) return;
+      const node = selectedNode;
+      const marker = markerRef.current;
+      // Refuse without the verified session marker instead of issuing a request the route would 412.
+      if (!node || !marker || !isSessionMarker(marker)) return;
+      endpointTestLatch.current = true;
+      setEndpointTestInFlight(true);
+      void (async () => {
+        try {
+          const result = await runEndpointTest(
+            {
+              parameters: node.data.parameters,
+              samples,
+              scenarioId: scenario.scenarioId ? String(scenario.scenarioId) : undefined,
+              environmentId: selectedEnvironment?.id,
+            },
+            { sessionMarker: marker },
+          );
+          // privacy_first_clear: a result earned under a marker that is no longer current is dropped.
+          if (markerRef.current === marker) endpointTestResults.current.set(node.id, result);
+        } finally {
+          endpointTestLatch.current = false;
+          setEndpointTestInFlight(false);
+          refreshEndpointTestResults((value) => value + 1);
+        }
+      })();
+    },
+    [selectedNode, scenario.scenarioId, selectedEnvironment?.id],
+  );
 
   const loadAttachments = useCallback(async (scenarioId: number) => {
     const session = flowLifetime.current;
@@ -548,6 +599,7 @@ export default function EditorPage() {
     run.clearRun();
     diagnostic.controller?.clearForSession();
     releaseLoad();
+    endpointTestResults.current.clear();
     setRunHistory([]);
     setCurrentRunId(null);
     setShowExecutionPanel(false);
@@ -815,6 +867,10 @@ export default function EditorPage() {
             variableNames={definedVariableNames}
             onChange={(params) => updateNodeParameters(nodeId, params)}
             onClose={closeConfigPanel}
+            onRunEndpointTest={handleRunEndpointTest}
+            endpointTestRunning={endpointTestInFlight}
+            endpointTestResult={endpointTestResults.current.get(nodeId)}
+            onDismissEndpointTestResult={handleDismissEndpointTestResult}
           />
         );
       case "authentication":

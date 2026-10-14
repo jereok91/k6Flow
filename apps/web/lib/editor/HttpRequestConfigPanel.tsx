@@ -3,10 +3,13 @@
 // K6F4-05c: HTTP Request node configuration panel.
 // Supports headers with variable references and cURL import.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ConfigPanel, FormField, TextInput, SelectInput, TextArea } from "./ConfigPanel";
 import { parseCurl } from "./curl-import";
 import { VariableInput } from "../variables/VariableInput";
+import { EndpointTestResultView } from "./EndpointTestInspector";
+import type { EndpointTestClientResult } from "./endpoint-test-client";
+import { parameterReferences } from "./node-interactions";
 
 const HTTP_METHODS = [
   { value: "GET", label: "GET" },
@@ -50,6 +53,51 @@ interface HttpRequestParams {
 
 const NO_VARIABLES: readonly string[] = [];
 
+/** One producer reference of this request, keyed exactly as the samples map the server expects. */
+export interface EndpointTestReference {
+  readonly key: string;
+  readonly label: string;
+}
+
+/**
+ * Schema-slot references only (url, headers, body): literal values are never treated as
+ * references, and a reference used in two slots appears once because the samples map is keyed.
+ */
+export function collectReferences(parameters: HttpRequestParams | undefined): EndpointTestReference[] {
+  return parameterReferences("http-request", parameters).map((reference) => ({
+    key: `${reference.producerNodeId}:${reference.output}`,
+    label: `${reference.producerNodeId}.${reference.output}`,
+  }));
+}
+
+/** Only the values typed for a current reference are sent; a stale map entry is dropped. */
+export function collectSampleValues(
+  references: readonly EndpointTestReference[],
+  values: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+  const samples: Record<string, string> = {};
+  for (const reference of references) {
+    const value = values[reference.key];
+    if (value !== undefined) samples[reference.key] = value;
+  }
+  return samples;
+}
+
+/**
+ * The exact action of the run button: it refuses while a test is in flight and hands the
+ * run callback only the values typed for the current references. Kept pure so the disabled
+ * and payload rules are testable without a DOM harness.
+ */
+export function runEndpointTestWithSamples(
+  references: readonly EndpointTestReference[],
+  values: Readonly<Record<string, string>>,
+  running: boolean,
+  onRun: ((samples: Readonly<Record<string, string>>) => void) | undefined,
+): void {
+  if (!onRun || running) return;
+  onRun(collectSampleValues(references, values));
+}
+
 interface HttpRequestConfigPanelProps {
   parameters?: HttpRequestParams;
   availableOutputs?: AvailableOutput[];
@@ -57,6 +105,17 @@ interface HttpRequestConfigPanelProps {
   variableNames?: readonly string[];
   onChange: (params: HttpRequestParams) => void;
   onClose: () => void;
+  /**
+   * Present only in the editor: runs one diagnostic endpoint test with the user-typed
+   * sample values. When absent the panel renders exactly as it did before.
+   */
+  onRunEndpointTest?: (samples: Readonly<Record<string, string>>) => void;
+  /** Disables the run button and the sample inputs while a test is in flight. */
+  endpointTestRunning?: boolean;
+  /** Memory-only last result for this node. */
+  endpointTestResult?: EndpointTestClientResult;
+  /** Dismisses the last result; the dismiss action only appears when it is provided. */
+  onDismissEndpointTestResult?: () => void;
 }
 
 export function HttpRequestConfigPanel({
@@ -65,8 +124,15 @@ export function HttpRequestConfigPanel({
   variableNames = NO_VARIABLES,
   onChange,
   onClose,
+  onRunEndpointTest,
+  endpointTestRunning = false,
+  endpointTestResult,
+  onDismissEndpointTestResult,
 }: HttpRequestConfigPanelProps) {
   const [showCurlImport, setShowCurlImport] = useState(false);
+  // Samples are typed by the user, memory-only and never written to the scenario.
+  const [sampleValues, setSampleValues] = useState<Record<string, string>>({});
+  const endpointReferences = useMemo(() => collectReferences(parameters), [parameters]);
   const [curlInput, setCurlInput] = useState("");
   const [curlError, setCurlError] = useState<string | null>(null);
   const [curlSuccess, setCurlSuccess] = useState<{ message: string; warnings: string[] } | null>(null);
@@ -219,6 +285,10 @@ export function HttpRequestConfigPanel({
       return (e as Error).message;
     }
   })() : null;
+
+  const handleRunEndpointTest = () => {
+    runEndpointTestWithSamples(endpointReferences, sampleValues, endpointTestRunning, onRunEndpointTest);
+  };
 
   // Get reference key for a header
   const getHeaderRefKey = (header: HeaderEntry): string => {
@@ -379,6 +449,53 @@ export function HttpRequestConfigPanel({
             preview="chips"
           />
         </FormField>
+      )}
+
+      {onRunEndpointTest !== undefined && (
+        <div className="mt-4 space-y-2 border-t border-outline-variant pt-4">
+          <p className="text-sm font-semibold text-on-surface">Prueba de endpoint</p>
+          <p className="text-xs text-on-surface-variant">
+            Los valores de muestra se usan solo para esta prueba y no se guardan con el escenario.
+          </p>
+          {endpointReferences.length > 0 && (
+            <div className="space-y-2">
+              {endpointReferences.map((reference) => (
+                <label key={reference.key} className="block text-sm">
+                  <span className="text-on-surface-variant">{reference.label}</span>
+                  <TextInput
+                    value={sampleValues[reference.key] ?? ""}
+                    onChange={(value) =>
+                      setSampleValues((current) => ({ ...current, [reference.key]: value }))}
+                    placeholder="Valor de muestra"
+                    disabled={endpointTestRunning}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={handleRunEndpointTest}
+            disabled={endpointTestRunning}
+            className="px-3 py-1.5 text-sm font-semibold rounded-lg bg-primary-container text-on-primary-container hover:bg-tertiary-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Probar endpoint
+          </button>
+          {endpointTestResult !== undefined && (
+            <div className="rounded-lg border border-outline-variant p-3">
+              <EndpointTestResultView result={endpointTestResult} />
+              {onDismissEndpointTestResult && (
+                <button
+                  type="button"
+                  onClick={onDismissEndpointTestResult}
+                  className="text-sm text-primary hover:underline"
+                >
+                  Descartar resultado
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </ConfigPanel>
   );
