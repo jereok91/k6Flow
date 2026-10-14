@@ -685,13 +685,21 @@ export default function EditorPage() {
     if (!token) return;
     loadTokenRef.current = token;
     const durationMs = parseDurationToSeconds(editorDuration) * 1000;
-    const result = await run.startRun(nodes, edges, {
-      scenarioId: scenario.scenarioId ? String(scenario.scenarioId) : undefined,
-      scenarioName: scenario.scenarioName || "Sin nombre",
-      vus: editorVus,
-      durationMs,
-      environmentId: selectedEnvironment?.id,
-    });
+    // A rejected start must not strand the shared latch forever: release only our own
+    // token (the diagnostic start already guards its rejection the same way).
+    let result: Awaited<ReturnType<typeof run.startRun>>;
+    try {
+      result = await run.startRun(nodes, edges, {
+        scenarioId: scenario.scenarioId ? String(scenario.scenarioId) : undefined,
+        scenarioName: scenario.scenarioName || "Sin nombre",
+        vus: editorVus,
+        durationMs,
+        environmentId: selectedEnvironment?.id,
+      });
+    } catch {
+      if (loadTokenRef.current === token) releaseLoad();
+      return;
+    }
     if (!session.isCurrent(ticket) || !(result.success && result.runId)) {
       if (loadTokenRef.current === token) releaseLoad();
       return;
@@ -765,6 +773,12 @@ export default function EditorPage() {
   };
 
   // Status-only reconciliation: diagnostics have no load metrics to persist.
+  // The PATCH stays cookie + run-ownership authenticated, exactly like the load
+  // completion write to the same PATCH /api/runs/[runId] route: that route never
+  // validates the diagnostic session marker, so sending one would be a cosmetic
+  // header rather than a binding. privacy_first_clear already prevents this from
+  // running for an erased session, because clearForSession disposes the watcher
+  // and clears the selection before any reconcile callback can fire.
   const reconcileDiagnostic = async (runId: string, status: HistoryStatus) => {
     setRunHistory(prev => prev.map(entry =>
       entry.runId === runId ? { ...entry, status, completedAt: new Date() } : entry));
