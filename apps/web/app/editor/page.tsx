@@ -882,7 +882,7 @@ export default function EditorPage() {
       case "http-request":
         return (
           <HttpRequestConfigPanel
-            key={nodeId}
+            key={`config-panel-${nodeId}`}
             parameters={parameters as Parameters<typeof HttpRequestConfigPanel>[0]["parameters"]}
             availableOutputs={getAvailableOutputs()}
             variableNames={definedVariableNames}
@@ -897,7 +897,7 @@ export default function EditorPage() {
       case "authentication":
         return (
           <AuthenticationConfigPanel
-            key={nodeId}
+            key={`config-panel-${nodeId}`}
             parameters={parameters as Parameters<typeof AuthenticationConfigPanel>[0]["parameters"]}
             variableNames={definedVariableNames}
             onChange={(params) => updateNodeParameters(nodeId, params)}
@@ -907,7 +907,7 @@ export default function EditorPage() {
       case "response-validation":
         return (
           <ResponseValidationConfigPanel
-            key={nodeId}
+            key={`config-panel-${nodeId}`}
             parameters={parameters as Parameters<typeof ResponseValidationConfigPanel>[0]["parameters"]}
             availableNodes={getHttpRequestNodes()}
             onChange={(params) => updateNodeParameters(nodeId, params)}
@@ -917,7 +917,7 @@ export default function EditorPage() {
       case "user-pool":
         return (
           <UserPoolConfigPanel
-            key={nodeId}
+            key={`config-panel-${nodeId}`}
             parameters={parameters as Parameters<typeof UserPoolConfigPanel>[0]["parameters"]}
             scenarioId={scenario.scenarioId}
             attachments={attachments}
