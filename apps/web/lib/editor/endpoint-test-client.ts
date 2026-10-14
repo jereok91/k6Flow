@@ -17,9 +17,10 @@ export const ENDPOINT_TEST_BODY_LIMIT = 65_536;
 const ENDPOINT_TEST_RESPONSE_LIMIT = 131_072;
 
 /**
- * Client-side bound on one test request. The route's own deadline covers the target
- * connection only and the variables store is resolved before it, so the client waits
- * longer than the executor and still ends a request that never settles.
+ * Client-side bound on one test request. The route bounds its own executor at 5 s (DNS
+ * resolution, connect and body) while the DB-backed variable resolution and the session
+ * check run before it, so the client waits longer than the executor and still ends a
+ * request that never settles.
  */
 export const ENDPOINT_TEST_CLIENT_TIMEOUT_MS = 10_000;
 
@@ -84,9 +85,9 @@ export async function runEndpointTest(
   if (input.environmentId !== undefined) body.environmentId = input.environmentId;
 
   let response: Response;
-  // The route's own deadline covers the target connection only, and the editor releases
-  // its single-flight latch in this same finally: without a client deadline a request
-  // that never settles leaves the button disabled until a reload.
+  // The editor releases its single-flight latch in this same finally, and the route
+  // bounds only its own executor, so without a client deadline a request that never
+  // settles leaves the button disabled until a reload.
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), ENDPOINT_TEST_CLIENT_TIMEOUT_MS);
   try {
