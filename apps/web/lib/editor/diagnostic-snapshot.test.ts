@@ -74,6 +74,24 @@ it.each([["stopped", "stopped"], ["aborted", "stopped"], ["errored", "failed"], 
     expect(diagnosticHistoryStatus(unparsed)).toBe(expected);
   });
 
+// The complete-trace mapping is total: every non-finished run status must fall
+// back to a terminal history status, never undefined, or a visible panel would
+// never fire onTerminal. This fails if the `: "failed"` fallback is removed.
+it("maps every complete trace that did not finish to a terminal history status", () => {
+  for (const status of [
+    "pending", "running", "queued", "starting", "stopping",
+    "failed", "errored", "stopped", "aborted",
+  ]) {
+    const unparsed = {
+      version: 1, runId: "r", status, diagnostic: { nodeIds: ["a"] },
+      trace: { state: "complete", events: [] },
+    } as unknown as Parameters<typeof diagnosticHistoryStatus>[0];
+    expect(diagnosticHistoryStatus(unparsed)).toBe(
+      status === "stopped" || status === "aborted" ? "stopped" : "failed",
+    );
+  }
+});
+
 it("projects skipped/failing nodes without inferring absence or completion", () => {
   const input = {
     ...snapshot(),

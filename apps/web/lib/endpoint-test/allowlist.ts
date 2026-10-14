@@ -31,6 +31,13 @@ const HOST_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0
 /** No leading zeros, so `0443` is config noise rather than a port. */
 const PORT_PATTERN = /^[1-9]\d{0,4}$/;
 const IPV4_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+/**
+ * Canonical dotted quad: exactly four decimal octets with no leading zeros.
+ * `Number("010")` is 10, so a leading zero makes a spelling mean something a
+ * resolver never returns and a reader cannot trust; such a value must be
+ * unclassifiable rather than silently read as its decimal value.
+ */
+const IPV4_CANONICAL_PATTERN = /^(?:0|[1-9]\d{0,2})(?:\.(?:0|[1-9]\d{0,2})){3}$/;
 
 /**
  * Parses the allow-list. Any malformed entry makes the whole list deny
@@ -119,7 +126,9 @@ function classifyAddress(address: string): "denied" | "private" | "public" | "un
   const value = address.trim().toLowerCase();
   // A zone id (`fe80::1%eth0`) is not a routable target here.
   if (!value || value.includes("%")) return "unknown";
-  if (IPV4_PATTERN.test(value)) return classifyIPv4(value);
+  if (IPV4_PATTERN.test(value)) {
+    return IPV4_CANONICAL_PATTERN.test(value) ? classifyIPv4(value) : "unknown";
+  }
   // Any other address is trusted only as a well-formed IPv6 literal, and its
   // groups are then classified numerically: the spelling of a mapped address
   // (::ffff:a.b.c.d, ::ffff:aabb:ccdd, 0:0:0:0:0:ffff:...) cannot change the verdict.
@@ -152,7 +161,7 @@ function parseIPv6Groups(value: string): number[] | null {
   const tail = lastColon >= 0 ? value.slice(lastColon + 1) : "";
   if (tail.includes(".")) {
     const octets = tail.split(".").map(part => Number(part));
-    if (!IPV4_PATTERN.test(tail) || octets.some(octet => octet > 255)) return null;
+    if (!IPV4_CANONICAL_PATTERN.test(tail) || octets.some(octet => octet > 255)) return null;
     head = value.slice(0, lastColon + 1);
     embedded = [(octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]];
   }

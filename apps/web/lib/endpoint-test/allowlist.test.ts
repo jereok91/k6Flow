@@ -159,3 +159,32 @@ it.each(["224.0.0.1", "239.255.255.250", "240.0.0.1", "255.255.255.254"])(
       allowed: false, reason: "address-denied",
     });
   });
+
+// `Number("010")` is 10, so a loose dotted-quad match would read "010.0.0.5"
+// as the private 10.0.0.5 (or "08.8.8.8" as the public 8.8.8.8) while the guard
+// believed it had refused the input. Any spelling that is not exactly four
+// decimal octets without leading zeros is unclassifiable, so it denies whatever
+// the host resolves to.
+it.each([
+  "0177.0.0.1", "0177.000.000.001", "1.2.3.04", "010.0.0.5", "08.8.8.8",
+  "127.1", "2130706433", "0x7f.0.0.1", "0177.0.0.1 ",
+])("never classifies the non-canonical IPv4 spelling %s as public", address => {
+  expect(checkEndpointTarget("https://api.example.test/", targets, [address])).toEqual({
+    allowed: false, reason: "address-unresolvable",
+  });
+  expect(checkEndpointTarget("http://internal.svc:8080/", targets, [address])).toEqual({
+    allowed: false, reason: "address-unresolvable",
+  });
+});
+
+// The canonical verdicts are unchanged by the hardening above.
+it.each([
+  ["127.0.0.1", "address-denied"],
+  ["169.254.169.254", "address-denied"],
+  ["10.0.0.5", null],
+  ["8.8.8.8", null],
+])("keeps the canonical verdict for %s", (address, reason) => {
+  const result = checkEndpointTarget("http://internal.svc:8080/", targets, [address]);
+  if (reason) expect(result).toEqual({ allowed: false, reason });
+  else expect(result).toMatchObject({ allowed: true });
+});
