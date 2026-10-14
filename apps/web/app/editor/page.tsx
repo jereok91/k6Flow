@@ -161,6 +161,8 @@ export default function EditorPage() {
   // T6 U5: one memory-only endpoint-test result per node id, plus a render tick so a
   // finished test becomes visible. Samples and results are never persisted or logged.
   const endpointTestResults = useRef(createEndpointTestLastResults());
+  // Bumped by every protected-data clear so a late result cannot repopulate the store.
+  const endpointTestGeneration = useRef(0);
   const [, refreshEndpointTestResults] = useState(0);
   const endpointTestLatch = useRef(false);
   const [endpointTestInFlight, setEndpointTestInFlight] = useState(false);
@@ -260,6 +262,7 @@ export default function EditorPage() {
     markerRef.current = null;
     diagnosticRef.current?.clearForSession();
     endpointTestResults.current.clear();
+    endpointTestGeneration.current += 1;
   }, []);
   const session = useSessionGuard(clearProtectedSessionData);
   const wipePending = shouldWipeEditor(session, establishedUserId);
@@ -416,6 +419,7 @@ export default function EditorPage() {
       const marker = markerRef.current;
       // Refuse without the verified session marker instead of issuing a request the route would 412.
       if (!node || !marker || !isSessionMarker(marker)) return;
+      const generation = endpointTestGeneration.current;
       endpointTestLatch.current = true;
       setEndpointTestInFlight(true);
       void (async () => {
@@ -429,8 +433,11 @@ export default function EditorPage() {
             },
             { sessionMarker: marker },
           );
-          // privacy_first_clear: a result earned under a marker that is no longer current is dropped.
-          if (markerRef.current === marker) endpointTestResults.current.set(node.id, result);
+          // privacy_first_clear: a result earned before a clear must not repopulate the
+          // store, even when the same session re-verifies and yields the same marker.
+          if (generation === endpointTestGeneration.current && markerRef.current === marker) {
+            endpointTestResults.current.set(node.id, result);
+          }
         } finally {
           endpointTestLatch.current = false;
           setEndpointTestInFlight(false);
@@ -607,6 +614,7 @@ export default function EditorPage() {
     diagnostic.controller?.clearForSession();
     releaseLoad();
     endpointTestResults.current.clear();
+    endpointTestGeneration.current += 1;
     setRunHistory([]);
     setCurrentRunId(null);
     setShowExecutionPanel(false);
