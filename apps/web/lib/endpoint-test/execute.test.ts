@@ -239,6 +239,20 @@ it("never returns an unmasked prefix of a second secret copy shifted into the wi
   }
 });
 
+it("keeps the byte budget while masking multibyte content", async () => {
+  // 3-byte characters: the budget must be counted in bytes, and a mask may only
+  // extend the preview by its own length, never by a multiple of the budget.
+  const secret = "ZQSECRETZQ";
+  const filler = "€".repeat(22_000);
+  const h = harness(ok({ body: stream(filler, secret, "tail") }));
+  const result = await executeEndpointTest({ ...base, secretValues: [secret] }, h.io);
+  expect(result).toMatchObject({ kind: "ok", truncated: true });
+  if (result.kind !== "ok") return;
+  const bytes = new TextEncoder().encode(result.bodyText).byteLength;
+  expect(bytes).toBeLessThanOrEqual(ENDPOINT_BODY_LIMIT + "[REDACTED]".length);
+  expect(result.bodyText).not.toContain(secret);
+});
+
 it("refuses a secret larger than the masking slack instead of leaking it", async () => {
   const h = harness(ok());
   expect(await executeEndpointTest({ ...base, secretValues: ["a".repeat(ENDPOINT_SECRET_SLACK + 1)] }, h.io))
