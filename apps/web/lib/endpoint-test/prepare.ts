@@ -82,10 +82,16 @@ export function prepareEndpointTest(
       return typeof value.value === "string" ? render(value.value) : failure("invalid-parameters");
     }
     if (value.kind === "reference") {
-      if (typeof value.producerNodeId !== "string" || typeof value.output !== "string") {
+      // The panel and the canonical traversal keep a producer reference wrapped:
+      // { kind: "reference", reference: { producerNodeId, output } }. Reading the flat
+      // form here silently refused every node whose url or header is a reference.
+      const reference = value.reference;
+      if (!isRecord(reference)) return failure("invalid-parameters");
+      const { producerNodeId, output } = reference;
+      if (typeof producerNodeId !== "string" || typeof output !== "string") {
         return failure("invalid-parameters");
       }
-      const sample = options.samples[`${value.producerNodeId}:${value.output}`];
+      const sample = options.samples[`${producerNodeId}:${output}`];
       if (typeof sample !== "string" || sample.length === 0) return failure("unresolved-reference");
       // The sample stands in for a produced value, so mask it in any result too.
       used.add(sample);

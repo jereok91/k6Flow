@@ -45,19 +45,33 @@ it("does not list a secret that was never used", () => {
   expect(result).toMatchObject({ ok: true, input: { secretValues: [] } });
 });
 
-it("fills a reference from the supplied sample and masks it too", () => {
+it("fills wrapped references from the supplied sample and masks it too", () => {
   const result = prepareEndpointTest(http({
-    headers: [{ name: "X-Auth", value: { kind: "reference", producerNodeId: "auth-1", output: "accessToken" } }],
+    url: { kind: "reference", reference: { producerNodeId: "auth-1", output: "accessToken" } },
+    headers: [{
+      name: "X-Auth",
+      value: { kind: "reference", reference: { producerNodeId: "auth-1", output: "accessToken" } },
+    }],
   }), options);
   expect(result).toMatchObject({ ok: true });
   if (!result.ok) return;
+  expect(result.input.url).toBe("sample-token");
   expect(result.input.headers).toEqual([{ name: "X-Auth", value: "sample-token" }]);
   expect(result.input.secretValues).toEqual(["sample-token"]);
 });
 
+it.each([
+  ["no reference object", { kind: "reference" }],
+  ["reference without an output", { kind: "reference", reference: { producerNodeId: "auth-1" } }],
+  ["reference with a non-string id", { kind: "reference", reference: { producerNodeId: 7, output: "x" } }],
+  ["flat reference as legacy noise", { kind: "reference", producerNodeId: "auth-1", output: "x" }],
+])("refuses a malformed reference slot: %s", (_label, url) => {
+  expect(prepareEndpointTest(http({ url }), options)).toEqual({ ok: false, reason: "invalid-parameters" });
+});
+
 it("refuses a reference without a sample", () => {
   const result = prepareEndpointTest(http({
-    url: { kind: "reference", producerNodeId: "auth-1", output: "other" },
+    url: { kind: "reference", reference: { producerNodeId: "auth-1", output: "other" } },
   }), options);
   expect(result).toEqual({ ok: false, reason: "unresolved-reference" });
 });
