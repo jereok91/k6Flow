@@ -32,7 +32,6 @@ const OK_PAYLOAD = {
 };
 
 const STATUS_CASES: ReadonlyArray<[number, keyof typeof EXPECTED_MESSAGES]> = [
-  [403, "denied"],
   [504, "timeout"],
   [502, "network"],
   [400, "invalid"],
@@ -108,6 +107,18 @@ it.each([
   if (result.kind === "ok") throw new Error("unexpected ok result");
   expect(result.message.length).toBeGreaterThan(0);
   expect(result.message).not.toContain(SERVER_TEXT);
+});
+
+it("tells a variables-store 403 apart from a blocked destination", async () => {
+  // The route answers 403 for a blocked destination (kind "denied") and for a
+  // variables-store ownership denial, which follows the store's {error} convention:
+  // reporting the second as a blocked destination blames the target for a permission.
+  const store = vi.fn().mockResolvedValue(new Response('{"error":"Forbidden"}', { status: 403 }));
+  expect((await runEndpointTest({ parameters: {} }, makeIo(store))).kind).toBe("unavailable");
+  const blocked = vi.fn().mockResolvedValue(
+    Response.json({ kind: "denied", reason: "host-not-allowed" }, { status: 403 }),
+  );
+  expect((await runEndpointTest({ parameters: {} }, makeIo(blocked))).kind).toBe("denied");
 });
 
 it("maps a rejected transport to network", async () => {

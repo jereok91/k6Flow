@@ -98,9 +98,17 @@ export async function runEndpointTest(
     case 412:
       await discard(response);
       return failure("session-changed");
-    case 403:
-      await discard(response);
-      return failure("denied");
+    case 403: {
+      // The route answers 403 twice: for a destination the allow-list blocks, with
+      // kind "denied", and for a variables-store ownership denial, which follows the
+      // store's {error} convention. Only the first is a blocked destination, and
+      // blaming the target for a permission failure misreports the cause.
+      const payload = await readBoundedJson(response);
+      const blocked =
+        typeof payload === "object" && payload !== null &&
+        (payload as { readonly kind?: unknown }).kind === "denied";
+      return failure(blocked ? "denied" : "unavailable");
+    }
     case 504:
       await discard(response);
       return failure("timeout");
