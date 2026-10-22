@@ -184,9 +184,16 @@ export class RecordingSession {
       this.emitNavigation();
     } catch (error) {
       this.setState("FAILED");
-      // stop() is a no-op once FAILED, so release the browser here.
-      await this.browser?.close().catch(() => {});
+      // stop() is a no-op once FAILED, so release the browser here, bounded so a
+      // hung Chromium cannot keep the failed start from answering.
+      const browser = this.browser;
       this.browser = null;
+      if (browser) {
+        await Promise.race([
+          browser.close().catch(() => {}),
+          new Promise<void>((resolve) => setTimeout(resolve, 5_000).unref()),
+        ]);
+      }
       this.context = null;
       this.page = null;
       throw error;

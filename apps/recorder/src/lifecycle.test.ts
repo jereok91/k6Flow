@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import WebSocket from "ws";
 
 // Integration test: runs the real recorder process with a real Chromium.
 // Requires Playwright's Chromium (`npx playwright install chromium`).
@@ -149,6 +150,44 @@ describe("recorder lifecycle", () => {
     expect(await next.json()).toEqual({ recordingId: "rec-good", wsUrl: `/ws/recordings/rec-good?token=${TOKEN}` });
     expect(await health(base)).toMatchObject({ recordingId: "rec-good", state: "RECORDING" });
     expect(chromeCount(proc!.pid!)).toBeGreaterThan(0); // sanity: the helper sees live browsers
+  }, 60_000);
+
+  it("rejects a recording id that this process already used", async () => {
+    const base = await startRecorder();
+    expect((await start(base, "rec-dup")).status).toBe(200);
+    expect((await stop(base)).status).toBe(200);
+    const again = await start(base, "rec-dup");
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({ error: "Recording id already used" });
+    expect(await health(base)).toEqual({ status: "ok", recordingId: null, state: "idle", durationMs: 0 });
+    // The first capture is left intact, not truncated by the rejected start.
+    expect(captureEvents("rec-dup").at(-1)).toMatchObject({ type: "end", data: { reason: "manual" } });
+  }, 60_000);
+
+  it("ignores a stop sent on a previous recording's WebSocket", async () => {
+    const base = await startRecorder();
+    expect((await start(base, "rec-old-ws")).status).toBe(200);
+    const ws = new WebSocket(`${base.replace("http", "ws")}/ws/recordings/rec-old-ws?token=${TOKEN}`);
+    await new Promise((resolve, reject) => { ws.once("open", resolve); ws.once("error", reject); });
+    expect((await stop(base)).status).toBe(200);
+    expect((await start(base, "rec-new-ws")).status).toBe(200);
+    ws.send(JSON.stringify({ t: "stop" }));
+    await sleep(1_000);
+    expect(await health(base)).toMatchObject({ recordingId: "rec-new-ws", state: "RECORDING" });
+    ws.close();
+  }, 60_000);
+
+  it("starts a new recording only after a concurrent stop has finished", async () => {
+    const base = await startRecorder();
+    expect((await start(base, "rec-c1")).status).toBe(200);
+    const [stopped, started] = await Promise.all([stop(base), start(base, "rec-c2")]);
+    expect(stopped.status).toBe(200);
+    expect(started.status).toBe(200);
+    expect(await started.json()).toEqual({ recordingId: "rec-c2", wsUrl: `/ws/recordings/rec-c2?token=${TOKEN}` });
+    expect(await health(base)).toMatchObject({ recordingId: "rec-c2", state: "RECORDING" });
+    const first = captureEvents("rec-c1");
+    expect(first.filter((e) => e.type === "end")).toHaveLength(1);
+    expect(first.at(-1)).toMatchObject({ type: "end" });
   }, 60_000);
 
   it("does not carry the previous recording's idle time into a new one", async () => {

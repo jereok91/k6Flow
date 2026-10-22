@@ -23,6 +23,10 @@ let lastActivityTime = Date.now();
 let inactivityTimer: NodeJS.Timeout | null = null;
 let maxDurationTimer: NodeJS.Timeout | null = null;
 let statsTimer: NodeJS.Timeout | null = null;
+// Ids are single-use per process: an old WebSocket or capture file can never alias a new recording.
+const usedRecordingIds = new Set<string>();
+// Pending teardown; a new start waits for it so two sessions never overlap.
+let stopping: Promise<void> | null = null;
 
 // Stats tracking
 let framesSent = 0;
@@ -83,8 +87,15 @@ const httpServer = createServer((req, res) => {
     req.on("data", (chunk) => { body += chunk; });
     req.on("end", async () => {
       try {
+        await stopping;
         const config = JSON.parse(body || "{}");
         const recId = config.recordingId || `rec-${Date.now()}`;
+        if (usedRecordingIds.has(recId)) {
+          res.writeHead(409, { "Content-Type": "application/json", ...corsHeaders });
+          res.end(JSON.stringify({ error: "Recording id already used" }));
+          return;
+        }
+        usedRecordingIds.add(recId);
         recordingId = recId;
 
         // Create capture writer for persistence
@@ -102,7 +113,9 @@ const httpServer = createServer((req, res) => {
           userAgent: config.userAgent,
         });
 
-        session = new RecordingSession(
+        // Callbacks act on their own session, never on whichever one is current.
+        let owner: RecordingSession | null = null;
+        session = owner = new RecordingSession(
           {
             startUrl: config.startUrl || START_URL,
             viewport: { 
@@ -116,13 +129,15 @@ const httpServer = createServer((req, res) => {
           {
             onFrame: (frame) => {
               const result = wsServer.sendFrame(recId, frame);
-              framesSent += result.sent;
-              framesDropped += result.dropped;
-              fpsCounter++;
+              if (owner === session) {
+                framesSent += result.sent;
+                framesDropped += result.dropped;
+                fpsCounter++;
+              }
               
               // Always ack frame to keep CDP sending
               // Without ack, CDP stops sending frames
-              session?.ackFrame(frame.seq);
+              owner?.ackFrame(frame.seq);
             },
             onStateChange: (state) => {
               wsServer.broadcast(recId, { 
@@ -204,13 +219,13 @@ const httpServer = createServer((req, res) => {
           }
         );
 
-        await session.start();
+        await owner.start();
         startTimers();
 
         res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
         res.end(JSON.stringify({ 
-          recordingId,
-          wsUrl: `/ws/recordings/${recordingId}?token=${AUTH_TOKEN}`,
+          recordingId: recId,
+          wsUrl: `/ws/recordings/${recId}?token=${AUTH_TOKEN}`,
         }));
       } catch (error) {
         console.error("Failed to start recording:", error);
@@ -392,7 +407,16 @@ function startTimers(): void {
   }, MAX_DURATION_MS);
 }
 
-async function stopRecording(reason: string): Promise<void> {
+function stopRecording(reason: string): Promise<void> {
+  const run = teardown(reason);
+  const tracked: Promise<void> = run.catch(() => {}).then(() => {
+    if (stopping === tracked) stopping = null;
+  });
+  stopping = tracked;
+  return run;
+}
+
+async function teardown(reason: string): Promise<void> {
   console.log(`Stopping recording: ${reason}`);
 
   if (inactivityTimer) {
@@ -433,10 +457,14 @@ async function stopRecording(reason: string): Promise<void> {
 
 // Graceful shutdown: only process signals end the process.
 async function shutdown(reason: string): Promise<void> {
+  let code = 0;
   try {
     await stopRecording(reason);
+  } catch (error) {
+    console.error("Shutdown cleanup failed:", error);
+    code = 1;
   } finally {
-    process.exit(0);
+    process.exit(code);
   }
 }
 process.on("SIGTERM", () => void shutdown("sigterm"));
