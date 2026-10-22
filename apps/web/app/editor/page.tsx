@@ -39,6 +39,7 @@ import {
   createEndpointTestLastResults,
 } from "../../lib/editor";
 import { useScenario } from "../../lib/editor/use-scenario";
+import { resolveEditorScenarioId } from "../../lib/editor/editor-route-params";
 import { useRun } from "../../lib/editor/use-run";
 import { useDiagnosticPage } from "../../lib/editor/use-diagnostic-page";
 import { statusPatchBody, type HistoryStatus, type LaunchToken } from "../../lib/editor/diagnostic-page-controller";
@@ -310,13 +311,11 @@ export default function EditorPage() {
   // Load scenario from URL params on mount
   useEffect(() => {
     if (!sessionEstablished) return;
-    const params = new URLSearchParams(window.location.search);
-    // Support both ?id= (numeric) and ?scenario= (UUID) formats
-    const idParam = params.get("id");
-    const scenarioParam = params.get("scenario");
-    const scenarioId = idParam ? parseInt(idParam, 10) : scenarioParam;
-    
-    if (scenarioId) {
+    // Scenario ids are opaque text ids (UUIDs): never parsed as numbers, or a
+    // non-numeric id silently opens an empty editor.
+    const scenarioId = resolveEditorScenarioId(new URLSearchParams(window.location.search));
+
+    if (scenarioId !== null) {
       invalidateContinuations();
       const session = flowLifetime.current;
       const ticket = session.capture();
@@ -334,9 +333,7 @@ export default function EditorPage() {
           refreshBaseline(value => value + 1);
         }
       });
-      if (typeof scenarioId === 'number') {
-        loadAttachments(scenarioId);
-      }
+      loadAttachments(scenarioId);
     }
   }, [establishedUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -448,7 +445,7 @@ export default function EditorPage() {
     [selectedNode, scenario.scenarioId, selectedEnvironment?.id],
   );
 
-  const loadAttachments = useCallback(async (scenarioId: number) => {
+  const loadAttachments = useCallback(async (scenarioId: string) => {
     const session = flowLifetime.current;
     const ticket = session.capture();
     try {

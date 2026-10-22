@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { MainLayout } from "../../lib/layout";
+import { scenarioEditorHref } from "../../lib/editor/editor-route-params";
 
 interface Scenario {
   id: string;
@@ -257,7 +258,7 @@ export default function ScenariosPage() {
                       <td className="table-cell">
                         <div className="flex items-center gap-space-xs">
                           <Link
-                            href={`/editor?id=${scenario.id}`}
+                            href={scenarioEditorHref(scenario.id)}
                             className="p-space-xs hover:bg-surface-container rounded-lg transition-colors text-on-surface-variant hover:text-on-surface"
                             title="Editar"
                           >
