@@ -184,6 +184,11 @@ export class RecordingSession {
       this.emitNavigation();
     } catch (error) {
       this.setState("FAILED");
+      // stop() is a no-op once FAILED, so release the browser here.
+      await this.browser?.close().catch(() => {});
+      this.browser = null;
+      this.context = null;
+      this.page = null;
       throw error;
     }
   }

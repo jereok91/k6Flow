@@ -47,6 +47,8 @@ services:
     build:
       context: ..
       dockerfile: apps/recorder/Dockerfile
+    # Long-lived across recordings: an init (tini) reaps each closed browser's processes.
+    init: true
     # Ports not exposed externally - accessed via Next.js proxy
     environment:
       PORT: "8081"

@@ -126,6 +126,10 @@ test("development recorder ports target the port the recorder listens on", () =>
   }
 });
 
+test("long-lived recorder runs under an init that reaps exited browser processes", () => {
+  assert.equal(load("deploy/docker-compose.yml").services.recorder.init, true);
+});
+
 test("CI checks both languages and the runtime boundary", () => {
   const ci = load(".github/workflows/ci.yml");
   const commands = ci.jobs.check.steps.map((step: any) => step.run ?? "").join("\n");
