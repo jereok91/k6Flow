@@ -8,7 +8,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { resolveEditorScenarioId, scenarioEditorHref } from "./editor-route-params";
+import {
+  resolveEditorRunId,
+  resolveEditorScenarioId,
+  runEditorHref,
+  scenarioEditorHref,
+} from "./editor-route-params";
 
 const UUID = "f419a367-e2d5-463b-8aec-c005fd3c65f8";
 
@@ -53,3 +58,25 @@ describe("editor route scenario parameter", () => {
   });
 });
 
+describe("editor route run parameter", () => {
+  it("resolves the run the executions page sends", () => {
+    expect(resolveEditorRunId(paramsOf("?runId=run-1"))).toBe("run-1");
+  });
+
+  it("resolves the run its own run link writes, escaping what needs it", () => {
+    expect(resolveEditorRunId(paramsOfHref(runEditorHref("run 1&2")))).toBe("run 1&2");
+  });
+
+  it("keeps the run and the scenario of one URL independent", () => {
+    const params = paramsOf(`?scenario=${UUID}&runId=run-1`);
+    expect(resolveEditorScenarioId(params)).toBe(UUID);
+    expect(resolveEditorRunId(params)).toBe("run-1");
+  });
+
+  it("resolves nothing when the URL names no run", () => {
+    expect(resolveEditorRunId(paramsOf(""))).toBeNull();
+    expect(resolveEditorRunId(paramsOf("?runId="))).toBeNull();
+    expect(resolveEditorRunId(paramsOf("?runId=%20"))).toBeNull();
+    expect(resolveEditorRunId(paramsOf(`?scenario=${UUID}`))).toBeNull();
+  });
+});

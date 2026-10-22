@@ -9,11 +9,18 @@
  *
  * Scenario ids are opaque text ids (UUIDs), so the parameter is never converted
  * to a number. The legacy `?id=` name stays readable for links already handed out.
+ * A run parameter (`?runId=`) is read here too: the executions page sends one to
+ * open a run, and an editor URL may name both a scenario and a run.
  */
 
 /** Canonical href that opens the editor with one scenario loaded. */
 export function scenarioEditorHref(scenarioId: string): string {
   return `/editor?scenario=${encodeURIComponent(scenarioId)}`;
+}
+
+/** Canonical href that opens the editor on one run. */
+export function runEditorHref(runId: string): string {
+  return `/editor?runId=${encodeURIComponent(runId)}`;
 }
 
 interface QueryParams {
@@ -35,4 +42,12 @@ function firstNonBlank(params: QueryParams, names: readonly string[]): string | 
  */
 export function resolveEditorScenarioId(params: QueryParams): string | null {
   return firstNonBlank(params, ["scenario", "id"]);
+}
+
+/**
+ * Run id requested by an editor URL, or null when the URL names none. An editor
+ * URL may name a run on its own or alongside the scenario it belongs to.
+ */
+export function resolveEditorRunId(params: QueryParams): string | null {
+  return firstNonBlank(params, ["runId"]);
 }

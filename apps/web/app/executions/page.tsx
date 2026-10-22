@@ -4,18 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { MainLayout } from "../../lib/layout";
 import { useActiveRuns } from "../../lib/orchestrator/use-active-runs";
-
-interface RunItem {
-  id: string;
-  status: string;
-  scenarioId?: string;
-  scenarioName?: string;
-  vus: number;
-  durationMs: number;
-  createdAt: number;
-  startedAt?: number;
-  finishedAt?: number;
-}
+import { historyRunRows, type ExecutionsRunRow } from "../../lib/editor/run-history-row";
+import { runEditorHref } from "../../lib/editor/editor-route-params";
 
 type Tab = "active" | "queued" | "history";
 
@@ -24,7 +14,7 @@ export default function ExecutionsPage() {
   const [tab, setTab] = useState<Tab>("active");
   // Active/queued come live from the global runs feed (no polling).
   const { active: activeRuns, queued: queuedRuns, loaded: liveLoaded, endSeq } = useActiveRuns();
-  const [historyRuns, setHistoryRuns] = useState<RunItem[]>([]);
+  const [historyRuns, setHistoryRuns] = useState<ExecutionsRunRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const loading = historyLoading || !liveLoaded;
@@ -35,7 +25,8 @@ export default function ExecutionsPage() {
       const historyRes = await fetch("/api/runs");
       if (historyRes.ok) {
         const data = await historyRes.json();
-        setHistoryRuns(data.runs || []);
+        // History rows are keyed `runId`; the table navigates with `id`.
+        setHistoryRuns(historyRunRows(data));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch runs");
@@ -70,12 +61,19 @@ export default function ExecutionsPage() {
     return `${(ms / 60000).toFixed(1)}m`;
   };
 
-  const formatTime = (timestamp: number) => {
+  const formatTime = (timestamp: number | string) => {
     return new Date(timestamp).toLocaleTimeString("es-AR", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
     });
+  };
+
+  // History rows carry an ISO `startedAt`, feed rows epoch millis, and a row may
+  // carry neither: render that as absent instead of "Invalid Date".
+  const startedAtLabel = (run: ExecutionsRunRow) => {
+    const startedAt = run.startedAt ?? run.createdAt;
+    return startedAt === undefined ? "-" : formatTime(startedAt);
   };
 
   const getStatusBadge = (status: string) => {
@@ -116,7 +114,7 @@ export default function ExecutionsPage() {
     );
   };
 
-  const currentRuns = tab === "active" ? activeRuns : tab === "queued" ? queuedRuns : historyRuns;
+  const currentRuns: ExecutionsRunRow[] = tab === "active" ? activeRuns : tab === "queued" ? queuedRuns : historyRuns;
 
   return (
     <MainLayout>
@@ -198,14 +196,12 @@ export default function ExecutionsPage() {
                   </td>
                   <td style={tdStyle}>{run.vus}</td>
                   <td style={tdStyle}>{formatDuration(run.durationMs)}</td>
-                  <td style={tdStyle}>
-                    {run.startedAt ? formatTime(run.startedAt) : formatTime(run.createdAt)}
-                  </td>
+                  <td style={tdStyle}>{startedAtLabel(run)}</td>
                   <td style={tdStyle}>
                     <button
                       onClick={() => {
                         if (run.status === "running" || run.status === "pending" || run.status === "queued") {
-                          router.push(`/editor?runId=${run.id}`);
+                          router.push(runEditorHref(run.id));
                         } else {
                           router.push(`/executions/${run.id}`);
                         }

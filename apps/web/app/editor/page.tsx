@@ -39,7 +39,7 @@ import {
   createEndpointTestLastResults,
 } from "../../lib/editor";
 import { useScenario } from "../../lib/editor/use-scenario";
-import { resolveEditorScenarioId } from "../../lib/editor/editor-route-params";
+import { resolveEditorRunId, resolveEditorScenarioId } from "../../lib/editor/editor-route-params";
 import { useRun } from "../../lib/editor/use-run";
 import { useDiagnosticPage } from "../../lib/editor/use-diagnostic-page";
 import { statusPatchBody, type HistoryStatus, type LaunchToken } from "../../lib/editor/diagnostic-page-controller";
@@ -258,6 +258,9 @@ export default function EditorPage() {
   // synchronously and drops the marker until the session verifies again.
   const markerRef = useRef<string | null>(null);
   const diagnosticRef = useRef<ReturnType<typeof useDiagnosticPage>["controller"]>(null);
+  // The run a URL asked the editor to open, with the controller that opened it: a
+  // StrictMode remount gets a new controller and must re-open the run, a re-render must not.
+  const openedUrlRunRef = useRef<{ controller: ReturnType<typeof useDiagnosticPage>["controller"]; runId: string } | null>(null);
   const clearProtectedSessionData = useCallback(() => {
     lockedRef.current = true;
     markerRef.current = null;
@@ -336,6 +339,24 @@ export default function EditorPage() {
       loadAttachments(scenarioId);
     }
   }, [establishedUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A run named in the URL opens through the same classification the history panel
+  // uses: a confirmed load opens the load view, a diagnostic opens its panel.
+  useEffect(() => {
+    const controller = diagnostic.controller;
+    if (!sessionEstablished || !controller) return;
+    const runId = resolveEditorRunId(new URLSearchParams(window.location.search));
+    if (runId === null) return;
+    const opened = openedUrlRunRef.current;
+    if (opened?.controller === controller && opened.runId === runId) return;
+    openedUrlRunRef.current = { controller, runId };
+    // The live load panel owns the load latch until it completes or closes.
+    if (loadTokenRef.current) {
+      notify({ type: "error", message: "Esperá a que termine o cerrá la ejecución de carga en curso" });
+      return;
+    }
+    void controller.view(runId);
+  }, [establishedUserId, diagnostic.controller]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // K6F8-04: Process imported captures from recorder
   useEffect(() => {
