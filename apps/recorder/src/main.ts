@@ -322,7 +322,7 @@ const wsServer = new WsServer(
         return;
       }
 
-      await handleClientMessage(message);
+      await handleClientMessage(recId, message);
     },
     onDisconnect: (recId) => {
       console.log(`All clients disconnected from ${recId}`);
@@ -334,7 +334,7 @@ const wsServer = new WsServer(
 wsServer.attach(httpServer);
 
 // Handle client messages
-async function handleClientMessage(message: StreamingClientMessage): Promise<void> {
+async function handleClientMessage(recId: string, message: StreamingClientMessage): Promise<void> {
   console.log(`[Input] Received message: ${message.t}`, message);
   
   if (!session) {
@@ -344,6 +344,8 @@ async function handleClientMessage(message: StreamingClientMessage): Promise<voi
 
   // Stop goes through the full teardown so the capture is written and state resets.
   if (message.t === "stop") {
+    // A connection may only stop the recording it was opened for.
+    if (recId !== recordingId) return;
     await stopRecording("manual");
     return;
   }
