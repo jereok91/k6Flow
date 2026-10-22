@@ -6,10 +6,17 @@ import { parse } from "yaml";
 
 const load = (path: string) => parse(readFileSync(path, "utf8"));
 
-function checkServices(services: Record<string, any>, opts: { allowOrchestratorDevSocket?: boolean } = {}) {
+// Human authorization 2026-10-21: in development only, the orchestrator may publish
+// exactly 127.0.0.1:8080 (WebSocket metrics streaming). Production stays unpublished.
+const ORCHESTRATOR_DEV_PORTS = ["127.0.0.1:8080:8080"];
+
+function checkServices(services: Record<string, any>, opts: { allowOrchestratorDevSocket?: boolean; allowOrchestratorDevPort?: boolean } = {}) {
   assert.deepEqual(Object.keys(services).sort(), ["db", "orchestrator", "recorder", "web"]);
-  for (const name of ["db", "orchestrator"]) {
-    assert.equal(services[name].ports, undefined, `${name} must not publish ports`);
+  assert.equal(services.db.ports, undefined, "db must not publish ports");
+  if (opts.allowOrchestratorDevPort && services.orchestrator.ports !== undefined) {
+    assert.deepEqual(services.orchestrator.ports, ORCHESTRATOR_DEV_PORTS, "dev orchestrator may publish only loopback 8080");
+  } else {
+    assert.equal(services.orchestrator.ports, undefined, "orchestrator must not publish ports");
   }
   for (const [name, service] of Object.entries(services)) {
     assert.ok(service.healthcheck.test.length > 1);
@@ -56,7 +63,7 @@ test("development switches build targets without publishing internal services", 
   for (const [name, override] of Object.entries(dev.services)) {
     merged[name] = { ...merged[name], ...(override as object) };
   }
-  checkServices(merged, { allowOrchestratorDevSocket: true });
+  checkServices(merged, { allowOrchestratorDevSocket: true, allowOrchestratorDevPort: true });
   // The dev-only socket authorization is exclusive to the orchestrator override.
   for (const [name, override] of Object.entries(dev.services)) {
     const volumes: string[] = (override as { volumes?: string[] }).volumes ?? [];
@@ -74,6 +81,13 @@ test("contract rejects accidental public Go ports and extra services", () => {
   const { services } = load("deploy/docker-compose.yml");
   assert.throws(() => checkServices({ ...services, recorder: {} }));
   assert.throws(() => checkServices({ ...services, orchestrator: { ...services.orchestrator, ports: ["8080:8080"] } }));
+  // Production rejects even the loopback dev mapping.
+  assert.throws(() => checkServices({ ...services, orchestrator: { ...services.orchestrator, ports: ORCHESTRATOR_DEV_PORTS } }));
+  // Development allows only the exact loopback mapping, and never DB ports.
+  const dev = { allowOrchestratorDevPort: true };
+  assert.throws(() => checkServices({ ...services, orchestrator: { ...services.orchestrator, ports: ["8080:8080"] } }, dev));
+  assert.throws(() => checkServices({ ...services, orchestrator: { ...services.orchestrator, ports: ["127.0.0.1:8080:8080", "127.0.0.1:9090:9090"] } }, dev));
+  assert.throws(() => checkServices({ ...services, db: { ...services.db, ports: ["127.0.0.1:5432:5432"] } }, dev));
 });
 
 test("Docker build stages separate development from non-root production", () => {

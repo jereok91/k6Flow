@@ -102,6 +102,11 @@ run_stack() {
     [[ $state == healthy ]] || { echo "$service is $state" >&2; return 1; }
     if [[ $service != web ]]; then
       bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$id")
+      # Dev only (authorized 2026-10-21): orchestrator may bind exactly loopback 8080.
+      if [[ $mode == dev && $service == orchestrator &&
+            $bindings == '{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"8080"}]}' ]]; then
+        continue
+      fi
       [[ $bindings == '{}' || $bindings == null ]] || {
         echo "$service unexpectedly publishes ports: $bindings" >&2; return 1;
       }
