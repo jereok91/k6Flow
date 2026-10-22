@@ -114,6 +114,18 @@ test("build allowlist includes Go source but excludes secrets and host outputs",
   }
 });
 
+test("development recorder ports target the port the recorder listens on", () => {
+  const dockerfile = readFileSync("apps/recorder/Dockerfile", "utf8");
+  const exposed = dockerfile.match(/^EXPOSE (\d+)$/m)?.[1];
+  assert.ok(exposed, "recorder Dockerfile must EXPOSE its port");
+  const ports: string[] = load("deploy/docker-compose.dev.yml").services.recorder.ports ?? [];
+  assert.ok(ports.length > 0, "dev recorder should publish a loopback port");
+  for (const mapping of ports) {
+    assert.match(mapping, /^127\.0\.0\.1:/, `recorder port must bind loopback only: ${mapping}`);
+    assert.equal(mapping.split(":").at(-1), exposed, `recorder port must target ${exposed}: ${mapping}`);
+  }
+});
+
 test("CI checks both languages and the runtime boundary", () => {
   const ci = load(".github/workflows/ci.yml");
   const commands = ci.jobs.check.steps.map((step: any) => step.run ?? "").join("\n");

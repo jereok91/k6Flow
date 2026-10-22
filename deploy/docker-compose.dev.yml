@@ -11,9 +11,9 @@ services:
     volumes:
       - ../apps/web/app:/workspace/apps/web/app:ro
   recorder:
-    # Dev-only: expose proxy port for local traffic capture testing
+    # Dev-only: direct loopback access to the recorder HTTP/WS port (e.g. NEXT_PUBLIC_RECORDER_WS=ws://localhost:8081)
     ports:
-      - "127.0.0.1:8082:8082"
+      - "127.0.0.1:8081:8081"
   orchestrator:
     build:
       target: development
