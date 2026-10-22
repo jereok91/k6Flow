@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { mutateSession } from "../../lib/auth/session-mutation";
@@ -15,7 +15,7 @@ function getSafeRedirect(redirect: string | null): string {
   return redirect;
 }
 
-export default function LoginPage() {
+function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = getSafeRedirect(searchParams.get("redirect"));
@@ -173,5 +173,17 @@ export default function LoginPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+/**
+ * `useSearchParams()` opts the page out of static prerendering, so login needs a
+ * Suspense boundary above it or `next build` rejects the page.
+ */
+export default function LoginPageRoute() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" aria-busy="true" />}>
+      <LoginPage />
+    </Suspense>
   );
 }

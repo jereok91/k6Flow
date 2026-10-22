@@ -4,7 +4,7 @@
 // K6F8-04: Import from recorder support.
 // Authenticated users only.
 
-import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
+import { Suspense, useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
 import { snapshot, SaveBaseline, durationSeconds as parseDurationToSeconds } from "../../lib/editor/save-state";
 import { useToast } from "../../lib/notifications/ToastProvider";
 import { AsyncLifetime } from "../../lib/editor/async-lifetime";
@@ -111,7 +111,7 @@ function NodeMetadataInspector({ node, onRename, onToggle }: {
   </section>;
 }
 
-export default function EditorPage() {
+function EditorPage() {
   const [auth, setAuth] = useState<AuthState>({ loading: true, authenticated: false });
   // User that established the editor: latched on verification so URL/import loads run
   // once per session instead of re-running (and overwriting edits) after a re-check.
@@ -1329,4 +1329,16 @@ export default function EditorPage() {
       </div>
     )}
   </>);
+}
+
+/**
+ * `useSearchParams()` opts the page out of static prerendering, so the editor
+ * needs a Suspense boundary above it or `next build` rejects the page.
+ */
+export default function EditorPageRoute() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" aria-busy="true" />}>
+      <EditorPage />
+    </Suspense>
+  );
 }
