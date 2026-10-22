@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import { translateToK6 } from "@k6flow/shared";
+import { MainLayout } from "../../../lib/layout";
 
 interface Scenario {
   id: string;
@@ -26,6 +27,13 @@ interface Version {
 }
 
 type Tab = "summary" | "graph" | "script" | "versions" | "runs";
+
+// Panels and code blocks follow the app design system: the shell renders the page,
+// surfaces use the theme tokens, and copy matches the rest of the UI language.
+const PANEL = "card bg-surface-container-lowest border-surface-container";
+const CODE_BLOCK =
+  "max-h-[500px] overflow-auto rounded-lg bg-surface-container-low border border-surface-container p-space-md font-mono text-label-code-md text-on-surface-variant";
+const PANEL_TITLE = "text-headline-sm text-on-surface font-medium";
 
 export default function ScenarioDetailPage({
   params,
@@ -63,7 +71,8 @@ export default function ScenarioDetailPage({
           setVersions(versionsData.versions);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        console.error("Failed to load scenario:", e);
+        setError("No se pudo cargar el escenario");
       } finally {
         setLoading(false);
       }
@@ -100,22 +109,27 @@ export default function ScenarioDetailPage({
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-900 text-white">
-        Loading...
-      </div>
+      <MainLayout>
+        <div className="card text-center py-space-xl">
+          <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto" />
+          <p className="text-body-md text-on-surface-variant mt-space-md">Cargando escenario...</p>
+        </div>
+      </MainLayout>
     );
   }
 
   if (error || !scenario) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-900 text-white">
-        <div className="text-center">
-          <p className="mb-4 text-red-400">{error || "Scenario not found"}</p>
-          <Link href="/scenarios" className="text-blue-400 hover:underline">
-            ← Back to scenarios
+      <MainLayout>
+        <div className="card text-center">
+          <span className="material-symbols-outlined text-error text-[32px] mb-space-md">error</span>
+          <p className="text-body-md text-error">{error || "Escenario no encontrado"}</p>
+          <Link href="/scenarios" className="btn-secondary mt-space-md mx-auto">
+            <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+            <span>Volver a escenarios</span>
           </Link>
         </div>
-      </div>
+      </MainLayout>
     );
   }
 
@@ -123,212 +137,210 @@ export default function ScenarioDetailPage({
   const edgeCount = scenario.graph?.edges?.length || 0;
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: "summary", label: "Summary" },
-    { id: "graph", label: "Graph" },
-    { id: "script", label: "K6 Script" },
-    { id: "versions", label: "Versions" },
-    { id: "runs", label: "Runs" },
+    { id: "summary", label: "Resumen" },
+    { id: "graph", label: "Grafo" },
+    { id: "script", label: "Guion K6" },
+    { id: "versions", label: "Versiones" },
+    { id: "runs", label: "Ejecuciones" },
   ];
 
   return (
-    <div className="min-h-screen bg-gray-900 p-6 text-white">
-      <div className="mx-auto max-w-6xl">
+    <MainLayout>
+      <div className="px-gutter-desktop py-space-xl flex flex-col gap-space-xl">
         {/* Header */}
-        <div className="mb-6 flex items-start justify-between">
-          <div>
-            <Link
-              href="/scenarios"
-              className="mb-2 inline-block text-sm text-gray-400 hover:text-white"
-            >
-              ← Back to scenarios
-            </Link>
-            <h1 className="flex items-center gap-2 text-2xl font-bold">
+        <section className="flex flex-col md:flex-row md:items-end justify-between gap-space-lg">
+          <div className="flex flex-col gap-space-xs">
+            <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
+              <span className="material-symbols-outlined text-primary text-[16px]">account_tree</span>
+              <span>Biblioteca de escenarios</span>
+            </div>
+            <h1 className="flex items-center gap-space-sm text-headline-lg text-on-surface font-semibold tracking-tight">
               {scenario.name}
               {scenario.isFavorite ? (
-                <span className="text-yellow-400">★</span>
+                <span
+                  className="material-symbols-outlined text-amber-400 text-[24px]"
+                  title="Favorito"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  star
+                </span>
               ) : null}
             </h1>
-            <p className="text-sm text-gray-400">
-              Created {new Date(scenario.createdAt).toLocaleDateString()} •
-              Updated {new Date(scenario.updatedAt).toLocaleDateString()}
+            <p className="text-body-md text-on-surface-variant">
+              Creado {new Date(scenario.createdAt).toLocaleDateString()} · Actualizado{" "}
+              {new Date(scenario.updatedAt).toLocaleDateString()}
             </p>
           </div>
-          <div className="flex gap-3">
-            <Link
-              href={`/editor?scenario=${id}`}
-              className="rounded bg-blue-600 px-4 py-2 hover:bg-blue-500"
-            >
-              Edit
+
+          <div className="flex items-center gap-space-md">
+            <Link href="/scenarios" className="btn-secondary">
+              <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+              <span>Volver</span>
+            </Link>
+            <Link href={`/editor?scenario=${id}`} className="btn-primary">
+              <span className="material-symbols-outlined text-[18px]">edit_square</span>
+              <span>Editar</span>
             </Link>
           </div>
-        </div>
+        </section>
 
         {/* Tabs */}
-        <div className="mb-6 border-b border-gray-700">
-          <nav className="-mb-px flex gap-6">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                className={`border-b-2 px-1 py-3 text-sm font-medium ${
-                  activeTab === tab.id
-                    ? "border-blue-500 text-blue-400"
-                    : "border-transparent text-gray-400 hover:text-white"
-                }`}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-        </div>
+        <section className="inline-flex self-start p-1 bg-surface-container-low rounded-xl">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-space-md py-1 rounded-lg text-body-sm transition-all ${
+                activeTab === tab.id
+                  ? "bg-surface-container-high text-on-surface font-medium shadow-sm"
+                  : "text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </section>
 
         {/* Tab content */}
         <div className="min-h-[400px]">
           {activeTab === "summary" && (
-            <div className="grid gap-6 md:grid-cols-2">
-              <div className="rounded-lg bg-gray-800 p-6">
-                <h2 className="mb-4 text-lg font-semibold">Overview</h2>
-                <dl className="space-y-3">
+            <div className="grid gap-space-lg md:grid-cols-2">
+              <section className={PANEL}>
+                <h2 className={`${PANEL_TITLE} mb-space-md`}>Detalle</h2>
+                <dl className="space-y-space-sm">
                   <div className="flex justify-between">
-                    <dt className="text-gray-400">Nodes</dt>
-                    <dd className="font-medium">{nodeCount}</dd>
+                    <dt className="text-body-md text-on-surface-variant">Nodos</dt>
+                    <dd className="text-body-md text-on-surface font-mono">{nodeCount}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-gray-400">Edges</dt>
-                    <dd className="font-medium">{edgeCount}</dd>
+                    <dt className="text-body-md text-on-surface-variant">Conexiones</dt>
+                    <dd className="text-body-md text-on-surface font-mono">{edgeCount}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-gray-400">Start Node</dt>
-                    <dd className="font-mono text-sm">
+                    <dt className="text-body-md text-on-surface-variant">Nodo inicial</dt>
+                    <dd className="text-label-code-md text-on-surface font-mono">
                       {scenario.graph?.startNode || "-"}
                     </dd>
                   </div>
                 </dl>
-              </div>
+              </section>
 
-              <div className="rounded-lg bg-gray-800 p-6">
-                <h2 className="mb-4 text-lg font-semibold">Quick Actions</h2>
-                <div className="flex flex-col gap-3">
-                  <Link
-                    href={`/editor?scenario=${id}`}
-                    className="rounded bg-gray-700 px-4 py-2 text-center hover:bg-gray-600"
-                  >
-                    Open in Editor
+              <section className={PANEL}>
+                <h2 className={`${PANEL_TITLE} mb-space-md`}>Acciones rápidas</h2>
+                <div className="flex flex-col gap-space-sm">
+                  <Link href={`/editor?scenario=${id}`} className="btn-primary justify-center">
+                    <span className="material-symbols-outlined text-[18px]">edit_square</span>
+                    <span>Abrir en el editor</span>
                   </Link>
-                  <button
-                    className="rounded bg-gray-700 px-4 py-2 hover:bg-gray-600"
-                    onClick={downloadScript}
-                  >
-                    Download K6 Script
+                  <button type="button" className="btn-secondary justify-center" onClick={downloadScript}>
+                    <span className="material-symbols-outlined text-[18px]">download</span>
+                    <span>Descargar guion K6</span>
                   </button>
-                  <button
-                    className="rounded bg-gray-700 px-4 py-2 hover:bg-gray-600"
-                    onClick={copyScript}
-                  >
-                    Copy K6 Script
+                  <button type="button" className="btn-secondary justify-center" onClick={copyScript}>
+                    <span className="material-symbols-outlined text-[18px]">content_copy</span>
+                    <span>Copiar guion K6</span>
                   </button>
                 </div>
-              </div>
+              </section>
             </div>
           )}
 
           {activeTab === "graph" && (
-            <div className="rounded-lg bg-gray-800 p-6">
-              <h2 className="mb-4 text-lg font-semibold">Graph Structure</h2>
-              <pre className="max-h-[500px] overflow-auto rounded bg-gray-900 p-4 text-sm">
-                {JSON.stringify(scenario.graph, null, 2)}
-              </pre>
-            </div>
+            <section className={PANEL}>
+              <h2 className={`${PANEL_TITLE} mb-space-md`}>Estructura del grafo</h2>
+              <pre className={CODE_BLOCK}>{JSON.stringify(scenario.graph, null, 2)}</pre>
+            </section>
           )}
 
           {activeTab === "script" && (
-            <div className="rounded-lg bg-gray-800 p-6">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold">K6 Script</h2>
-                <div className="flex gap-2">
-                  <button
-                    className="rounded bg-gray-700 px-3 py-1 text-sm hover:bg-gray-600"
-                    onClick={copyScript}
-                  >
-                    Copy
+            <section className={PANEL}>
+              <div className="mb-space-md flex items-center justify-between gap-space-md">
+                <h2 className={PANEL_TITLE}>Guion K6</h2>
+                <div className="flex items-center gap-space-sm">
+                  <button type="button" className="btn-secondary" onClick={copyScript}>
+                    <span className="material-symbols-outlined text-[18px]">content_copy</span>
+                    <span>Copiar</span>
                   </button>
-                  <button
-                    className="rounded bg-gray-700 px-3 py-1 text-sm hover:bg-gray-600"
-                    onClick={downloadScript}
-                  >
-                    Download
+                  <button type="button" className="btn-secondary" onClick={downloadScript}>
+                    <span className="material-symbols-outlined text-[18px]">download</span>
+                    <span>Descargar</span>
                   </button>
                 </div>
               </div>
-              <pre className="max-h-[500px] overflow-auto rounded bg-gray-900 p-4 text-sm">
+              <pre className={CODE_BLOCK}>
                 <code>{k6Script}</code>
               </pre>
-            </div>
+            </section>
           )}
 
           {activeTab === "versions" && (
-            <div className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-lg bg-gray-800 p-6">
-                <h2 className="mb-4 text-lg font-semibold">Version History</h2>
+            <div className="grid gap-space-lg lg:grid-cols-2">
+              <section className={PANEL}>
+                <h2 className={`${PANEL_TITLE} mb-space-md`}>Historial de versiones</h2>
                 {versions.length === 0 ? (
-                  <p className="text-gray-400">No version history available. Versions are created automatically when you save changes.</p>
+                  <p className="text-body-md text-on-surface-variant">
+                    Sin historial de versiones. Se crean automáticamente al guardar cambios.
+                  </p>
                 ) : (
-                  <ul className="space-y-2">
+                  <ul className="space-y-space-sm">
                     {versions.map((v) => (
                       <li
                         key={v.id}
-                        className={`cursor-pointer rounded p-3 transition ${selectedVersion === v.id ? "bg-blue-600" : "bg-gray-700 hover:bg-gray-600"}`}
+                        className={`cursor-pointer rounded-lg p-space-md transition ${
+                          selectedVersion === v.id
+                            ? "bg-primary-container text-on-primary-container"
+                            : "bg-surface-container-low hover:bg-surface-container text-on-surface"
+                        }`}
                         onClick={() => loadVersionGraph(v.id)}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">Version {v.version}</span>
-                          <span className="text-sm text-gray-400">
+                        <div className="flex items-center justify-between gap-space-md">
+                          <span className="text-body-md font-medium">Versión {v.version}</span>
+                          <span className="text-label-code-sm opacity-80">
                             {new Date(v.createdAt).toLocaleString()}
                           </span>
                         </div>
                         {v.changeDescription && (
-                          <p className="mt-1 text-sm text-gray-400">
-                            {v.changeDescription}
-                          </p>
+                          <p className="mt-space-xs text-body-sm opacity-80">{v.changeDescription}</p>
                         )}
                       </li>
                     ))}
                   </ul>
                 )}
-              </div>
+              </section>
 
               {selectedVersion !== null && versionGraph !== null ? (
-                <div className="rounded-lg bg-gray-800 p-6">
-                  <h2 className="mb-4 text-lg font-semibold">Version Graph</h2>
-                  <pre className="max-h-[400px] overflow-auto rounded bg-gray-900 p-4 text-sm">
-                    {JSON.stringify(versionGraph, null, 2)}
-                  </pre>
-                  <div className="mt-4 flex gap-2">
+                <section className={PANEL}>
+                  <h2 className={`${PANEL_TITLE} mb-space-md`}>Grafo de la versión</h2>
+                  <pre className={CODE_BLOCK}>{JSON.stringify(versionGraph, null, 2)}</pre>
+                  <div className="mt-space-md flex gap-space-sm">
                     <button
-                      className="rounded bg-blue-600 px-3 py-1 text-sm hover:bg-blue-500"
+                      type="button"
+                      className="btn-secondary"
                       onClick={() => {
                         // TODO: restore this version
-                        alert("Restore functionality coming soon");
+                        alert("La restauración de versiones estará disponible pronto");
                       }}
                     >
-                      Restore this version
+                      <span className="material-symbols-outlined text-[18px]">history</span>
+                      <span>Restaurar esta versión</span>
                     </button>
                   </div>
-                </div>
+                </section>
               ) : null}
             </div>
           )}
 
           {activeTab === "runs" && (
-            <div className="rounded-lg bg-gray-800 p-6">
-              <h2 className="mb-4 text-lg font-semibold">Run History</h2>
-              <p className="text-gray-400">
-                No runs yet. Use the Editor to run this scenario.
+            <section className={PANEL}>
+              <h2 className={`${PANEL_TITLE} mb-space-md`}>Historial de ejecuciones</h2>
+              <p className="text-body-md text-on-surface-variant">
+                Todavía no hay ejecuciones. Ejecutá el escenario desde el editor.
               </p>
-            </div>
+            </section>
           )}
         </div>
       </div>
-    </div>
+    </MainLayout>
   );
 }
