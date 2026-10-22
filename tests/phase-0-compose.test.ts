@@ -133,7 +133,7 @@ test("long-lived recorder runs under an init that reaps exited browser processes
 test("CI checks both languages and the runtime boundary", () => {
   const ci = load(".github/workflows/ci.yml");
   const commands = ci.jobs.check.steps.map((step: any) => step.run ?? "").join("\n");
-  for (const command of ["pnpm test", "pnpm lint", "pnpm --filter @k6flow/web build", "go test ./...", "go vet ./...", "go build ./...", "bash scripts/check-phase-0-compose.sh"]) {
+  for (const command of ["pnpm test", "pnpm lint", "pnpm --filter @k6flow/web build", "go test ./...", "go vet ./...", "go build ./...", "bash scripts/check-phase-0-compose.sh", "pnpm --filter @k6flow/recorder exec playwright install --with-deps chromium", "pnpm --filter @k6flow/recorder test"]) {
     assert.ok(commands.includes(command), `CI missing ${command}`);
   }
 });
