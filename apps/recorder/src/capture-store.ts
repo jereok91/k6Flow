@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -20,6 +20,31 @@ export function isValidRecordingId(recordingId: string): boolean {
 export function capturePath(dir: string, recordingId: string): string | null {
   if (!isValidRecordingId(recordingId)) return null;
   return join(dir, `${recordingId}.ndjson`);
+}
+
+/** Largest capture the recorder will read and serve, unless configured otherwise. */
+export const DEFAULT_MAX_CAPTURE_BYTES = 32 * 1024 * 1024;
+
+export function maxCaptureBytes(configured: string | undefined): number {
+  const value = Number.parseInt(configured ?? "", 10);
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_MAX_CAPTURE_BYTES;
+}
+
+/**
+ * Size of a capture file in bytes, or null when the id is invalid or nothing was
+ * written for it. Checked before reading, so an oversized file never has to be
+ * buffered to be refused.
+ */
+export function captureSize(dir: string, recordingId: string): number | null {
+  const path = capturePath(dir, recordingId);
+  if (path === null || !existsSync(path)) return null;
+  try {
+    const stats = statSync(path);
+    return stats.isFile() ? stats.size : null;
+  } catch (error) {
+    console.error("[capture-store] Stat failed:", error);
+    return null;
+  }
 }
 
 /**

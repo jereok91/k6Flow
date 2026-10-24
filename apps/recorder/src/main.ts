@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { WsServer } from "./ws-server";
 import { RecordingSession } from "./recording-session";
 import { CaptureWriter } from "./capture-writer";
-import { readCapture, removeCapture } from "./capture-store";
+import { captureSize, maxCaptureBytes, readCapture, removeCapture } from "./capture-store";
 import type { StreamingClientMessage } from "@k6flow/shared";
 
 // Configuration from environment
@@ -349,6 +349,20 @@ const httpServer = createServer((req, res) => {
       }
       res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ status: "deleted", recordingId: requestedId }));
+      return;
+    }
+
+    // The size is checked before reading: buffering an hour-long capture just to
+    // refuse it would block this event loop and could exhaust the process.
+    let size: number | null = null;
+    try {
+      size = captureSize(CAPTURE_DIR, requestedId);
+    } catch (error) {
+      console.error("Capture stat failed:", error);
+    }
+    if (size !== null && size > maxCaptureBytes(process.env.MAX_CAPTURE_BYTES)) {
+      res.writeHead(413, { "Content-Type": "application/json", ...corsHeaders });
+      res.end(JSON.stringify({ error: "Capture too large" }));
       return;
     }
 
