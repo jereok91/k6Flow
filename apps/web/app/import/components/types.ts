@@ -7,6 +7,7 @@
  */
 
 import type { HarResourceType, HarVariableSuggestion } from "@k6flow/shared";
+import { EMPTY_AUTH_CONFIG, type HarAuthConfig } from "../../../lib/import/har-auth";
 
 /** DevTools-style filters as the form fields hold them, before parsing. */
 export interface FilterState {
@@ -61,6 +62,20 @@ export interface PreviewState {
   steps: number;
   error: string | null;
 }
+
+/**
+ * Auth panel state: the declared scheme plus the rows picked in "solo algunas".
+ * The picked set belongs to the screen, not to the scheme, so it stays out of
+ * `HarAuthConfig` and `null` means "every selected row".
+ */
+export interface AuthPanelState {
+  config: HarAuthConfig;
+  /** Rows picked in "solo algunas"; `null` until the user narrows the scope. */
+  picked: ReadonlySet<number> | null;
+}
+
+/** Nothing declared: no auth header, every selected row in scope. */
+export const EMPTY_AUTH_PANEL: AuthPanelState = { config: EMPTY_AUTH_CONFIG, picked: null };
 
 /** Request body filters of `POST /api/import/har`, as the route parses them. */
 export interface ImportOptionsBody {

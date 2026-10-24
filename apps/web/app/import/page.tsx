@@ -3,27 +3,28 @@
 /**
  * HAR import screen (T8b/D7/D8/D9). Orchestrator only: state, file reading and
  * validation, the memoised preview, the submit and the layout of the pieces in
- * `./components`. `lib/import/har-preview.ts` keeps the filtering/pruning.
+ * `./components`. `lib/import/har-preview.ts` keeps the filtering/pruning and
+ * `lib/import/har-auth.ts` builds the authenticated HAR.
  *
  * The file never leaves the browser until the user confirms: the page reads the
- * `.har`, classifies and filters it with the shared modules, prunes it to the
- * checked requests and only then posts the reduced HAR to `/api/import/har`.
- * Filtering, selection and the preview are memoised so typing in a filter
- * recomputes the table and nothing else; only the confirm button requests.
+ * `.har`, filters it, prunes it to the checked requests, stamps the declared auth
+ * header onto the scoped ones and only then posts the reduced HAR to
+ * `/api/import/har`. Filtering, selection, auth and the preview are memoised, so
+ * typing recomputes the table and nothing else; only the confirm button requests.
  */
 
-import { useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import type { Har, HarResourceType } from "@k6flow/shared";
 import { MainLayout } from "../../lib/layout";
 import {
   availableMethods,
   filterPreviewEntries,
   harEntries,
-  pruneHar,
   summarize,
+  type PreviewEntry,
 } from "../../lib/import/har-preview";
-import type { PreviewEntry } from "../../lib/import/har-preview";
+import { buildUploadHar, entryIndexes } from "../../lib/import/har-auth";
+import { HarAuthPanel } from "./components/HarAuthPanel";
 import { HarFileUploader } from "./components/HarFileUploader";
 import { HarFiltersPanel } from "./components/HarFiltersPanel";
 import { HarImportHeader } from "./components/HarImportHeader";
@@ -45,10 +46,10 @@ import {
   previewHar,
 } from "./components/preview";
 import {
+  EMPTY_AUTH_PANEL,
   EMPTY_FILTERS,
   type FilterState,
   type ImportedScenario,
-  type PreviewState,
 } from "./components/types";
 
 /** Grouping gap the importer uses when the user leaves the field empty. */
@@ -64,6 +65,7 @@ export default function ImportHarPage() {
   const [stepGapMs, setStepGapMs] = useState(String(DEFAULT_STEP_GAP_MS));
   const [useHarTimings, setUseHarTimings] = useState(true);
   const [applySuggestedVariables, setApplySuggestedVariables] = useState(false);
+  const [authPanel, setAuthPanel] = useState(EMPTY_AUTH_PANEL);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportedScenario | null>(null);
@@ -80,6 +82,7 @@ export default function ImportHarPage() {
     setHar(null);
     setFileName(null);
     setSelection(new Set());
+    setAuthPanel((previous) => ({ ...previous, picked: null }));
 
     const outcome = await readHarFile(file);
     if (!outcome.ok) {
@@ -141,10 +144,12 @@ export default function ImportHarPage() {
     [filters, activeResourceTypes, activeMethods, methodOptions, stepGapForImport, useHarTimings],
   );
 
-  const preview = useMemo<PreviewState>(
-    () => (har === null ? EMPTY_PREVIEW : previewHar(har, keepIndexes, importOptions)),
-    [har, keepIndexes, importOptions],
-  );
+  /** Upload HAR (checked rows + auth header) and the preview of that same HAR. */
+  const upload = useMemo(() => {
+    if (har === null) return { har: null, preview: EMPTY_PREVIEW };
+    const withAuth = buildUploadHar(har, authPanel.config, keepIndexes, authPanel.picked);
+    return { har: withAuth, preview: previewHar(withAuth, entryIndexes(withAuth), importOptions) };
+  }, [har, authPanel, keepIndexes, importOptions]);
 
   // --- Selection actions and submit ------------------------------------------
 
@@ -162,7 +167,7 @@ export default function ImportHarPage() {
 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    if (!canSubmit || har === null) return;
+    if (!canSubmit || upload.har === null) return;
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -171,7 +176,7 @@ export default function ImportHarPage() {
     try {
       const outcome = await postHarImport({
         name: scenarioName.trim(),
-        har: pruneHar(har, keepIndexes),
+        har: upload.har,
         applySuggestedVariables,
         options: importOptions,
       });
@@ -218,8 +223,12 @@ export default function ImportHarPage() {
 
             <HarRequestsTable entries={visible} selection={selection} onToggle={toggleEntry} />
 
+            <HarAuthPanel
+              state={authPanel} onChange={setAuthPanel} rows={rows} selection={keepIndexes}
+            />
+
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-space-lg items-start">
-              <HarVariableSuggestionsPanel preview={preview} />
+              <HarVariableSuggestionsPanel preview={upload.preview} />
 
               <HarSaveScenarioForm
                 scenarioName={scenarioName}
@@ -230,7 +239,7 @@ export default function ImportHarPage() {
                 onUseHarTimingsChange={setUseHarTimings}
                 applySuggestedVariables={applySuggestedVariables}
                 onApplySuggestedVariablesChange={setApplySuggestedVariables}
-                preview={preview}
+                preview={upload.preview}
                 summary={summary}
                 keepCount={keepIndexes.size}
                 canSubmit={canSubmit}
