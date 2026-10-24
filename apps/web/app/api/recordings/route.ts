@@ -180,6 +180,20 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
       graph,
     });
 
+    // The graph this save produced is the scenario's first version, so its history
+    // starts at what was created and keeps the recording it came from as provenance.
+    await db.insert(scenarioVersions).values({
+      id: randomUUID(),
+      scenarioId,
+      version: 1,
+      graph,
+      changeDescription: `Created from recording: ${body.name}`,
+      sourceRecordingId: typeof body.recordingId === "string" && body.recordingId !== ""
+        ? body.recordingId
+        : null,
+      createdBy: user.id,
+    });
+
     await linkRecording(db, user.id, body.recordingId, scenarioId);
 
     return Response.json({
