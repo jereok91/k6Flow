@@ -10,6 +10,9 @@ services:
       RECORDER_UPSTREAM: http://recorder:8081
     volumes:
       - ../apps/web/app:/workspace/apps/web/app:ro
+      # Dev-only: without this, changes under apps/web/lib only reach the browser
+      # after rebuilding the image (the sidebar lives there).
+      - ../apps/web/lib:/workspace/apps/web/lib:ro
   recorder:
     # Dev-only: direct loopback access to the recorder HTTP/WS port (e.g. NEXT_PUBLIC_RECORDER_WS=ws://localhost:8081)
     ports:
