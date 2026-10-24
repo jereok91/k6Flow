@@ -134,6 +134,29 @@ export async function POST(request: Request): Promise<Response> {
       return jsonError(409, "Recording belongs to another user");
     }
 
+    // A second stop for a recording that is already saved is idempotent: the stored
+    // numbers are the ones the first stop measured, so nothing is re-read or rewritten
+    // (recomputing them from the capture would drift from that measurement).
+    if (existing && existing.state === "completed") {
+      return Response.json(
+        {
+          status,
+          recordingId,
+          persisted: true,
+          recording: {
+            id: existing.id,
+            name: existing.name,
+            startUrl: existing.startUrl,
+            requestCount: existing.requestCount ?? 0,
+            stepCount: existing.stepCount ?? 0,
+            durationMs: existing.durationMs ?? 0,
+            scenarioId: existing.scenarioId,
+          } satisfies SavedRecording,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     const captureRes = await fetch(`${RECORDER_URL}/captures/${encodeURIComponent(recordingId)}`, {
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => null);

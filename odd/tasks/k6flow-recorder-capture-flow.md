@@ -33,20 +33,21 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
 
 - T1 — Recorder: await the capture flush, return the stopped id/event count/duration from
   `/stop`, answer `idle` honestly, and serve `GET /captures/:id` with id validation. Route:
-  inline. Commit: see Log.
+  inline. Commit: `9f3accd`.
 - T2 — Web API: `/api/recorder/stop` persists the capture into `recordings` and reports what
   it saved; `GET /api/recordings/[id]` serves the capture; `POST /api/recordings` links the
-  scenario to its recording. Route: inline. Commit: see Log.
+  scenario to its recording. Route: inline. Commit: `c2f439e`.
 - T3 — Recorder page: adopt the recorder's recording id, honest stop result with retry, and
-  hand off to review with that id. Route: inline. Commit: see Log.
+  hand off to review with that id. Route: inline. Commit: `8a175e5`.
 - T4 — Review page: load `?id=` capture automatically, keep the upload fallback, handle
-  captures without steps, send the recording id when saving. Route: inline. Commit: see Log.
+  captures without steps, send the recording id when saving. Route: inline. Commit: `8a175e5`.
 - T5 — Recordings list: read the fields the API really returns (`startUrl`, `state`) and open
-  review by id. Route: inline. Commit: see Log.
+  review by id. Route: inline. Commit: `8a175e5`.
 - T6 — Deploy: give the web container the recorder token and keep captures on a volume so a
-  recorder restart does not lose them. Route: inline. Commit: see Log.
+  recorder restart does not lose them. Route: inline. Commit: `8a175e5`.
 - T7 — Checks: typecheck, recorder integration tests, web unit tests, live stop→save run.
-  Route: inline. Commit: see Log.
+  Route: inline implementation; live run delegated to `gentle-ai-verify` (read-only, bounded).
+  Commit: none (verification only).
 
 ## Log
 
@@ -68,3 +69,20 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
 - L4 (decision): one recording at a time stays the recorder contract. The page adopts the
   returned `recordingId` (new or `reconnected`) instead of generating its own, which removes
   the id-mismatch class of bugs (WS input ignored, stop targeting another capture).
+- L5 (slices): `9f3accd` recorder service + its tests; `c2f439e` web persistence API + its
+  tests; `8a175e5` UI flow, list, compose wiring and this document. Three reviewable slices,
+  each carrying its tests.
+- L6 (verification): `pnpm typecheck` clean; recorder suite 23/23 (real Chromium); web+shared
+  suite 2111/2111. Live run by `gentle-ai-verify` (background task `mvmv758p-1-nh5l`) against
+  the dev stack: start 200 → stop 200 `persisted:true` (2 requests, 1 step, 7047 ms, 7590 B) →
+  `GET /api/recordings/<id>` 200 with the capture → `POST /api/recordings` 200 with scenario id
+  → list shows the recording `completed` with that `scenarioId`; unknown id 404; DB restored
+  (recordings 0, scenarios 7).
+- L7 (fix from L6): a repeat stop re-persisted `duration_ms` from a second source (7540 vs the
+  7047 the first stop measured), because the capture was still readable. A stop for a recording
+  already saved is now idempotent: it answers the stored row and rewrites nothing. Pinned by
+  `apps/web/app/api/recorder/stop/route.test.ts` ("leaves an already saved recording untouched")
+  and re-checked live: stop1 = stored = stop2 = 4133 ms.
+- L8 (follow-up, not changed here): saving a *new* scenario from a recording inserts no v1 row
+  in `scenario_versions`; the append path does. Pre-existing in
+  `apps/web/app/api/recordings/route.ts`, outside this feature's scope.

@@ -190,6 +190,44 @@ describe("POST /api/recorder/stop", () => {
     expect(mocks.insert).not.toHaveBeenCalled();
   });
 
+  it("leaves an already saved recording untouched when the user stops again", async () => {
+    mocks.selectLimit.mockResolvedValue([
+      {
+        id: "rec-1",
+        ownerId: "user-1",
+        name: "Flujo de login",
+        startUrl: "https://shop.example.com/login",
+        state: "completed",
+        durationMs: 3000,
+        requestCount: 1,
+        stepCount: 1,
+        scenarioId: "scenario-1",
+      },
+    ]);
+    const fetchMock = recorderAnswers(
+      () => stopAnswer({ status: "idle", recordingId: "rec-1", events: 0, durationMs: 0, reason: "manual" }),
+      () => captureAnswer(CAPTURE),
+    );
+
+    const response = await POST(request({ recordingId: "rec-1", name: "Otro nombre" }));
+
+    expect(response.status).toBe(200);
+    // Repeat stop is idempotent: the stored numbers are the ones the first stop
+    // measured, not a recomputation from a different source.
+    expect(await response.json()).toMatchObject({
+      status: "idle",
+      persisted: true,
+      recording: {
+        id: "rec-1",
+        name: "Flujo de login",
+        durationMs: 3000,
+        scenarioId: "scenario-1",
+      },
+    });
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses to overwrite another user's recording", async () => {
     mocks.selectLimit.mockResolvedValue([{ id: "rec-1", ownerId: "someone-else", scenarioId: null }]);
     recorderAnswers(
