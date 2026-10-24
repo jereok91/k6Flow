@@ -86,8 +86,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 // POST /api/recordings - save recording as new scenario or append to existing
-export async function POST(request: Request): Promise<Response> {
-  const cookieHeader = request.headers.get("cookie");
+export async function POST(request: Request): Promise<Response> {  const cookieHeader = request.headers.get("cookie");
   const user = await requireUser(cookieHeader);
   if (user === null) {
     return jsonError(401, "Unauthorized");
@@ -161,6 +160,8 @@ export async function POST(request: Request): Promise<Response> {
         })
         .where(eq(scenarios.id, body.appendToScenarioId));
 
+      await linkRecording(db, user.id, body.recordingId, body.appendToScenarioId);
+
       return Response.json({
         id: body.appendToScenarioId,
         name: existing.name,
@@ -179,6 +180,8 @@ export async function POST(request: Request): Promise<Response> {
       graph,
     });
 
+    await linkRecording(db, user.id, body.recordingId, scenarioId);
+
     return Response.json({
       id: scenarioId,
       name: body.name,
@@ -188,4 +191,23 @@ export async function POST(request: Request): Promise<Response> {
     console.error("Failed to save recording:", error);
     return jsonError(500, "Failed to save recording");
   }
+}
+
+/**
+ * Link a recording to the scenario it produced.
+ *
+ * Scoped to its owner so a recording id from another account can never be
+ * claimed by saving a scenario with that id.
+ */
+async function linkRecording(
+  db: ReturnType<typeof getDb>,
+  ownerId: string,
+  recordingId: unknown,
+  scenarioId: string,
+): Promise<void> {
+  if (typeof recordingId !== "string" || recordingId === "") return;
+  await db
+    .update(recordings)
+    .set({ scenarioId, state: "completed" })
+    .where(and(eq(recordings.id, recordingId), eq(recordings.ownerId, ownerId)));
 }

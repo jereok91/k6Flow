@@ -1,0 +1,57 @@
+/**
+ * Summary of a raw NDJSON capture, computed from the capture itself so the
+ * recordings library never has to trust numbers sent by the browser.
+ */
+
+import {
+  extractMetadata,
+  extractNetworkEntries,
+  extractSteps,
+  parseNDJSONCapture,
+} from "@k6flow/shared";
+
+export interface CaptureSummary {
+  requestCount: number;
+  stepCount: number;
+  durationMs: number;
+  startUrl: string | null;
+  bytes: number;
+}
+
+export function summarizeCapture(content: string): CaptureSummary {
+  const events = parseNDJSONCapture(content);
+  const metadata = extractMetadata(events);
+  const endedAt = events.find((event) => event.type === "end");
+
+  return {
+    // network_request lines are the same exchange before its response arrives.
+    requestCount: extractNetworkEntries(events).length,
+    stepCount: extractSteps(events).length,
+    durationMs:
+      metadata && endedAt && endedAt.type === "end"
+        ? Math.max(0, endedAt.data.endedAt - metadata.startedAt)
+        : 0,
+    startUrl: metadata?.startUrl ?? null,
+    bytes: Buffer.byteLength(content, "utf8"),
+  };
+}
+
+/**
+ * Display name for a recording: what the user typed, or a stable fallback built
+ * from the start host and the recording time.
+ */
+export function defaultRecordingName(name: string | undefined, startUrl: string | undefined): string {
+  const typed = typeof name === "string" ? name.trim() : "";
+  if (typed !== "") return typed;
+
+  let host: string | null = null;
+  try {
+    host = startUrl ? new URL(startUrl).hostname : null;
+  } catch {
+    host = null;
+  }
+  if (host === null || host === "") return "Grabación sin título";
+
+  const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+  return `Grabación ${host} ${stamp}`;
+}
