@@ -134,7 +134,11 @@ describe("POST /api/recorder/start", () => {
 
   it("refuses to adopt a live recording owned by another user without stopping it", async () => {
     mocks.selectResults = [[{ ownerId: "someone-else" }]];
-    const fetchMock = vi.fn().mockImplementation(recorderStarted());
+    // The recorder hands back the live session it already has: this is the reconnect
+    // path, and a refusal must leave that browser running for its owner.
+    const fetchMock = vi.fn(async () =>
+      Response.json({ status: "reconnected", recordingId: "rec-live" }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await POST(request());
