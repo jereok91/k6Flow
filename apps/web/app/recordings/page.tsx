@@ -7,10 +7,14 @@ import { MainLayout } from "../../lib/layout";
 interface Recording {
   id: string;
   name: string;
-  targetUrl: string;
-  createdAt: string;
-  stepCount: number;
+  startUrl: string;
+  state: string;
+  durationMs: number | null;
+  requestCount: number | null;
+  stepCount: number | null;
   scenarioId: string | null;
+  createdAt: string;
+  completedAt: string | null;
 }
 
 interface RecordingsResponse {
@@ -176,13 +180,15 @@ export default function RecordingsPage() {
                   </h3>
 
                   <p className="text-label-code-sm text-on-surface-variant font-mono mb-space-md truncate">
-                    {recording.targetUrl}
+                    {recording.startUrl || "—"}
                   </p>
 
                   <div className="flex items-center justify-between text-label-code-sm text-on-surface-variant">
                     <div className="flex items-center gap-space-xs">
                       <span className="material-symbols-outlined text-[14px]">layers</span>
-                      <span>{recording.stepCount} pasos</span>
+                      <span>
+                        {recording.stepCount ?? 0} pasos · {recording.requestCount ?? 0} peticiones
+                      </span>
                     </div>
                     <span className="font-mono">
                       {new Date(recording.createdAt).toLocaleDateString()}

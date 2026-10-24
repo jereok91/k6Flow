@@ -1,12 +1,22 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BrowserCanvas } from "../../lib/browser-canvas";
 import { MainLayout } from "../../lib/layout";
 
 type RecordingState = "setup" | "recording" | "completed" | "error";
+
+/** What the web tier persisted when the recording was stopped. */
+interface SavedRecording {
+  id: string;
+  name: string;
+  startUrl: string;
+  requestCount: number;
+  stepCount: number;
+  durationMs: number;
+}
 
 export default function RecorderPage() {
   const router = useRouter();
@@ -16,7 +26,11 @@ export default function RecorderPage() {
   const [startUrl, setStartUrl] = useState("https://example.com");
   const [recordingName, setRecordingName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const [saved, setSaved] = useState<SavedRecording | null>(null);
+  const [stopWarning, setStopWarning] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  const stoppingRef = useRef(false);
 
   const authToken = process.env.NEXT_PUBLIC_RECORDER_TOKEN || "dev-token";
 
@@ -37,9 +51,10 @@ export default function RecorderPage() {
 
     setIsStarting(true);
     setError(null);
+    setSaved(null);
+    setStopWarning(null);
 
     try {
-      const newRecordingId = `rec-${Date.now()}`;
       const res = await fetch("/api/recorder/start", {
         method: "POST",
         headers: {
@@ -47,7 +62,6 @@ export default function RecorderPage() {
           Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
-          recordingId: newRecordingId,
           startUrl: startUrl.trim(),
           viewportWidth: 1280,
           viewportHeight: 720,
@@ -59,8 +73,15 @@ export default function RecorderPage() {
         throw new Error(data.error || `Error iniciando grabación: ${res.status}`);
       }
 
-      setRecordingId(newRecordingId);
-      setWsUrl(getWsUrl(newRecordingId));
+      const data = await res.json().catch(() => ({}));
+      // The recorder owns the id: its answer is the only one the WebSocket, the
+      // stop and the capture will agree on.
+      const authoritativeId = typeof data.recordingId === "string" && data.recordingId !== ""
+        ? data.recordingId
+        : `rec-${Date.now()}`;
+
+      setRecordingId(authoritativeId);
+      setWsUrl(getWsUrl(authoritativeId));
       setState("recording");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error iniciando grabación");
@@ -69,28 +90,88 @@ export default function RecorderPage() {
     }
   };
 
-  const stopRecording = async () => {
+  /**
+   * Stop through the recorder and let the web tier persist the capture. Any
+   * failure keeps the session on screen instead of claiming it completed.
+   */
+  const finishRecording = useCallback(async (idToStop: string): Promise<void> => {
+    if (idToStop === "" || stoppingRef.current) return;
+    stoppingRef.current = true;
+    setStopping(true);
+    setError(null);
+
     try {
-      await fetch("/api/recorder/stop", {
+      const res = await fetch("/api/recorder/stop", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ recordingId }),
+        body: JSON.stringify({
+          recordingId: idToStop,
+          name: recordingName,
+          startUrl,
+          viewport: { width: 1280, height: 720 },
+        }),
       });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const message = data && typeof data.error === "string"
+          ? data.error
+          : `No se pudo detener la grabación (HTTP ${res.status})`;
+        throw new Error(message);
+      }
+
+      if (data && data.recording) {
+        setSaved(data.recording as SavedRecording);
+        setStopWarning(null);
+      } else {
+        setSaved(null);
+        setStopWarning(
+          data && typeof data.warning === "string"
+            ? data.warning
+            : "La grabación se detuvo, pero no llegó ninguna captura para guardar",
+        );
+      }
       setState("completed");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error deteniendo grabación");
+      setError(e instanceof Error ? e.message : "No se pudo detener la grabación");
+    } finally {
+      stoppingRef.current = false;
+      setStopping(false);
     }
-  };
+  }, [authToken, recordingName, startUrl]);
 
-  const handleSessionEnd = useCallback(() => {
-    setState("completed");
-  }, []);
+  const stopRecording = () => void finishRecording(recordingId);
+
+  // The recorder can end a session on its own (inactivity, max duration). Polling
+  // its state keeps the page from showing "Grabando" forever, and the stop path
+  // is idempotent, so it still collects the capture.
+  useEffect(() => {
+    if (state !== "recording" || recordingId === "") return;
+
+    const timer = setInterval(async () => {
+      if (stoppingRef.current) return;
+      try {
+        const res = await fetch("/api/recorder/healthz", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const active = typeof data.recordingId === "string" ? data.recordingId : null;
+        if (active !== recordingId) {
+          await finishRecording(recordingId);
+        }
+      } catch {
+        // Advisory only: a failed poll must not interrupt an ongoing recording.
+      }
+    }, 4000);
+
+    return () => clearInterval(timer);
+  }, [state, recordingId, finishRecording]);
 
   const goToReview = () => {
-    router.push(`/recorder/review?id=${recordingId}&name=${encodeURIComponent(recordingName || "Grabación sin título")}&url=${encodeURIComponent(startUrl)}`);
+    const id = saved?.id ?? recordingId;
+    router.push(`/recorder/review?id=${encodeURIComponent(id)}`);
   };
 
   // Setup state - without MainLayout for cleaner look
@@ -223,12 +304,33 @@ export default function RecorderPage() {
 
           <button
             onClick={stopRecording}
-            className="flex items-center gap-space-xs px-space-md py-space-sm bg-surface-container hover:bg-surface-container-high rounded-xl text-on-surface transition-colors"
+            disabled={stopping}
+            className="flex items-center gap-space-xs px-space-md py-space-sm bg-surface-container hover:bg-surface-container-high rounded-xl text-on-surface transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <span className="material-symbols-outlined text-[18px]">stop</span>
-            <span className="text-body-md font-medium">Detener Grabación</span>
+            {stopping ? (
+              <>
+                <div className="animate-spin w-4 h-4 border-2 border-on-surface border-t-transparent rounded-full" />
+                <span className="text-body-md font-medium">Deteniendo...</span>
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined text-[18px]">stop</span>
+                <span className="text-body-md font-medium">Detener Grabación</span>
+              </>
+            )}
           </button>
         </header>
+
+        {/* A stop that did not happen is reported here, next to the live session */}
+        {error && (
+          <div className="mx-space-md mt-space-md p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm flex items-center gap-space-sm">
+            <span className="material-symbols-outlined text-[16px]">error</span>
+            <span className="flex-1">{error}</span>
+            <button onClick={stopRecording} className="btn-secondary py-space-xs">
+              Reintentar
+            </button>
+          </div>
+        )}
 
         {/* Browser canvas */}
         <div className="p-space-md">
@@ -260,8 +362,17 @@ export default function RecorderPage() {
               Grabación Completada
             </h1>
             <p className="text-body-md text-on-surface-variant mb-space-xl">
-              Tu sesión de navegador ha sido capturada. Revisa las peticiones y guarda como escenario.
+              {saved
+                ? `${saved.name} · ${saved.requestCount} peticiones · ${saved.stepCount} pasos · ${Math.round(saved.durationMs / 1000)}s`
+                : "Tu sesión de navegador ha sido capturada. Revisa las peticiones y guarda como escenario."}
             </p>
+
+            {stopWarning && (
+              <div className="mb-space-lg p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm text-left">
+                <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle">warning</span>
+                {stopWarning}. Podés subir el archivo .ndjson a mano desde la pantalla de revisión.
+              </div>
+            )}
 
             <div className="flex justify-center gap-space-md">
               <button onClick={goToReview} className="btn-primary">
@@ -274,6 +385,8 @@ export default function RecorderPage() {
                   setRecordingId("");
                   setWsUrl("");
                   setError(null);
+                  setSaved(null);
+                  setStopWarning(null);
                 }}
                 className="btn-secondary"
               >

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   parseNDJSONCapture,
   extractMetadata,
+  extractNetworkEntries,
   groupBySteps,
   classifyNetworkEntry,
   calculateThinkTimes,
@@ -24,12 +25,73 @@ interface ReviewStep {
   thinkTime: number;
 }
 
+interface SavedRecordingInfo {
+  id: string;
+  name: string;
+  startUrl: string;
+  state: string;
+  requestCount: number;
+  stepCount: number;
+  scenarioId: string | null;
+}
+
 export default function RecorderReviewPage() {
   const [captureData, setCaptureData] = useState<NDJSONCaptureEvent[] | null>(null);
   const [reviewSteps, setReviewSteps] = useState<ReviewStep[]>([]);
   const [metadata, setMetadata] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Id of the recording this review was opened for, either from ?id= or from the
+  // capture metadata, so saving can link the scenario to its provenance.
+  const [recordingId, setRecordingId] = useState<string | null>(null);
+  const [savedRecordingName, setSavedRecordingName] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [scenarioName, setScenarioName] = useState("");
+
+  const applyCapture = useCallback((content: string, fallbackStepName: string) => {
+    const events = parseNDJSONCapture(content);
+    const meta = extractMetadata(events);
+    const stepGroups = groupBySteps(events);
+
+    // A capture can end before any step is marked (blank start page, or a stop
+    // right after the first navigation). Its requests are still what the user
+    // recorded, so they are reviewed as one implicit step instead of vanishing.
+    let groups: StepGroup[] = stepGroups;
+    if (groups.length === 0) {
+      const entries = extractNetworkEntries(events);
+      groups = entries.length === 0
+        ? []
+        : [
+            {
+              step: {
+                id: "step-capture",
+                name: fallbackStepName,
+                kind: "auto",
+                timestamp: meta?.startedAt ?? 0,
+              },
+              entries,
+              uiEvents: [],
+            },
+          ];
+    }
+    const thinkTimes = calculateThinkTimes(groups);
+
+    // Convert to review format
+    const steps: ReviewStep[] = groups.map((group, index) => ({
+      step: group.step,
+      entries: group.entries.map((entry) => ({
+        entry,
+        classification: classifyNetworkEntry(entry, meta?.startUrl || ""),
+        // Include core by default, exclude others
+        included: classifyNetworkEntry(entry, meta?.startUrl || "") === "core",
+      })),
+      thinkTime: thinkTimes[index] ?? 0,
+    }));
+
+    setCaptureData(events);
+    setMetadata(meta);
+    setReviewSteps(steps);
+  }, []);
 
   // Load capture file
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,32 +103,50 @@ export default function RecorderReviewPage() {
 
     try {
       const content = await file.text();
-      const events = parseNDJSONCapture(content);
-      const meta = extractMetadata(events);
-      const stepGroups = groupBySteps(events);
-      const thinkTimes = calculateThinkTimes(stepGroups);
-
-      // Convert to review format
-      const steps: ReviewStep[] = stepGroups.map((group, index) => ({
-        step: group.step,
-        entries: group.entries.map((entry) => ({
-          entry,
-          classification: classifyNetworkEntry(entry, meta?.startUrl || ""),
-          // Include core by default, exclude others
-          included: classifyNetworkEntry(entry, meta?.startUrl || "") === "core",
-        })),
-        thinkTime: thinkTimes[index] ?? 0,
-      }));
-
-      setCaptureData(events);
-      setMetadata(meta);
-      setReviewSteps(steps);
+      applyCapture(content, file.name.replace(/\.ndjson$/i, ""));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to parse capture file");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyCapture]);
+
+  /** Load the capture of the recording named in ?id=, straight from the library. */
+  const loadRecording = useCallback(async (id: string) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/recordings/${encodeURIComponent(id)}`, { cache: "no-store" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          res.status === 404
+            ? "Esta grabación no está guardada. Subí el archivo .ndjson a mano."
+            : data?.error || `No se pudo cargar la grabación (HTTP ${res.status})`,
+        );
+      }
+      if (typeof data?.capture !== "string" || data.capture === "") {
+        throw new Error("La grabación no tiene captura guardada. Subí el archivo .ndjson a mano.");
+      }
+
+      const recording = data.recording as SavedRecordingInfo | null;
+      setSavedRecordingName(recording?.name ?? null);
+      if (recording?.name) setScenarioName(recording.name);
+      applyCapture(data.capture, recording?.name ?? "Sesión completa");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load recording");
+    } finally {
+      setLoading(false);
+    }
+  }, [applyCapture]);
+
+  useEffect(() => {
+    const requestedId = new URLSearchParams(window.location.search).get("id");
+    if (requestedId === null || requestedId === "") return;
+    setRecordingId(requestedId);
+    void loadRecording(requestedId);
+  }, [loadRecording]);
 
   // Toggle entry inclusion
   const toggleEntry = useCallback((stepIndex: number, entryIndex: number) => {
@@ -110,9 +190,6 @@ export default function RecorderReviewPage() {
     return reviewSteps.reduce((acc, step) => acc + step.entries.length, 0);
   }, [reviewSteps]);
 
-  const [saving, setSaving] = useState(false);
-  const [scenarioName, setScenarioName] = useState("");
-
   // Generate scenario
   const handleSave = useCallback(async () => {
     if (!scenarioName.trim()) {
@@ -138,13 +215,15 @@ export default function RecorderReviewPage() {
           name: scenarioName,
           startUrl: metadata.startUrl,
           viewport: metadata.viewport,
-          recordingId: metadata.recordingId,
+          // The library entry this scenario came from, so provenance is linked.
+          recordingId: recordingId ?? metadata.recordingId,
           entries: includedEntries,
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save scenario");
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || `Failed to save scenario (HTTP ${response.status})`);
       }
 
       const result = await response.json();
@@ -155,13 +234,20 @@ export default function RecorderReviewPage() {
     } finally {
       setSaving(false);
     }
-  }, [reviewSteps, scenarioName, metadata]);
+  }, [reviewSteps, scenarioName, metadata, recordingId]);
 
   return (
     <div className="min-h-screen bg-gray-900 p-6 text-white">
       <h1 className="mb-6 text-2xl font-bold">Review Recording</h1>
 
-      {/* File upload */}
+      {savedRecordingName && (
+        <p className="mb-4 text-sm text-gray-400">
+          Recording: <span className="text-white">{savedRecordingName}</span>
+          {recordingId && <span className="ml-2 font-mono text-gray-500">{recordingId}</span>}
+        </p>
+      )}
+
+      {/* File upload — fallback when the capture is not in the library */}
       {!captureData && (
         <div className="rounded-lg border-2 border-dashed border-gray-700 p-8 text-center">
           <label className="cursor-pointer">
@@ -311,6 +397,10 @@ export default function RecorderReviewPage() {
                 setReviewSteps([]);
                 setMetadata(null);
                 setScenarioName("");
+                // Dropping the loaded recording keeps a later upload from being
+                // linked to the provenance of the one just cleared.
+                setRecordingId(null);
+                setSavedRecordingName(null);
               }}
             >
               Clear
