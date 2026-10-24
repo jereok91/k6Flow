@@ -74,16 +74,28 @@ export class CaptureWriter {
     });
   }
 
-  end(reason: string): void {
+  /**
+   * Write the end marker and resolve once the file is fully flushed to disk, so
+   * a caller that answers a stop request never exposes a truncated capture.
+   */
+  end(reason: string): Promise<void> {
     this.write({ 
       type: "end", 
       data: { endedAt: Date.now(), reason } 
     });
 
-    if (this.stream) {
-      this.stream.end();
-      this.stream = null;
-    }
+    const stream = this.stream;
+    this.stream = null;
+    if (!stream) return Promise.resolve();
+
+    return new Promise<void>((resolve) => {
+      stream.once("finish", () => resolve());
+      stream.once("error", (error) => {
+        console.error("[CaptureWriter] Close error:", error);
+        resolve();
+      });
+      stream.end();
+    });
   }
 
   private write(event: CaptureEvent): void {

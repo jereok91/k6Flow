@@ -74,7 +74,16 @@ function descendants(pid: number): string[] {
   return found;
 }
 const chromeCount = (pid: number) => descendants(pid).filter((c) => /chrom|headless_shell/i.test(c)).length;
-const stop = (base: string) => fetch(`${base}/stop`, { method: "POST", headers: auth });
+const stop = (base: string, recordingId?: string) =>
+  fetch(`${base}/stop`, {
+    method: "POST",
+    headers: auth,
+    ...(recordingId !== undefined && { body: JSON.stringify({ recordingId }) }),
+  });
+const captureOf = (base: string, recordingId: string, token = TOKEN) =>
+  fetch(`${base}/captures/${recordingId}`, {
+    ...(token !== "" && { headers: { Authorization: `Bearer ${token}` } }),
+  });
 
 afterEach(async () => {
   if (proc && proc.exitCode === null) {
@@ -93,7 +102,11 @@ describe("recorder lifecycle", () => {
     expect((await health(base)).state).toBe("RECORDING");
     const stopped = await stop(base);
     expect(stopped.status).toBe(200);
-    expect(await stopped.json()).toEqual({ status: "stopped" });
+    expect(await stopped.json()).toMatchObject({
+      status: "stopped",
+      recordingId: "rec-one",
+      reason: "manual",
+    });
 
     // Past the former 1s exit delay, the process must still be serving.
     expect(await exited(proc!, 2000)).toBe("running");
@@ -108,6 +121,58 @@ describe("recorder lifecycle", () => {
 
     // Each recording still writes its capture exactly once.
     expect(readdirSync(captureDir).sort()).toEqual(["rec-one.ndjson", "rec-two.ndjson"]);
+  }, 60_000);
+
+  it("reports what a stop actually ended and serves that capture back", async () => {
+    const base = await startRecorder();
+    expect((await start(base, "rec-served")).status).toBe(200);
+
+    const stopped = await stop(base, "rec-served");
+    expect(stopped.status).toBe(200);
+    const summary = await stopped.json();
+    expect(summary).toMatchObject({ status: "stopped", recordingId: "rec-served", reason: "manual" });
+    expect(summary.events).toBeGreaterThan(0);
+    expect(summary.durationMs).toBeGreaterThanOrEqual(0);
+
+    // The capture the stop reports is readable right after the answer: no reconnect,
+    // no manual file hunt, and the end marker is already on disk.
+    const served = await captureOf(base, summary.recordingId);
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toContain("application/x-ndjson");
+    const lines = (await served.text()).trim().split("\n").map((line) => JSON.parse(line));
+    expect(lines.at(-1)).toMatchObject({ type: "end", data: { reason: "manual" } });
+
+    // Unknown and unsafe ids are not readable, and the endpoint needs the token.
+    expect((await captureOf(base, "rec-never-written")).status).toBe(404);
+    expect((await captureOf(base, "..%2Fmain")).status).toBe(404);
+    expect((await captureOf(base, "rec-served", "")).status).toBe(401);
+  }, 60_000);
+
+  it("answers idle when there is nothing to stop", async () => {
+    const base = await startRecorder();
+
+    const idle = await stop(base);
+    expect(idle.status).toBe(200);
+    expect(await idle.json()).toMatchObject({ status: "idle", recordingId: null, events: 0 });
+
+    // A late stop for a recording that already ended still names its id, so the
+    // caller can fetch the capture it never collected.
+    const late = await stop(base, "rec-already-stopped");
+    expect(late.status).toBe(200);
+    expect(await late.json()).toMatchObject({ status: "idle", recordingId: "rec-already-stopped" });
+  }, 30_000);
+
+  it("refuses a stop aimed at another recording and keeps the live one running", async () => {
+    const base = await startRecorder();
+    expect((await start(base, "rec-live")).status).toBe(200);
+
+    const refused = await stop(base, "rec-other");
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: "Recording mismatch", recordingId: "rec-live" });
+    expect(await health(base)).toMatchObject({ recordingId: "rec-live", state: "RECORDING" });
+
+    expect((await stop(base, "rec-live")).status).toBe(200);
+    expect(await health(base)).toMatchObject({ recordingId: null, state: "idle" });
   }, 60_000);
 
   it("rejects stop without the token and keeps recording", async () => {

@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { WsServer } from "./ws-server";
 import { RecordingSession } from "./recording-session";
 import { CaptureWriter } from "./capture-writer";
+import { readCapture } from "./capture-store";
 import type { StreamingClientMessage } from "@k6flow/shared";
 
 // Configuration from environment
@@ -14,6 +15,7 @@ const VIEWPORT_WIDTH = parseInt(process.env.VIEWPORT_WIDTH || "1280", 10);
 const VIEWPORT_HEIGHT = parseInt(process.env.VIEWPORT_HEIGHT || "720", 10);
 const MAX_DURATION_MS = parseInt(process.env.MAX_DURATION_MS || "3600000", 10); // 1 hour default
 const INACTIVITY_MS = parseInt(process.env.INACTIVITY_MS || "300000", 10); // 5 min default
+const CAPTURE_DIR = process.env.CAPTURE_DIR || "/tmp/captures";
 
 // One recording session at a time; the process stays up between recordings.
 let session: RecordingSession | null = null;
@@ -27,6 +29,14 @@ let statsTimer: NodeJS.Timeout | null = null;
 const usedRecordingIds = new Set<string>();
 // Pending teardown; a new start waits for it so two sessions never overlap.
 let stopping: Promise<void> | null = null;
+
+/** What a teardown actually ended, reported back to whoever asked for the stop. */
+interface TeardownResult {
+  recordingId: string | null;
+  events: number;
+  durationMs: number;
+  reason: string;
+}
 
 // Stats tracking
 let framesSent = 0;
@@ -99,8 +109,7 @@ const httpServer = createServer((req, res) => {
         recordingId = recId;
 
         // Create capture writer for persistence
-        const outputDir = process.env.CAPTURE_DIR || "/tmp/captures";
-        const writer = new CaptureWriter(outputDir, recId);
+        const writer = new CaptureWriter(CAPTURE_DIR, recId);
         captureWriter = writer;
         writer.start({
           recordingId: recId,
@@ -249,13 +258,78 @@ const httpServer = createServer((req, res) => {
       return;
     }
 
-    stopRecording("manual").then(() => {
-      res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
-      res.end(JSON.stringify({ status: "stopped" }));
-    }).catch((error) => {
-      res.writeHead(500, { "Content-Type": "application/json", ...corsHeaders });
-      res.end(JSON.stringify({ error: error.message }));
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      let requestedId: string | null = null;
+      try {
+        const parsed = JSON.parse(body || "{}");
+        if (typeof parsed.recordingId === "string" && parsed.recordingId !== "") {
+          requestedId = parsed.recordingId;
+        }
+      } catch {
+        // An empty or malformed body means "stop whatever is running".
+      }
+
+      // A stop may only end the recording it names: stopping someone else's
+      // session would truncate a capture the caller never asked about.
+      if (requestedId !== null && recordingId !== null && requestedId !== recordingId) {
+        res.writeHead(409, { "Content-Type": "application/json", ...corsHeaders });
+        res.end(JSON.stringify({ error: "Recording mismatch", recordingId }));
+        return;
+      }
+
+      stopRecording("manual").then((result) => {
+        const endedId = result.recordingId ?? requestedId;
+        res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
+        res.end(JSON.stringify({
+          // "idle" means no session was running: the caller's id is echoed back so a
+          // capture written by an earlier automatic stop can still be collected.
+          status: result.recordingId === null ? "idle" : "stopped",
+          recordingId: endedId,
+          events: result.events,
+          durationMs: result.durationMs,
+          reason: result.reason,
+        }));
+      }).catch((error) => {
+        res.writeHead(500, { "Content-Type": "application/json", ...corsHeaders });
+        res.end(JSON.stringify({ error: error.message }));
+      });
     });
+    return;
+  }
+
+  // Finished capture download: the web tier persists it and the review screen
+  // reads it back, so a stop can be reviewed without hunting for a local file.
+  if (req.method === "GET" && req.url?.startsWith("/captures/")) {
+    const authHeader = req.headers.authorization;
+    if (authHeader !== `Bearer ${AUTH_TOKEN}`) {
+      res.writeHead(401, { "Content-Type": "application/json", ...corsHeaders });
+      res.end(JSON.stringify({ error: "Unauthorized" }));
+      return;
+    }
+
+    let requestedId: string;
+    try {
+      requestedId = decodeURIComponent(req.url.slice("/captures/".length).split("?")[0]);
+    } catch {
+      requestedId = "";
+    }
+
+    // readCapture validates the id before it can reach the filesystem.
+    const capture = readCapture(CAPTURE_DIR, requestedId);
+    if (capture === null) {
+      res.writeHead(404, { "Content-Type": "application/json", ...corsHeaders });
+      res.end(JSON.stringify({ error: "Capture not found" }));
+      return;
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "application/x-ndjson",
+      "Content-Length": Buffer.byteLength(capture),
+      ...corsHeaders,
+    });
+    res.end(capture);
     return;
   }
 
@@ -397,7 +471,7 @@ function startTimers(): void {
       const idleTime = Date.now() - lastActivityTime;
       if (idleTime > INACTIVITY_MS) {
         console.log("Stopping due to inactivity");
-        stopRecording("inactivity");
+        void stopRecording("inactivity").catch((error) => console.error("Idle stop failed:", error));
       }
     }
   }, 10000);
@@ -405,20 +479,20 @@ function startTimers(): void {
   // Max duration timer
   maxDurationTimer = setTimeout(() => {
     console.log("Stopping due to max duration");
-    stopRecording("max-duration");
+    void stopRecording("max-duration").catch((error) => console.error("Max-duration stop failed:", error));
   }, MAX_DURATION_MS);
 }
 
-function stopRecording(reason: string): Promise<void> {
+function stopRecording(reason: string): Promise<TeardownResult> {
   const run = teardown(reason);
-  const tracked: Promise<void> = run.catch(() => {}).then(() => {
+  const tracked: Promise<void> = run.then(() => {}, () => {}).then(() => {
     if (stopping === tracked) stopping = null;
   });
   stopping = tracked;
   return run;
 }
 
-async function teardown(reason: string): Promise<void> {
+async function teardown(reason: string): Promise<TeardownResult> {
   console.log(`Stopping recording: ${reason}`);
 
   if (inactivityTimer) {
@@ -436,25 +510,36 @@ async function teardown(reason: string): Promise<void> {
     statsTimer = null;
   }
 
-  if (captureWriter) {
-    captureWriter.end(reason);
-    console.log(`Capture written to: ${captureWriter.path} (${captureWriter.count} events)`);
-    captureWriter = null;
-  }
-
   const endingId = recordingId;
+  let durationMs = 0;
   if (session) {
     // Detach first so a concurrent stop is a no-op. Session callbacks are bound
     // to their own recordingId, so late events from `ending` cannot leak into a
     // recording started while it shuts down.
     const ending = session;
     session = null;
+    durationMs = ending.durationMs;
     await ending.stop();
   }
+
+  // Close the capture last, after the session stopped emitting events, and wait
+  // for the flush: a stop that answers before the file is on disk would let the
+  // caller read a truncated capture.
+  let events = 0;
+  if (captureWriter) {
+    const writer = captureWriter;
+    captureWriter = null;
+    await writer.end(reason);
+    events = writer.count;
+    console.log(`Capture written to: ${writer.path} (${events} events)`);
+  }
+
   // Only clear the id if no new recording took over during the await.
   if (recordingId === endingId && !session) {
     recordingId = null;
   }
+
+  return { recordingId: endingId, events, durationMs, reason };
 }
 
 // Graceful shutdown: only process signals end the process.
