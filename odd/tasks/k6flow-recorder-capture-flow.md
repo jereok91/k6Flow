@@ -100,7 +100,30 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
   `deploy/docker-compose.yml`; the operator pastes the block into their own `.env`. The pending
   ceiling values in `.env.example` were committed as-is (`bda6843`) so the example stops
   drifting from the running configuration.
-- L10 (slices): `9f3accd` recorder · `c2f439e` persistence API · `8a175e5` UI+compose ·
-  `255d732` idempotent repeat stop · `bda6843` env ceilings · `736000c` version 1 · `9ef6933`
-  deploy docs. Each slice carries its tests; the close state is 107 test files / 2117 tests
-  green and `pnpm typecheck` clean.
+- L11 (native review `review-38336b6c81a8adf7`, tier medium, 4 lenses + refuter): closed
+  `escalated` — `R3-001` causality unknown, four other findings corroborated with "probe
+  unavailable on pi". Findings and disposition:
+  - `R1-001` BLOCKER (capture stop/claim before ownership) → **fixed**: starting reserves the
+    library row for the caller, and stop refuses 400/404/403 before the recorder is called.
+    Live: stop as another user → 403 with the recorder still `RECORDING`; no id → 400;
+    unknown id → 404; owner → `persisted:true` with counts.
+  - `R4-001`/`R1-003`/`R3-003` (flush failure reported as success) → **fixed**: `end()`
+    rejects and the stop surfaces the failure.
+  - `R4-002` (duplicate stop opens a second teardown) → **fixed**: stops join the in-flight
+    teardown; pinned by a lifecycle test (one `end` event, both answers 200).
+  - `R3-001` (teardown closes a later recording's writer) → **fixed** by owning the writer
+    reference before the first await, plus `finally`-style close (also `R4-003`).
+  - `R3-002` (concurrent stops overwrite the terminal row) → **fixed**: conditional upsert
+    (`state <> 'completed'`) and the answer is the stored row; pinned by a route test.
+  - `R4-004` (save not atomic) → **fixed**: scenario + version 1 + link in one transaction.
+  - `R4-005` (health poll looping on 409) → **fixed**: a 409 now means "this recording
+    already ended", so its capture is collected and the page completes.
+  - `R3-004` (unreadable capture could kill the process) → **fixed**: guarded read answers 404.
+  - `R2-*` readability → **fixed**: no client-invented recording id, provenance only after a
+    successful load (upload clears it), one mapper for stored answers, name uses `startedAt`.
+  - `R1-002`/`R4-006`/`R3-005` (raised ceilings in `deploy/.env.example`) → **kept, flagged**:
+    they are the operator's own pending values, committed separately in `bda6843` so they can
+    be dropped alone if the reviewer prefers the baseline guard in the example.
+- L12 (fix slices): `ed19c86` recorder durability/idempotency · `6a424bc` web ownership,
+  atomic save, UI provenance. 108 test files / 2128 tests green; `pnpm typecheck` clean; live
+  dev run after a recorder rebuild. The user's own recordings (`tets`, `23`) were left intact.
