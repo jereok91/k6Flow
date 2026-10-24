@@ -29,8 +29,10 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     if (!row) {
       return jsonError(404, "Recording not found");
     }
+    // A foreign recording is indistinguishable from a missing one: recorder ids are
+    // timestamp-derived, so 403 would let anyone enumerate someone else's recordings.
     if (row.ownerId !== user.id && user.role !== "admin") {
-      return jsonError(403, "Forbidden");
+      return jsonError(404, "Recording not found");
     }
 
     return Response.json(

@@ -31,6 +31,8 @@ export default function RecorderPage() {
   const [stopWarning, setStopWarning] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const stoppingRef = useRef(false);
+  // Set once a stop cannot succeed by retrying (the recorder owns another session).
+  const stopPollingRef = useRef(false);
 
   const authToken = process.env.NEXT_PUBLIC_RECORDER_TOKEN || "dev-token";
 
@@ -103,6 +105,10 @@ export default function RecorderPage() {
     setError(null);
 
     try {
+      // Bounded: a hung request must not leave the stop button disabled and the
+      // health poll short-circuited forever.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
       const res = await fetch("/api/recorder/stop", {
         method: "POST",
         headers: {
@@ -115,13 +121,16 @@ export default function RecorderPage() {
           startUrl,
           viewport: { width: 1280, height: 720 },
         }),
-      });
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
 
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         const message = data && typeof data.error === "string"
           ? data.error
           : `No se pudo detener la grabación (HTTP ${res.status})`;
+        // 409 means this recording is not the live session: retrying it cannot help.
+        stopPollingRef.current = res.status === 409;
         throw new Error(message);
       }
 
@@ -154,7 +163,7 @@ export default function RecorderPage() {
     if (state !== "recording" || recordingId === "") return;
 
     const timer = setInterval(async () => {
-      if (stoppingRef.current) return;
+      if (stoppingRef.current || stopPollingRef.current) return;
       try {
         const res = await fetch("/api/recorder/healthz", { cache: "no-store" });
         if (!res.ok) return;

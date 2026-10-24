@@ -83,6 +83,20 @@ function toSavedRecording(row: RecordingRow): SavedRecording {
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
+/** Largest capture this tier will read and store, so one page cannot OOM it. */
+const MAX_CAPTURE_BYTES = (() => {
+  const configured = Number.parseInt(process.env.RECORDER_MAX_CAPTURE_BYTES ?? "", 10);
+  return Number.isFinite(configured) && configured > 0 ? configured : 32 * 1024 * 1024;
+})();
+
+/** Drop the recorder-side capture once the library holds it. Idempotent. */
+function releaseCapture(recordingId: string, token: string): void {
+  void fetch(`${recorderBaseUrl()}/captures/${encodeURIComponent(recordingId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => undefined);
+}
+
 export async function POST(request: Request): Promise<Response> {
   const user = await requireUser(request.headers.get("cookie"));
   if (user === null) {
@@ -116,13 +130,16 @@ export async function POST(request: Request): Promise<Response> {
     if (!row) {
       return jsonError(404, "Recording not found");
     }
-    // Ownership is decided here, before the stop request reaches the recorder.
+    // Ownership is decided here, before the stop request reaches the recorder. A
+    // foreign recording answers 404 so ids cannot be enumerated.
     if (row.ownerId !== user.id && user.role !== "admin") {
-      return jsonError(403, "Forbidden");
+      return jsonError(404, "Recording not found");
     }
     // A recording already saved is idempotent: answer the stored numbers instead
-    // of recomputing them from a second source.
+    // of recomputing them from a second source. A retry is also the last chance to
+    // release a capture whose earlier delete failed.
     if (row.state === "completed") {
+      releaseCapture(recordingId, token);
       return Response.json(
         { status: "idle", recordingId, persisted: true, recording: toSavedRecording(row) },
         { headers: NO_STORE },
@@ -136,7 +153,7 @@ export async function POST(request: Request): Promise<Response> {
 
   let stopAnswer: RecorderStopAnswer;
   // A refused stop is only forgiven once the capture proves the recording is over.
-  let rejection: { status: number; body: string } | null = null;
+  let rejection: { status: number } | null = null;
   try {
     const stopRes = await fetch(`${recorderBaseUrl()}/stop`, {
       method: "POST",
@@ -148,7 +165,8 @@ export async function POST(request: Request): Promise<Response> {
       // The recorder stopped nothing: this recording is not the live session, so it
       // ended on its own (inactivity or max duration). Whether its capture is final
       // is decided below, from the capture itself, never from this rejection.
-      rejection = { status: 409, body: text };
+      // The recorder's body names whichever session is live; never relay it.
+      rejection = { status: 409 };
       stopAnswer = { status: "ended", recordingId, durationMs: 0 };
     } else if (!stopRes.ok) {
       return new Response(text || JSON.stringify({ error: "Failed to stop recording" }), {
@@ -170,16 +188,33 @@ export async function POST(request: Request): Promise<Response> {
       `${recorderBaseUrl()}/captures/${encodeURIComponent(recordingId)}`,
       { headers: { Authorization: `Bearer ${token}` } },
     ).catch(() => null);
-    const capture = captureRes?.ok ? await captureRes.text() : null;
+    const oversized = Number(captureRes?.headers.get("content-length") ?? "0") > MAX_CAPTURE_BYTES;
+    const capture = captureRes?.ok && !oversized ? await captureRes.text() : null;
 
     if (capture === null) {
       if (rejection !== null) {
         // No capture and a refused stop: relay the rejection so the UI can keep the
         // session and retry instead of believing it finished.
-        return new Response(rejection.body || JSON.stringify({ error: "Failed to stop recording" }), {
-          status: rejection.status,
-          headers: { "Content-Type": "application/json", ...NO_STORE },
-        });
+        return jsonError(rejection.status, "Failed to stop recording");
+      }
+      if (oversized) {
+        return Response.json(
+          { status, recordingId, persisted: false, recording: null, warning: "Capture too large" },
+          { headers: NO_STORE },
+        );
+      }
+      // A concurrent retry may have won the race and deleted the file after saving
+      // it: answer with the stored row instead of claiming nothing was saved.
+      const [saved] = await db
+        .select(RECORDING_COLUMNS)
+        .from(recordings)
+        .where(eq(recordings.id, recordingId))
+        .limit(1);
+      if (saved?.state === "completed") {
+        return Response.json(
+          { status, recordingId, persisted: true, recording: toSavedRecording(saved) },
+          { headers: NO_STORE },
+        );
       }
       return Response.json(
         { status, recordingId, persisted: false, recording: null, warning: "Capture unavailable" },
@@ -194,10 +229,7 @@ export async function POST(request: Request): Promise<Response> {
     // review screen a truncated recording.
     if (!summary.complete) {
       if (rejection !== null) {
-        return new Response(rejection.body || JSON.stringify({ error: "Failed to stop recording" }), {
-          status: rejection.status,
-          headers: { "Content-Type": "application/json", ...NO_STORE },
-        });
+        return jsonError(rejection.status, "Failed to stop recording");
       }
       return Response.json(
         { status, recordingId, persisted: false, recording: null, warning: "Capture incomplete" },
@@ -205,9 +237,9 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const startUrl = stringField(body.startUrl) ?? existing.startUrl ?? summary.startUrl ?? "";
+    const startUrl = stringField(body.startUrl) || existing.startUrl || summary.startUrl || "";
     const name = defaultRecordingName(
-      stringField(body.name) ?? existing.name,
+      stringField(body.name) || existing.name,
       startUrl,
       summary.startedAt,
     );
@@ -253,10 +285,7 @@ export async function POST(request: Request): Promise<Response> {
 
     // The library holds the capture now; dropping the recorder-side file keeps
     // the capture volume bounded.
-    void fetch(`${recorderBaseUrl()}/captures/${encodeURIComponent(recordingId)}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => undefined);
+    releaseCapture(recordingId, token);
 
     return Response.json(
       { status, recordingId, persisted: true, recording: { ...saved, captureBytes: summary.bytes } },
@@ -264,9 +293,8 @@ export async function POST(request: Request): Promise<Response> {
     );
   } catch (error) {
     console.error("Failed to persist recording:", error);
-    return Response.json(
-      { status, recordingId, persisted: false, recording: null, warning: "Failed to save recording" },
-      { headers: NO_STORE },
-    );
+    // The capture is still on the recorder: a 5xx keeps the page retryable instead
+    // of telling the user the stop finished with nothing saved.
+    return jsonError(503, "Failed to save recording");
   }
 }

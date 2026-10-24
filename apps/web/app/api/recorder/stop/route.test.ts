@@ -119,15 +119,16 @@ describe("POST /api/recorder/stop", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("refuses a recording this user does not own, before stopping anything", async () => {
+  it("answers 404 for a recording this user does not own, before stopping anything", async () => {
     mocks.selectResults = [[{ ...reservedRow, ownerId: "someone-else" }]];
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await POST(request());
 
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "Forbidden" });
+    // Indistinguishable from a missing id: recorder ids are timestamp-derived.
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Recording not found" });
     // The destructive call never reaches the shared recorder session.
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.inserts).toHaveLength(0);
@@ -238,9 +239,10 @@ describe("POST /api/recorder/stop", () => {
     const response = await POST(request());
 
     // No capture means nothing proves the recording is over: the caller must see the
-    // rejection and retry instead of believing the stop succeeded.
+    // rejection and retry instead of believing the stop succeeded. The recorder's own
+    // body is never relayed, because it names whichever session is live.
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: "Recording mismatch", recordingId: "rec-other" });
+    expect(await response.json()).toEqual({ error: "Failed to stop recording" });
     expect(mocks.inserts).toHaveLength(0);
   });
 
@@ -266,7 +268,28 @@ describe("POST /api/recorder/stop", () => {
     expect(mocks.inserts).toHaveLength(0);
   });
 
+  it("refuses a capture larger than the tier will store", async () => {
+    // One endless recording must not force the web process to hold it in memory.
+    mocks.selectResults = [[reservedRow], []];
+    recorderAnswers(
+      () => stopAnswer({ status: "stopped", recordingId: "rec-1", events: 4, durationMs: 3000, reason: "manual" }),
+      () => new Response("", { status: 200, headers: { "content-length": String(64 * 1024 * 1024) } }),
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      persisted: false,
+      recording: null,
+      warning: "Capture too large",
+    });
+    expect(mocks.inserts).toHaveLength(0);
+  });
+
   it("does not claim persistence when the capture is gone", async () => {
+    // 1: the reserved row, 2: the re-read that looks for a row a retry already saved.
+    mocks.selectResults = [[reservedRow], []];
     recorderAnswers(
       () => stopAnswer({ status: "stopped", recordingId: "rec-1", events: 4, durationMs: 3000, reason: "manual" }),
       () => Response.json({ error: "Capture not found" }, { status: 404 }),
@@ -287,7 +310,7 @@ describe("POST /api/recorder/stop", () => {
 
   it("answers a recording already saved without stopping anything", async () => {
     mocks.selectResults = [[completedRow]];
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async () => Response.json({ status: "deleted" }));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await POST(request({ recordingId: "rec-1", name: "Otro nombre" }));
@@ -298,7 +321,10 @@ describe("POST /api/recorder/stop", () => {
       persisted: true,
       recording: { id: "rec-1", name: "Flujo de login", durationMs: 3000 },
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    // No stop call: the recording is over. The retry only releases a capture whose
+    // earlier delete failed.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "DELETE" });
     expect(mocks.inserts).toHaveLength(0);
   });
 

@@ -87,13 +87,14 @@ describe("GET /api/recordings/[id]", () => {
     expect(await response.json()).toEqual({ error: "Recording not found" });
   });
 
-  it("hides another user's recording", async () => {
+  it("hides another user's recording behind the same 404 as a missing one", async () => {
     mocks.selectLimit.mockResolvedValue([{ ...row, ownerId: "someone-else" }]);
 
     const response = await GET(request("rec-1"), context("rec-1"));
 
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "Forbidden" });
+    // 403 would confirm the id exists, and recorder ids are timestamp-derived.
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Recording not found" });
   });
 
   it("lets an admin read any recording", async () => {

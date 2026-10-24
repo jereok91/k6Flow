@@ -32,13 +32,15 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const rawBody = await request.text();
-  const body = (() => {
+  const parsed: unknown = (() => {
     try {
-      return JSON.parse(rawBody || "{}") as Record<string, unknown>;
+      return JSON.parse(rawBody || "{}");
     } catch {
-      return {} as Record<string, unknown>;
+      return null;
     }
   })();
+  // A literal `null` body parses fine and would blow up every later field read.
+  const body = (parsed !== null && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
   const token = recorderToken(request);
 
   // The recorder mints the recording id. Forwarding a client-supplied one would let
@@ -48,13 +50,14 @@ export async function POST(request: Request): Promise<Response> {
   delete forwarded.recordingId;
 
   let answer: Record<string, unknown>;
+  let text = "";
   try {
     const res = await fetch(`${recorderBaseUrl()}/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(forwarded),
     });
-    const text = await res.text();
+    text = await res.text();
     if (!res.ok) {
       // 401/409/500 from the recorder are the caller's answer, not ours.
       return new Response(text || JSON.stringify({ error: "Failed to start recording" }), {
@@ -62,10 +65,18 @@ export async function POST(request: Request): Promise<Response> {
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
     }
-    answer = JSON.parse(text || "{}") as Record<string, unknown>;
   } catch (error) {
     console.error("Recorder start proxy error:", error);
     return jsonError(502, "Failed to connect to recorder service");
+  }
+
+  try {
+    answer = JSON.parse(text || "{}") as Record<string, unknown>;
+  } catch (error) {
+    // A 2xx with a malformed body is a recorder contract violation, not a
+    // connection problem: say so instead of blaming the network.
+    console.error("Recorder start answered a malformed body:", error);
+    return jsonError(502, "Recorder answered an invalid start response");
   }
 
   const recordingId = stringField(answer.recordingId);
