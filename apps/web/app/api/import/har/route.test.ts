@@ -4,12 +4,18 @@ const mocks = vi.hoisted(() => ({
   requireUser: vi.fn(),
   insert: vi.fn(),
   values: vi.fn(),
+  transaction: vi.fn(),
+  /** Insert calls made through the transaction handle. */
+  txInsert: vi.fn(),
 }));
 
 vi.mock("../../../../lib/auth/require-user", () => ({ requireUser: mocks.requireUser }));
-vi.mock("../../../../lib/db/client", () => ({ getDb: () => ({ insert: mocks.insert }) }));
+vi.mock("../../../../lib/db/client", () => ({
+  getDb: () => ({ insert: mocks.insert, transaction: mocks.transaction }),
+}));
 
 import { graphDraftCompositionSchema } from "@k6flow/shared";
+import { scenarioVariables, scenarios } from "../../../../lib/db/schema";
 import { POST } from "./route";
 
 const COOKIE = "k6flow_session=cookie-secret-token";
@@ -84,6 +90,27 @@ const credentialedHarBody = () => ({
   },
 });
 
+// The same token travels as `Authorization` and as an API key header, so two
+// suggestions carry one value and only the first of them can be applied.
+const sharedTokenHarBody = () => ({
+  log: {
+    version: "1.2",
+    creator: { name: "test", version: "1" },
+    entries: [
+      harEntry({
+        url: "https://api.example.com/v1/status",
+        startedDateTime: "2026-01-01T00:00:00.000Z",
+        headers: { authorization: "Bearer abc123", "x-api-key": "Bearer abc123" },
+      }),
+      harEntry({
+        url: "https://api.example.com/v1/users",
+        startedDateTime: "2026-01-01T00:00:03.000Z",
+        headers: { authorization: "Bearer abc123", "x-api-key": "Bearer abc123" },
+      }),
+    ],
+  },
+});
+
 const request = (body: unknown) => new Request("http://localhost/api/import/har", {
   method: "POST",
   body: JSON.stringify(body),
@@ -107,7 +134,22 @@ type StoredComposition = {
   nodes: Array<{ id: string; kind: string; label?: string; parameters?: StoredParameters }>;
   connections: StoredConnection[];
 };
-const storedGraph = () => mocks.values.mock.calls[0][0].graph as StoredComposition;
+type StoredVariableRow = {
+  id: string;
+  scenarioId: string;
+  name: string;
+  value: string;
+  secret: boolean;
+};
+
+/** Payloads written to `table` through the transaction handle, in call order. */
+const insertsInto = (table: unknown): unknown[] => mocks.values.mock.calls
+  .filter(([written]) => written === table)
+  .map(([, payload]) => payload);
+
+const storedScenario = () => insertsInto(scenarios)[0] as { id: string; graph: StoredComposition };
+const storedGraph = () => storedScenario().graph;
+const storedVariableRows = () => insertsInto(scenarioVariables)[0] as StoredVariableRow[] | undefined;
 const storedWaits = () => storedGraph().connections.map((connection) => connection.waitSeconds);
 const storedUrls = () => storedGraph().nodes.map((node) => node.parameters?.url?.value);
 const storedHeaders = (index: number) =>
@@ -118,9 +160,16 @@ describe("POST /api/import/har", () => {
     mocks.requireUser.mockResolvedValue(user);
     mocks.values.mockResolvedValue(undefined);
     mocks.insert.mockReturnValue({ values: mocks.values });
+    mocks.txInsert.mockImplementation((table: unknown) => ({
+      values: (payload: unknown) => mocks.values(table, payload),
+    }));
+    mocks.transaction.mockImplementation(
+      (callback: (tx: unknown) => Promise<unknown>) => callback({ insert: mocks.txInsert }),
+    );
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -281,6 +330,100 @@ describe("POST /api/import/har", () => {
       ["authorization", "Bearer abc123"],
       ["cookie", "session=abc123"],
     ]);
+  });
+
+  it("declares no variables when applySuggestedVariables is false", async () => {
+    const response = await POST(request({
+      name: "Imported flow",
+      har: credentialedHarBody(),
+      applySuggestedVariables: false,
+    }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as Record<string, unknown>;
+    // No rows, and the response keeps exactly the shape it had before variables
+    // could be declared.
+    expect(storedVariableRows()).toBeUndefined();
+    expect(Object.keys(body)).toEqual(["id", "name", "stats", "warnings", "variableSuggestions"]);
+    // Suggestions are still reported; they are advice, not declarations.
+    expect(body.variableSuggestions).toHaveLength(4);
+  });
+
+  it("declares one variable row per applied suggestion, with its value and secret flag", async () => {
+    const response = await POST(request({
+      name: "Imported flow",
+      har: credentialedHarBody(),
+      applySuggestedVariables: true,
+    }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as { id: string; declaredVariables: string[] };
+    expect(body.declaredVariables).toEqual(["baseUrl", "authToken", "cookie_session", "token"]);
+
+    const rows = storedVariableRows() ?? [];
+    // Name, detected value and secret flag, in suggestion order. The host is not
+    // a secret; the credentials are, and keep their value so the scenario runs.
+    expect(rows.map((row) => [row.name, row.value, row.secret])).toEqual([
+      ["baseUrl", "https://api.example.com", false],
+      ["authToken", "Bearer abc123", true],
+      ["cookie_session", "abc123", true],
+      ["token", "supersecret1", true],
+    ]);
+    // Every row belongs to the scenario the response returns, with its own id.
+    expect(rows.map((row) => row.scenarioId)).toEqual([body.id, body.id, body.id, body.id]);
+    expect(new Set(rows.map((row) => row.id)).size).toBe(4);
+  });
+
+  it("declares nothing for a suggestion whose placeholder never reached the stored composition", async () => {
+    const response = await POST(request({
+      name: "Imported flow",
+      har: sharedTokenHarBody(),
+      applySuggestedVariables: true,
+    }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as {
+      declaredVariables: string[];
+      variableSuggestions: Array<{ name: string; value: string }>;
+    };
+    // Both suggestions were proposed: `authToken` and the API key header share one
+    // value, and the longest-first pass consumes it once.
+    expect(body.variableSuggestions.map((suggestion) => [suggestion.name, suggestion.value])).toEqual([
+      ["baseUrl", "https://api.example.com"],
+      ["authToken", "Bearer abc123"],
+      ["x-api-key", "Bearer abc123"],
+    ]);
+    // Only the suggestions whose placeholder is in the stored graph are declared,
+    // so no variable is created for a placeholder nothing references.
+    expect(body.declaredVariables).toEqual(["baseUrl", "authToken"]);
+    expect((storedVariableRows() ?? []).map((row) => row.name)).toEqual(["baseUrl", "authToken"]);
+    expect(storedHeaders(0)).toEqual([
+      ["authorization", "{{authToken}}"],
+      ["x-api-key", "{{authToken}}"],
+    ]);
+  });
+
+  it("fails the whole import when the variable rows cannot be written", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.values.mockImplementation((table: unknown) =>
+      table === scenarioVariables
+        ? Promise.reject(new Error("insert failed"))
+        : Promise.resolve(undefined));
+
+    const response = await POST(request({
+      name: "Imported flow",
+      har: credentialedHarBody(),
+      applySuggestedVariables: true,
+    }));
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Failed to import HAR" });
+    // Both writes go through one transaction handle and nothing is written outside
+    // it, so the database rolls the scenario back instead of leaving a scenario
+    // whose placeholders would dangle.
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.values.mock.calls.map(([table]) => table)).toEqual([scenarios, scenarioVariables]);
   });
 
   it("rejects an applySuggestedVariables flag that is not a boolean", async () => {

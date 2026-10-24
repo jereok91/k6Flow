@@ -4,10 +4,10 @@
 
 import { randomUUID } from "node:crypto";
 import { getDb } from "../../../../lib/db/client";
-import { scenarios } from "../../../../lib/db/schema";
+import { scenarioVariables, scenarios } from "../../../../lib/db/schema";
 import { requireUser } from "../../../../lib/auth/require-user";
 import { jsonError } from "../../../../lib/auth/http";
-import { applyVariableSuggestions, harGraphToComposition, importHar, isHarResourceType, suggestHarVariables, validateHar, type HarImportOptions, type HarResourceType } from "@k6flow/shared";
+import { applyVariableSuggestions, harGraphToComposition, importHar, isHarResourceType, suggestHarVariables, validateHar, type GraphDraftComposition, type HarImportOptions, type HarResourceType, type HarVariableSuggestion } from "@k6flow/shared";
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -141,6 +141,25 @@ function parseImportOptions(
   return { ok: true, value: importOptions };
 }
 
+/**
+ * Suggestions that really reached the stored composition.
+ *
+ * Only a placeholder that is in the stored graph needs a declared variable: a
+ * suggestion whose value was already consumed by an earlier one (the same token
+ * can serve as `Authorization` and as an API key header) would otherwise declare
+ * a variable that nothing references.
+ * A placeholder is made of `{{`, a name matching `VARIABLE_NAME_PATTERN` and
+ * `}}`, so it never contains a character JSON escapes: searching the serialized
+ * composition for it is exact.
+ */
+function appliedSuggestions(
+  composition: GraphDraftComposition,
+  suggestions: readonly HarVariableSuggestion[],
+): HarVariableSuggestion[] {
+  const serialized = JSON.stringify(composition);
+  return suggestions.filter((suggestion) => serialized.includes(`{{${suggestion.name}}}`));
+}
+
 // POST /api/import/har - import HAR file as scenario
 export async function POST(request: Request): Promise<Response> {
   const cookieHeader = request.headers.get("cookie");
@@ -161,6 +180,9 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(400, "Scenario name is required");
   }
 
+  // Captured once so the narrowing survives the transaction callback below.
+  const scenarioName = body.name;
+
   if (!body.har) {
     return jsonError(400, "HAR data is required");
   }
@@ -169,7 +191,7 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(400, "Invalid HAR format");
   }
 
-  const parsedOptions = parseImportOptions(body.name, body.options);
+  const parsedOptions = parseImportOptions(scenarioName, body.options);
   if (!parsedOptions.ok) {
     return jsonError(400, parsedOptions.error);
   }
@@ -194,28 +216,57 @@ export async function POST(request: Request): Promise<Response> {
     // Variables are suggested per case and applied only on request (S4/D4): the
     // caller sees every candidate, and placeholders are written into the stored
     // graph only when `applySuggestedVariables` asks for it.
+    const applyVariables = applySuggestedVariables.value === true;
     const variableSuggestions = suggestHarVariables(result.graph, bridged.composition);
-    const composition = applySuggestedVariables.value === true
+    const composition = applyVariables
       ? applyVariableSuggestions(bridged.composition, variableSuggestions)
       : bridged.composition;
 
-    // Save as scenario
+    // Accepting a suggestion must leave a runnable scenario behind: a `{{name}}`
+    // placeholder whose variable was never declared dangles at run time.
+    const declaredSuggestions = applyVariables
+      ? appliedSuggestions(composition, variableSuggestions)
+      : [];
+
+    // Save the scenario and its declared variables in one transaction, so a
+    // variable insert that fails cannot leave a scenario with dangling
+    // placeholders behind; the failure surfaces as the usual 500 below.
     const db = getDb();
     const scenarioId = randomUUID();
 
-    await db.insert(scenarios).values({
-      id: scenarioId,
-      ownerId: user.id,
-      name: body.name,
-      graph: composition,
+    await db.transaction(async (tx) => {
+      await tx.insert(scenarios).values({
+        id: scenarioId,
+        ownerId: user.id,
+        name: scenarioName,
+        graph: composition,
+      });
+
+      if (declaredSuggestions.length === 0) return;
+
+      const now = new Date();
+      // The detected value is stored concretely so the scenario is runnable right
+      // away; `secret` sends it through the k6 secret env path at run time.
+      await tx.insert(scenarioVariables).values(declaredSuggestions.map((suggestion) => ({
+        id: randomUUID(),
+        scenarioId,
+        name: suggestion.name,
+        value: suggestion.value,
+        secret: suggestion.secret,
+        createdAt: now,
+        updatedAt: now,
+      })));
     });
 
     return Response.json({
       id: scenarioId,
-      name: body.name,
+      name: scenarioName,
       stats: result.stats,
       warnings: [...result.warnings, ...bridged.warnings],
       variableSuggestions,
+      // Additive field, present only when the caller asked for the placeholders so
+      // a plain import keeps the exact response it had before.
+      ...(applyVariables ? { declaredVariables: declaredSuggestions.map((s) => s.name) } : {}),
     }, { status: 201 });
   } catch (e) {
     console.error("Failed to import HAR:", e);
