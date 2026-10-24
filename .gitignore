@@ -22,3 +22,6 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Referencia local del usuario (export real con dominios internos): no versionar
+docs/examploHar.har

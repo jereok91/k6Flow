@@ -158,6 +158,13 @@ export type {
 // HAR import
 export { importHar, validateHar } from './har-import';
 export { harGraphToComposition } from './har-to-composition';
+export {
+  suggestHarVariables, applyVariableSuggestions,
+  HAR_VARIABLE_KINDS, HAR_VARIABLE_REASON_CODES,
+} from './har-variables';
+export type {
+  HarVariableSuggestion, HarVariableKind, HarVariableReasonCode,
+} from './har-variables';
 export { HAR_RESOURCE_TYPES, classifyHarEntry, isHarResourceType } from './har-import';
 export type {
   Har, HarEntry, HarLog, HarImportOptions, HarImportResult,

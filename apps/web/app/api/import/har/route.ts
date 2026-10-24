@@ -7,13 +7,15 @@ import { getDb } from "../../../../lib/db/client";
 import { scenarios } from "../../../../lib/db/schema";
 import { requireUser } from "../../../../lib/auth/require-user";
 import { jsonError } from "../../../../lib/auth/http";
-import { harGraphToComposition, importHar, isHarResourceType, validateHar, type HarImportOptions, type HarResourceType } from "@k6flow/shared";
+import { applyVariableSuggestions, harGraphToComposition, importHar, isHarResourceType, suggestHarVariables, validateHar, type HarImportOptions, type HarResourceType } from "@k6flow/shared";
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 interface HarImportRequestBody {
   name?: string;
   har?: unknown;
+  /** Replace the suggested values with `{{name}}` placeholders (default false). */
+  applySuggestedVariables?: unknown;
   options?: {
     excludeStatic?: unknown;
     mainDocumentsOnly?: unknown;
@@ -172,6 +174,11 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(400, parsedOptions.error);
   }
 
+  const applySuggestedVariables = parseBoolean("applySuggestedVariables", body.applySuggestedVariables);
+  if (!applySuggestedVariables.ok) {
+    return jsonError(400, applySuggestedVariables.error);
+  }
+
   try {
     // Import HAR
     const result = importHar(body.har, parsedOptions.value);
@@ -184,6 +191,14 @@ export async function POST(request: Request): Promise<Response> {
     // HAR graph is converted before it is stored (D5).
     const bridged = harGraphToComposition(result.graph);
 
+    // Variables are suggested per case and applied only on request (S4/D4): the
+    // caller sees every candidate, and placeholders are written into the stored
+    // graph only when `applySuggestedVariables` asks for it.
+    const variableSuggestions = suggestHarVariables(result.graph, bridged.composition);
+    const composition = applySuggestedVariables.value === true
+      ? applyVariableSuggestions(bridged.composition, variableSuggestions)
+      : bridged.composition;
+
     // Save as scenario
     const db = getDb();
     const scenarioId = randomUUID();
@@ -192,7 +207,7 @@ export async function POST(request: Request): Promise<Response> {
       id: scenarioId,
       ownerId: user.id,
       name: body.name,
-      graph: bridged.composition,
+      graph: composition,
     });
 
     return Response.json({
@@ -200,6 +215,7 @@ export async function POST(request: Request): Promise<Response> {
       name: body.name,
       stats: result.stats,
       warnings: [...result.warnings, ...bridged.warnings],
+      variableSuggestions,
     }, { status: 201 });
   } catch (e) {
     console.error("Failed to import HAR:", e);

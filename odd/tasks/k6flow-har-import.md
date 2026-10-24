@@ -29,8 +29,12 @@ S4 — (opcional) detectar host, token o cookie como variables fáciles de actua
   y el hueco hasta la siguiente se escribe como `waitSeconds` en la conexión, que
   es el campo que el traductor ya convierte en `sleep()`. Se acota a 0..3600 y se
   puede desactivar con `useHarTimings`.
-- D4 — Las variables (S4) quedan para una rebanada aparte: el importador no va a
-  inventar placeholders hasta definir el plan de variables.
+- D4 — Las variables (S4) se resuelven en una rebanada aparte (T7) y el importador
+  **sugiere, no impone**: detecta candidatos con su motivo y solo aplica placeholders
+  cuando el llamador lo pide explícitamente.
+- D6 — El usuario dispuso que `docs/examploHar.har` **no se versiona** (export real con
+  dominios internos): queda en `.gitignore` y los tests de aceptación se saltan cuando
+  falta.
 - D5 — (hallazgo del padre, bloquea el objetivo real de S1) `POST /api/import/har`
   guarda `result.graph` crudo en `scenarios.graph`, pero ese grafo es
   `HarImportedGraph` (`{nodes: Record, edges:[{from,to,waitSeconds}], startNode}`)
@@ -53,6 +57,9 @@ S4 — (opcional) detectar host, token o cookie como variables fáciles de actua
 - [x] T5 Suites y cierre.
 - [x] T6 Puente `HarImportedGraph → GraphDraftComposition` (D5): conversión con tests,
       usada por la ruta antes de guardar, para que el escenario importado abra en el editor.
+- [x] T7 Variables sugeridas por caso (S4/D4): detectar host, `Authorization`, cookies,
+      API keys y tokens en query; devolver sugerencias con motivo y secreto sí/no, sin
+      aplicarlas salvo pedido explícito; aplicar placeholders `{{nombre}}` en la composición.
 
 ## Log
 
@@ -95,4 +102,22 @@ credenciales. Falta decidir si se commitea tal cual, saneado o se deja fuera.
 - Para POST/PUT el importador conserva el header `Content-Type` y el traductor emite el
   suyo por el tipo de body, así que el objeto `headers` puede llevar dos claves
   `Content-Type` (gana la última). Comportamiento preexistente, no de esta feature.
+
+## T7 — variables sugeridas (evidencia)
+
+`har-variables.ts` (533 líneas) + 29 tests; ruta +20/−1 con 4 tests nuevos.
+
+Aceptación sobre `docs/examploHar.har`: **2 sugerencias, ambas `host`**, no secretas,
+`baseUrl1` y `baseUrl2` (ocurrencias 1 y 15), `reasonCode: repeated-origin`, **cero**
+de authorization/cookie/api-key/query — el archivo no trae esas cabeceras y ninguno de
+sus parámetros de query coincide con el patrón de credenciales.
+
+Casos donde deliberadamente **no** sugiere (un variable sería una mentira):
+authorization que nunca se repite (tokens por request); cookie o API key con valores
+distintos entre requests; pares cookie vacíos; query cuyo nombre no parece credencial
+o cuyo valor tiene menos de 8 caracteres; query con valor variable; URL no parseable.
+Al aplicar, ignora sugerencias con nombre inválido o valor vacío, para no corromper una
+composición armada a mano.
+
+Verificación del padre: 43 tests focales, `pnpm test` **2027**, typecheck 0/0, build 0.
 

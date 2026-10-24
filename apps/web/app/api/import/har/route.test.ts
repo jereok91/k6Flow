@@ -22,6 +22,7 @@ interface EntrySpec {
   mimeType?: string;
   startedDateTime: string;
   time?: number;
+  headers?: Record<string, string>;
 }
 
 const harEntry = (spec: EntrySpec) => ({
@@ -31,7 +32,7 @@ const harEntry = (spec: EntrySpec) => ({
     method: spec.method ?? "GET",
     url: spec.url,
     httpVersion: "http/2",
-    headers: [],
+    headers: Object.entries(spec.headers ?? {}).map(([name, value]) => ({ name, value })),
     queryString: [],
     headersSize: 0,
     bodySize: 0,
@@ -63,6 +64,26 @@ const harBody = () => ({
   },
 });
 
+// Two requests of the same origin that share a credential and query a token.
+const credentialedHarBody = () => ({
+  log: {
+    version: "1.2",
+    creator: { name: "test", version: "1" },
+    entries: [
+      harEntry({
+        url: "https://api.example.com/v1/status",
+        startedDateTime: "2026-01-01T00:00:00.000Z",
+        headers: { authorization: "Bearer abc123", cookie: "session=abc123" },
+      }),
+      harEntry({
+        url: "https://api.example.com/v1/users?token=supersecret1",
+        startedDateTime: "2026-01-01T00:00:03.000Z",
+        headers: { authorization: "Bearer abc123" },
+      }),
+    ],
+  },
+});
+
 const request = (body: unknown) => new Request("http://localhost/api/import/har", {
   method: "POST",
   body: JSON.stringify(body),
@@ -75,14 +96,22 @@ const importRequest = (options?: Record<string, unknown>) => request({
   ...(options === undefined ? {} : { options }),
 });
 
+type StoredParameterValue = { kind: string; value?: string };
+type StoredParameters = {
+  url?: StoredParameterValue;
+  headers?: Array<{ name: string; value: StoredParameterValue }>;
+};
 type StoredConnection = { source: string; target: string; waitSeconds?: number };
 type StoredComposition = {
   version: number;
-  nodes: Array<{ id: string; kind: string; label?: string }>;
+  nodes: Array<{ id: string; kind: string; label?: string; parameters?: StoredParameters }>;
   connections: StoredConnection[];
 };
 const storedGraph = () => mocks.values.mock.calls[0][0].graph as StoredComposition;
 const storedWaits = () => storedGraph().connections.map((connection) => connection.waitSeconds);
+const storedUrls = () => storedGraph().nodes.map((node) => node.parameters?.url?.value);
+const storedHeaders = (index: number) =>
+  storedGraph().nodes[index].parameters?.headers?.map((header) => [header.name, header.value.value]);
 
 describe("POST /api/import/har", () => {
   beforeEach(() => {
@@ -188,6 +217,82 @@ describe("POST /api/import/har", () => {
       'Content type "multipart/form-data" on "Step 1: POST /v1/upload" cannot be represented by the typed body; the body was imported as text',
     ]);
     expect(graphDraftCompositionSchema.safeParse(storedGraph()).success).toBe(true);
+  });
+
+  it("returns the variable suggestions without applying them by default", async () => {
+    const response = await POST(importRequest());
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as { variableSuggestions: Array<Record<string, unknown>> };
+    expect(body.variableSuggestions).toEqual([{
+      name: "baseUrl",
+      value: "https://api.example.com",
+      secret: false,
+      kind: "host",
+      occurrences: 3,
+      reasonCode: "single-origin",
+      detail: "All 3 imported requests use the origin https://api.example.com",
+    }]);
+    // Suggestions are advice: the stored graph keeps the concrete origin.
+    expect(storedUrls()).toEqual([
+      "https://api.example.com/v1/status",
+      "https://api.example.com/v1/login",
+      "https://api.example.com/v1/users",
+    ]);
+  });
+
+  it("applies the suggestions when the request sets applySuggestedVariables", async () => {
+    const response = await POST(request({
+      name: "Imported flow",
+      har: credentialedHarBody(),
+      applySuggestedVariables: true,
+    }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as { variableSuggestions: Array<{ name: string }> };
+    expect(body.variableSuggestions.map((suggestion) => suggestion.name))
+      .toEqual(["baseUrl", "authToken", "cookie_session", "token"]);
+    expect(storedUrls()).toEqual([
+      "{{baseUrl}}/v1/status",
+      "{{baseUrl}}/v1/users?token={{token}}",
+    ]);
+    // The shared credential is gone from the stored graph, and the cookie value
+    // (a substring of the authorization value) survived the longest-first pass.
+    expect(storedHeaders(0)).toEqual([
+      ["authorization", "{{authToken}}"],
+      ["cookie", "session={{cookie_session}}"],
+    ]);
+    expect(graphDraftCompositionSchema.safeParse(storedGraph()).success).toBe(true);
+  });
+
+  it("stores the concrete values when applySuggestedVariables is false", async () => {
+    const response = await POST(request({
+      name: "Imported flow",
+      har: credentialedHarBody(),
+      applySuggestedVariables: false,
+    }));
+
+    expect(response.status).toBe(201);
+    expect(storedUrls()).toEqual([
+      "https://api.example.com/v1/status",
+      "https://api.example.com/v1/users?token=supersecret1",
+    ]);
+    expect(storedHeaders(0)).toEqual([
+      ["authorization", "Bearer abc123"],
+      ["cookie", "session=abc123"],
+    ]);
+  });
+
+  it("rejects an applySuggestedVariables flag that is not a boolean", async () => {
+    const response = await POST(request({
+      name: "Imported flow",
+      har: harBody(),
+      applySuggestedVariables: "yes",
+    }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "applySuggestedVariables must be a boolean" });
+    expect(mocks.values).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown resource type instead of importing unfiltered", async () => {
