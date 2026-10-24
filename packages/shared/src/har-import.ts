@@ -25,12 +25,58 @@ export interface HarImportedNode {
 
 export interface HarImportedGraph {
   nodes: Record<string, HarImportedNode>;
-  edges: Array<{ from: string; to: string }>;
+  edges: Array<{ from: string; to: string; waitSeconds?: number }>;
   startNode?: string;
+}
+
+// Resource type vocabulary DevTools uses in its Network panel filter row. The
+// importer classifies every entry into exactly one of these (D2).
+export const HAR_RESOURCE_TYPES = [
+  "document",
+  "xhr",
+  "fetch",
+  "script",
+  "stylesheet",
+  "image",
+  "font",
+  "media",
+  "websocket",
+  "other",
+] as const;
+
+export type HarResourceType = (typeof HAR_RESOURCE_TYPES)[number];
+
+const RESOURCE_TYPE_SET: ReadonlySet<string> = new Set(HAR_RESOURCE_TYPES);
+
+// Chrome/Edge write `_resourceType` with their own capitalisation ("Fetch",
+// "Stylesheet", ...). Lowercased names map to the shared vocabulary; the kinds
+// DevTools shows outside the filter row collapse into "other".
+const RESOURCE_TYPE_ALIASES: Readonly<Record<string, HarResourceType>> = {
+  document: "document",
+  xhr: "xhr",
+  fetch: "fetch",
+  script: "script",
+  stylesheet: "stylesheet",
+  image: "image",
+  font: "font",
+  media: "media",
+  websocket: "websocket",
+  other: "other",
+  manifest: "other",
+  texttrack: "other",
+  ping: "other",
+  prefetch: "other",
+  signedexchange: "other",
+};
+
+export function isHarResourceType(value: unknown): value is HarResourceType {
+  return typeof value === "string" && RESOURCE_TYPE_SET.has(value);
 }
 
 // HAR 1.2 types (simplified)
 export interface HarEntry {
+  /** DevTools extension (Chrome/Edge): "Document", "XHR", "Fetch", ... */
+  _resourceType?: string;
   startedDateTime: string;
   time: number;
   request: {
@@ -101,6 +147,28 @@ export interface HarImportOptions {
   mainDocumentsOnly?: boolean;
   /** Group requests into steps by time gap (ms) */
   stepGapMs?: number;
+  /**
+   * Keep only these resource types. Absent or empty means every type, and
+   * values inside one kind are ORed (D1).
+   */
+  includeResourceTypes?: readonly HarResourceType[];
+  /** Drop these resource types. Absent or empty drops nothing. */
+  excludeResourceTypes?: readonly HarResourceType[];
+  /** Keep only these HTTP methods (case-insensitive). Absent or empty keeps all. */
+  methods?: readonly string[];
+  /** Inclusive lower bound on the response status. */
+  statusMin?: number;
+  /** Inclusive upper bound on the response status. */
+  statusMax?: number;
+  /** Keep only requests whose host is one of these domains or a subdomain. */
+  includeDomains?: readonly string[];
+  /** Drop requests whose host is one of these domains or a subdomain. */
+  excludeDomains?: readonly string[];
+  /**
+   * Derive each connection's `waitSeconds` from the HAR timings (default true).
+   * Set false to import the same graph without waits.
+   */
+  useHarTimings?: boolean;
 }
 
 export interface HarImportResult {
@@ -152,6 +220,88 @@ function isThirdParty(url: string, baseHost?: string): boolean {
   } catch {
     return false;
   }
+}
+
+function classifyMimeType(mimeType: string): HarResourceType {
+  const mime = mimeType.toLowerCase().split(";")[0].trim();
+  if (mime.length === 0) return "other";
+  if (mime.includes("html")) return "document";
+  if (mime.includes("css")) return "stylesheet";
+  if (mime.includes("javascript") || mime.includes("ecmascript")) return "script";
+  if (mime.startsWith("image/")) return "image";
+  // font/woff2, application/font-woff, application/x-font-ttf, ...
+  if (mime.startsWith("font/") || mime.includes("font") || mime.includes("woff")
+    || mime.includes("truetype") || mime.includes("opentype")) return "font";
+  if (mime.startsWith("audio/") || mime.startsWith("video/")) return "media";
+  // XHR and fetch share the same payload mime types; without `_resourceType`
+  // the DevTools default for structured payloads is XHR.
+  if (mime === "application/json" || mime.endsWith("+json")
+    || mime.includes("xml") || mime === "application/x-www-form-urlencoded") return "xhr";
+  return "other";
+}
+
+function hasWebSocketUrl(url: string): boolean {
+  const lower = url.trim().toLowerCase();
+  return lower.startsWith("ws://") || lower.startsWith("wss://");
+}
+
+/**
+ * Classify a HAR entry into the DevTools resource type vocabulary (D2).
+ * `_resourceType` wins when the export carries a known DevTools name; otherwise
+ * the response `content.mimeType` decides, and anything unrecognised is
+ * `other`.
+ */
+export function classifyHarEntry(entry: HarEntry): HarResourceType {
+  const declared = typeof entry._resourceType === "string"
+    ? entry._resourceType.trim().toLowerCase()
+    : "";
+  const aliased = declared.length > 0 ? RESOURCE_TYPE_ALIASES[declared] : undefined;
+  if (aliased !== undefined) return aliased;
+  if (hasWebSocketUrl(entry.request.url)) return "websocket";
+  return classifyMimeType(entry.response?.content?.mimeType ?? "");
+}
+
+function hostOf(url: string): string | undefined {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeDomains(domains?: readonly string[]): string[] | undefined {
+  if (!domains || domains.length === 0) return undefined;
+  const normalized = domains
+    .map((domain) => domain.trim().toLowerCase().replace(/^\./, ""))
+    .filter((domain) => domain.length > 0);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function hostMatchesDomain(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+type FilterList<T> = readonly T[] | undefined;
+
+function toFilterSet<T>(values: FilterList<T>): Set<T> | undefined {
+  return values && values.length > 0 ? new Set(values) : undefined;
+}
+
+// Waits are clamped to the same range the graph contract allows (0..3600 s).
+const MAX_HAR_WAIT_SECONDS = 3600;
+
+/**
+ * Gap, in seconds, between the end of one imported entry and the start of the
+ * next one. Negative and non-finite gaps become 0 (the requests overlap), and
+ * anything above the contract maximum is clamped to 3600 (D3).
+ */
+function harGapSeconds(previous: HarEntry, next: HarEntry): number {
+  const previousStart = new Date(previous.startedDateTime).getTime();
+  const nextStart = new Date(next.startedDateTime).getTime();
+  const previousTime = Number.isFinite(previous.time) ? previous.time : 0;
+  const gapSeconds = (nextStart - (previousStart + previousTime)) / 1000;
+  if (!Number.isFinite(gapSeconds) || gapSeconds <= 0) return 0;
+  return Math.min(Math.round(gapSeconds * 1000) / 1000, MAX_HAR_WAIT_SECONDS);
 }
 
 interface SimpleHttpParams {
@@ -235,6 +385,18 @@ export function importHar(har: Har, options: HarImportOptions): HarImportResult 
   const filtered: HarEntry[] = [];
   let skipped = 0;
 
+  // New filters combine with AND across kinds and OR inside one kind (D1).
+  const includedTypes = toFilterSet(options.includeResourceTypes);
+  const excludedTypes = toFilterSet(options.excludeResourceTypes);
+  const allowedMethods = toFilterSet(
+    options.methods
+      ?.map((method) => method.trim().toUpperCase())
+      .filter((method) => method.length > 0),
+  );
+  const includedDomains = normalizeDomains(options.includeDomains);
+  const excludedDomains = normalizeDomains(options.excludeDomains);
+  const { statusMin, statusMax } = options;
+
   for (const entry of entries) {
     // URL filter
     if (options.urlFilter && !options.urlFilter.test(entry.request.url)) {
@@ -258,6 +420,49 @@ export function importHar(har: Har, options: HarImportOptions): HarImportResult 
     if (options.mainDocumentsOnly) {
       const contentType = entry.response.content.mimeType || "";
       if (!contentType.includes("text/html")) {
+        skipped++;
+        continue;
+      }
+    }
+
+    // Resource type
+    if (includedTypes || excludedTypes) {
+      const resourceType = classifyHarEntry(entry);
+      if (includedTypes && !includedTypes.has(resourceType)) {
+        skipped++;
+        continue;
+      }
+      if (excludedTypes && excludedTypes.has(resourceType)) {
+        skipped++;
+        continue;
+      }
+    }
+
+    // Allowed methods
+    if (allowedMethods && !allowedMethods.has(entry.request.method.trim().toUpperCase())) {
+      skipped++;
+      continue;
+    }
+
+    // Inclusive status range
+    if (statusMin !== undefined && entry.response.status < statusMin) {
+      skipped++;
+      continue;
+    }
+    if (statusMax !== undefined && entry.response.status > statusMax) {
+      skipped++;
+      continue;
+    }
+
+    // Domains: allow list first, then deny list
+    if (includedDomains || excludedDomains) {
+      const host = hostOf(entry.request.url) ?? "";
+      if (includedDomains && !includedDomains.some((domain) => hostMatchesDomain(host, domain))) {
+        skipped++;
+        continue;
+      }
+      if (host.length > 0
+        && excludedDomains?.some((domain) => hostMatchesDomain(host, domain))) {
         skipped++;
         continue;
       }
@@ -313,12 +518,30 @@ export function importHar(har: Har, options: HarImportOptions): HarImportResult 
   // Build graph
   const nodes: HarImportedGraph["nodes"] = {};
   const edges: HarImportedGraph["edges"] = [];
+  const useHarTimings = options.useHarTimings ?? true;
   let prevNodeId: string | undefined;
+  // Last entry of the previous step: the request whose end anchors the wait
+  // written on the connection into the next step's node.
+  let prevStepLastEntry: HarEntry | undefined;
   let stepIndex = 0;
 
   for (const step of steps) {
     stepIndex++;
-    
+
+    // Requests inside one step run together (they become a group), so only the
+    // boundary between steps has a single request to wait after.
+    const waitSeconds = useHarTimings && prevStepLastEntry
+      ? harGapSeconds(prevStepLastEntry, step[0])
+      : undefined;
+    const edgeTo = (nodeId: string) => {
+      if (!prevNodeId) return;
+      edges.push({
+        from: prevNodeId,
+        to: nodeId,
+        ...(waitSeconds === undefined ? {} : { waitSeconds }),
+      });
+    };
+
     // Create a group node for the step if multiple requests
     if (step.length === 1) {
       const entry = step[0];
@@ -333,9 +556,7 @@ export function importHar(har: Har, options: HarImportOptions): HarImportResult 
         parameters: httpParams,
       };
 
-      if (prevNodeId) {
-        edges.push({ from: prevNodeId, to: nodeId });
-      }
+      edgeTo(nodeId);
       prevNodeId = nodeId;
     } else {
       // Multiple requests in step - create group node
@@ -348,9 +569,7 @@ export function importHar(har: Har, options: HarImportOptions): HarImportResult 
         parameters: {},
       };
 
-      if (prevNodeId) {
-        edges.push({ from: prevNodeId, to: groupId });
-      }
+      edgeTo(groupId);
 
       // Add individual requests as children
       for (let i = 0; i < step.length; i++) {
@@ -370,6 +589,8 @@ export function importHar(har: Har, options: HarImportOptions): HarImportResult 
 
       prevNodeId = groupId;
     }
+
+    prevStepLastEntry = step[step.length - 1];
   }
 
   const startNode = Object.keys(nodes)[0];

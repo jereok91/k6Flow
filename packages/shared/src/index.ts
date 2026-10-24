@@ -157,9 +157,10 @@ export type {
 
 // HAR import
 export { importHar, validateHar } from './har-import';
+export { HAR_RESOURCE_TYPES, classifyHarEntry, isHarResourceType } from './har-import';
 export type {
   Har, HarEntry, HarLog, HarImportOptions, HarImportResult,
-  HarImportedGraph, HarImportedNode,
+  HarImportedGraph, HarImportedNode, HarResourceType,
 } from './har-import';
 
 // Network isolation (SSRF protection)
