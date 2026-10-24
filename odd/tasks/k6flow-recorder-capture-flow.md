@@ -124,6 +124,29 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
   - `R1-002`/`R4-006`/`R3-005` (raised ceilings in `deploy/.env.example`) → **kept, flagged**:
     they are the operator's own pending values, committed separately in `bda6843` so they can
     be dropped alone if the reviewer prefers the baseline guard in the example.
-- L12 (fix slices): `ed19c86` recorder durability/idempotency · `6a424bc` web ownership,
-  atomic save, UI provenance. 108 test files / 2128 tests green; `pnpm typecheck` clean; live
-  dev run after a recorder rebuild. The user's own recordings (`tets`, `23`) were left intact.
+- L13 (second native review `review-a208921732815761`, medium, 4 lenses + refuter): also
+  closed `escalated` (`R4-002` unknown causality). Fixes in `b0e033b` and `88749a7`:
+  - `R1-002`/`R4-001`/`R3-001`/`R2-001` (one regression, four lenses) → **fixed**: a refused start
+    no longer stops the session it failed to adopt. Only a session the request itself created is
+    abandoned, and a `reconnected` answer never is. Live: U2 start → 409 and the recorder still
+    reports `RECORDING` for U1.
+  - `R1-003`/`R3-002`/`R4-003` → **fixed**: a capture without its end marker answers
+    `persisted:false` `Capture incomplete`, and saving a recording only links provenance instead
+    of marking it completed. Live: partial capture → `persisted:false`, row stays `recording`,
+    file kept for a retry.
+  - `R4-002` → **fixed**: the browser teardown is bounded (10s) and the writer is closed after it,
+    so a hung close cannot hold the capture open.
+  - `R4-004` → **fixed**: `DELETE /captures/:id` releases the recorder-side file once the library
+    has it. Live: capture gone after a persisted stop.
+  - `R1-004` → **fixed**: provenance ids are ownership-checked; a foreign id is dropped.
+  - `R2-002`/`R2-003`/`R2-004` → **fixed**: shared request-field helpers, `endEvent` naming,
+    `Pick<…, "update">` instead of a nested `ReturnType`/`Parameters` alias.
+  - `R1-001` (the start answer carries the recorder token in `wsUrl`) → **kept, documented**: the
+    recorder is one shared session for the whole installation and its token was already browser
+    side through `NEXT_PUBLIC_RECORDER_TOKEN`; a per-user WS token needs a new recorder auth
+    design, out of this feature's scope.
+  - `R1-005`/`R4-005`/`R3-003` (raised ceilings in `deploy/.env.example`) → **owner's call**, kept
+    in `bda6843`; `git revert bda6843` restores the baseline guard.
+- L14 (fix slices): `b0e033b` recorder teardown + capture release · `88749a7` web ownership,
+  completeness, atomic save. 108 test files / 2132 tests green, `pnpm typecheck` clean, live run
+  after rebuilding the recorder. Only the owner's recordings (`tets`, `23`) remain in the dev DB.
