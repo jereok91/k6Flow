@@ -53,8 +53,15 @@ Your k6flow instance is now running at `https://your-domain.com`.
 | `WEB_PORT` | `3000` | Internal web server port |
 | `ALLOWED_TARGETS` | (empty) | Comma-separated allowed test targets |
 | `ENDPOINT_TEST_ALLOWED_TARGETS` | (empty) | Comma-separated `host:port` entries the endpoint test may contact. Fail-closed: absent, empty or malformed denies every target, unlike `ALLOWED_TARGETS` |
-| `RECORDER_AUTH_TOKEN` | (empty) | Token for recorder authentication |
+| `RECORDER_AUTH_TOKEN` | `dev-token` | Token shared by the recorder service and the web tier. The web tier uses it to stop a recording and read its capture back, so both must receive the same value |
+| `RECORDER_MAX_DURATION_MS` | `3600000` | Longest single recording the recorder allows before it stops itself |
+| `RECORDER_INACTIVITY_MS` | `300000` | Idle time after which the recorder stops a recording with no connected client |
 | `LOG_LEVEL` | `info` | Logging level (debug/info/warn/error) |
+
+Captures are written as NDJSON under the recorder's `CAPTURE_DIR`
+(`/var/lib/k6flow/captures`, kept on the `recorder-captures` volume). A stop copies the
+capture into `recordings.capture_data`, which is what the review screen and the recordings
+list read, so a recorder restart does not lose recordings the library already collected.
 
 ## Architecture
 

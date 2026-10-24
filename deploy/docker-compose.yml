@@ -54,6 +54,7 @@ services:
     # Ports not exposed externally - accessed via Next.js proxy
     environment:
       PORT: "8081"
+      # Shared with the web tier: it stops a recording and reads the capture back.
       AUTH_TOKEN: ${RECORDER_AUTH_TOKEN:-dev-token}
       MAX_DURATION_MS: ${RECORDER_MAX_DURATION_MS:-3600000}
       INACTIVITY_MS: ${RECORDER_INACTIVITY_MS:-300000}
