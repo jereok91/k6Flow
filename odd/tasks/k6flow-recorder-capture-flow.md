@@ -48,6 +48,12 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
 - T7 — Checks: typecheck, recorder integration tests, web unit tests, live stop→save run.
   Route: inline implementation; live run delegated to `gentle-ai-verify` (read-only, bounded).
   Commit: none (verification only).
+- T8 — Library versions: saving a recording as a *new* scenario writes version 1 of the graph
+  it produced, with the recording as provenance; append path unchanged and covered. Route:
+  inline. Commit: `736000c`.
+- T9 — Deploy docs: recorder token (shared by web and recorder) and its two recording limits
+  documented in the deployment table, plus the capture volume and stop→library copy. Route:
+  inline. Commit: `9ef6933`.
 
 ## Log
 
@@ -83,6 +89,18 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
   already saved is now idempotent: it answers the stored row and rewrites nothing. Pinned by
   `apps/web/app/api/recorder/stop/route.test.ts` ("leaves an already saved recording untouched")
   and re-checked live: stop1 = stored = stop2 = 4133 ms.
-- L8 (follow-up, not changed here): saving a *new* scenario from a recording inserts no v1 row
-  in `scenario_versions`; the append path does. Pre-existing in
-  `apps/web/app/api/recordings/route.ts`, outside this feature's scope.
+- L8 (follow-up, resolved in T8): saving a *new* scenario from a recording inserted no v1 row
+  in `scenario_versions` while the append path did. Saving now writes version 1 of the graph it
+  produced (`Created from recording: <name>`, `sourceRecordingId` = the recording). Live check:
+  `GET /api/scenarios/<id>/versions` returns `version: 1` with that description, and the DB row
+  carries the recording id; DB restored afterwards (recordings 0, scenarios 7, sessions 10).
+  Pinned by `apps/web/app/api/recordings/route.test.ts` (5 tests, append behavior included).
+- L9 (deploy docs): `deploy/.env.example` is a policy-protected path for the agent, so the
+  recorder variables are documented in `docs/DEPLOYMENT.md` and next to their defaults in
+  `deploy/docker-compose.yml`; the operator pastes the block into their own `.env`. The pending
+  ceiling values in `.env.example` were committed as-is (`bda6843`) so the example stops
+  drifting from the running configuration.
+- L10 (slices): `9f3accd` recorder · `c2f439e` persistence API · `8a175e5` UI+compose ·
+  `255d732` idempotent repeat stop · `bda6843` env ceilings · `736000c` version 1 · `9ef6933`
+  deploy docs. Each slice carries its tests; the close state is 107 test files / 2117 tests
+  green and `pnpm typecheck` clean.
