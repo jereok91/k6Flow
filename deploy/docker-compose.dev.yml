@@ -26,7 +26,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       # K6F3-04: browser origin of the dashboard behind the proxy (human-authorized 2026-10-02).
-      ORCHESTRATOR_ALLOWED_ORIGINS: ${WEB_ORIGIN:-http://127.0.0.1:3000}
+      # The explicit list replaces the Host comparison, so every loopback name the developer
+      # may type has to be listed or the WS upgrade dies with 403 and metrics fall back to
+      # the status-only poller.
+      ORCHESTRATOR_ALLOWED_ORIGINS: ${WEB_ORIGIN:-http://127.0.0.1:3000,http://localhost:3000}
       ORCHESTRATOR_NETWORK: deploy_k6runner
       SERVICE_TOKEN: ${ORCHESTRATOR_SERVICE_TOKEN:-k6flow-internal-token}
       # Dev host has 12 CPU / 64 GB: allow larger runs than the base default (500).
