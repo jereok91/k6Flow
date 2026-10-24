@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { isValidRecordingId, readCapture } from "./capture-store";
+import { isValidRecordingId, readCapture, removeCapture } from "./capture-store";
 
 describe("capture store", () => {
   const dirs: string[] = [];
@@ -44,5 +44,21 @@ describe("capture store", () => {
   it("accepts the ids the recorder generates", () => {
     expect(isValidRecordingId("rec-1792873238980")).toBe(true);
     expect(isValidRecordingId("probe-1792873873")).toBe(true);
+  });
+
+  it("deletes a capture the library already holds", () => {
+    const dir = makeDir();
+    const path = join(dir, "rec-1.ndjson");
+    writeFileSync(path, "{\"type\":\"end\"}\n");
+
+    expect(removeCapture(dir, "rec-1")).toBe(true);
+    expect(readCapture(dir, "rec-1")).toBeNull();
+  });
+
+  it("reports a capture that was already gone as not deleted", () => {
+    const dir = makeDir();
+
+    expect(removeCapture(dir, "rec-missing")).toBe(false);
+    expect(removeCapture(dir, "../main")).toBe(false);
   });
 });

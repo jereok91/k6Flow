@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { WsServer } from "./ws-server";
 import { RecordingSession } from "./recording-session";
 import { CaptureWriter } from "./capture-writer";
-import { readCapture } from "./capture-store";
+import { readCapture, removeCapture } from "./capture-store";
 import type { StreamingClientMessage } from "@k6flow/shared";
 
 // Configuration from environment
@@ -16,6 +16,27 @@ const VIEWPORT_HEIGHT = parseInt(process.env.VIEWPORT_HEIGHT || "720", 10);
 const MAX_DURATION_MS = parseInt(process.env.MAX_DURATION_MS || "3600000", 10); // 1 hour default
 const INACTIVITY_MS = parseInt(process.env.INACTIVITY_MS || "300000", 10); // 5 min default
 const CAPTURE_DIR = process.env.CAPTURE_DIR || "/tmp/captures";
+/** Longest a browser teardown may take before the capture is closed anyway. */
+const BROWSER_STOP_TIMEOUT_MS = parseInt(process.env.BROWSER_STOP_TIMEOUT_MS || "10000", 10);
+
+/**
+ * Resolve with `work`, or reject once `ms` passes. A late result is ignored.
+ */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 // One recording session at a time; the process stays up between recordings.
 let session: RecordingSession | null = null;
@@ -303,7 +324,7 @@ const httpServer = createServer((req, res) => {
 
   // Finished capture download: the web tier persists it and the review screen
   // reads it back, so a stop can be reviewed without hunting for a local file.
-  if (req.method === "GET" && req.url?.startsWith("/captures/")) {
+  if ((req.method === "GET" || req.method === "DELETE") && req.url?.startsWith("/captures/")) {
     const authHeader = req.headers.authorization;
     if (authHeader !== `Bearer ${AUTH_TOKEN}`) {
       res.writeHead(401, { "Content-Type": "application/json", ...corsHeaders });
@@ -316,6 +337,19 @@ const httpServer = createServer((req, res) => {
       requestedId = decodeURIComponent(req.url.slice("/captures/".length).split("?")[0]);
     } catch {
       requestedId = "";
+    }
+
+    if (req.method === "DELETE") {
+      // The library now owns the capture: deleting it keeps the volume from
+      // growing with recordings that are already persisted.
+      if (!removeCapture(CAPTURE_DIR, requestedId)) {
+        res.writeHead(404, { "Content-Type": "application/json", ...corsHeaders });
+        res.end(JSON.stringify({ error: "Capture not found" }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
+      res.end(JSON.stringify({ status: "deleted", recordingId: requestedId }));
+      return;
     }
 
     // readCapture validates the id before it can reach the filesystem and never
@@ -546,7 +580,9 @@ async function teardown(reason: string): Promise<TeardownResult> {
       const ending = session;
       session = null;
       durationMs = ending.durationMs;
-      await ending.stop();
+      // The browser teardown is bounded: a hung close must not keep the capture
+      // open forever, which would leave the stop request without an answer.
+      await withTimeout(ending.stop(), BROWSER_STOP_TIMEOUT_MS);
     }
   } catch (error) {
     // A failed browser teardown must not keep the capture open: the writer is

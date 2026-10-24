@@ -151,6 +151,15 @@ describe("recorder lifecycle", () => {
     mkdirSync(join(captureDir, "rec-directory.ndjson"));
     expect((await captureOf(base, "rec-directory")).status).toBe(404);
     expect((await health(base)).status).toBe("ok");
+
+    // Once the library has the capture, deleting it keeps the volume bounded.
+    const deleted = await fetch(`${base}/captures/rec-served`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    expect(deleted.status).toBe(200);
+    expect((await captureOf(base, "rec-served")).status).toBe(404);
+    expect((await fetch(`${base}/captures/rec-served`, { method: "DELETE" })).status).toBe(401);
   }, 60_000);
 
   it("answers duplicate stops from the one teardown they share", async () => {

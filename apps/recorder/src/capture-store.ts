@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -36,5 +36,21 @@ export function readCapture(dir: string, recordingId: string): string | null {
     // rewrite is an unreadable capture, not a reason to fail the request.
     console.error("[capture-store] Read failed:", error);
     return null;
+  }
+}
+
+/**
+ * Delete a finished capture once the library holds it. Returns false when there
+ * was nothing to delete, so the caller can answer honestly.
+ */
+export function removeCapture(dir: string, recordingId: string): boolean {
+  const path = capturePath(dir, recordingId);
+  if (path === null || !existsSync(path)) return false;
+  try {
+    rmSync(path);
+    return true;
+  } catch (error) {
+    console.error("[capture-store] Delete failed:", error);
+    return false;
   }
 }
