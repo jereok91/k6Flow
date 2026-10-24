@@ -16,9 +16,9 @@ import { defaultRecordingName } from "../../../../lib/recorder/capture-summary";
 import { intField, stringField } from "../../../../lib/recorder/fields";
 import { recorderBaseUrl, recorderToken } from "../../../../lib/recorder/upstream";
 
-/** Best-effort cleanup of a session this route just created and cannot reserve. */
-function abandonSession(recordingId: string, token: string): void {
-  void fetch(`${recorderBaseUrl()}/stop`, {
+/** Cleanup of a session this route just created and cannot reserve. */
+async function abandonSession(recordingId: string, token: string): Promise<void> {
+  await fetch(`${recorderBaseUrl()}/stop`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ recordingId }),
@@ -98,10 +98,13 @@ export async function POST(request: Request): Promise<Response> {
       .where(eq(recordings.id, recordingId))
       .limit(1);
 
-    // Reconnecting to the live session is allowed for its owner only: a second
-    // user must not adopt someone else's recording id, and this refusal must not
-    // touch the session it failed to adopt — that browser is still recording for
-    // its owner.
+    // A reconnect hands back a live session this request did not create, so only the
+    // owner of its recorded row may adopt it. Deciding ownership with a read then an
+    // insert would let whichever caller commits first claim a session it never
+    // started.
+    if (!createdSession && (!existing || (existing.ownerId !== user.id && user.role !== "admin"))) {
+      return jsonError(409, "Recorder is busy with another recording");
+    }
     if (existing && existing.ownerId !== user.id && user.role !== "admin") {
       return jsonError(409, "Recording belongs to another user");
     }
@@ -109,7 +112,7 @@ export async function POST(request: Request): Promise<Response> {
     // A finished recording can never become live again: answering 200 here would
     // leave a running browser whose id the stop route short-circuits as done.
     if (existing?.state === "completed") {
-      if (createdSession) abandonSession(recordingId, token);
+      if (createdSession) await abandonSession(recordingId, token);
       return jsonError(409, "Recording already finished");
     }
 
@@ -131,9 +134,21 @@ export async function POST(request: Request): Promise<Response> {
         set: { name, startUrl, state: "recording" },
         setWhere: ne(recordings.state, "completed"),
       });
+
+    // The upsert may have been skipped by its guard while a concurrent stop finished
+    // the row: never report a start the stop route will treat as already saved.
+    const [reserved] = await db
+      .select({ ownerId: recordings.ownerId, state: recordings.state })
+      .from(recordings)
+      .where(eq(recordings.id, recordingId))
+      .limit(1);
+    if (!reserved || reserved.ownerId !== user.id || reserved.state !== "recording") {
+      if (createdSession) await abandonSession(recordingId, token);
+      return jsonError(409, "Recording already finished");
+    }
   } catch (error) {
     console.error("Failed to reserve recording:", error);
-    if (createdSession) abandonSession(recordingId, token);
+    if (createdSession) await abandonSession(recordingId, token);
     return jsonError(503, "Recording store unavailable");
   }
 

@@ -222,8 +222,9 @@ export default function RecorderReviewPage() {
           name: scenarioName,
           startUrl: metadata.startUrl,
           viewport: metadata.viewport,
-          // The library entry this scenario came from, so provenance is linked.
-          recordingId: recordingId ?? metadata.recordingId,
+          // Provenance is only the library entry this screen really loaded: an
+          // uploaded file carries a recorder id in its metadata that no row backs.
+          recordingId,
           entries: includedEntries,
         }),
       });

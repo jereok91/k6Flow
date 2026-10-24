@@ -69,6 +69,8 @@ describe("POST /api/recorder/start", () => {
   });
 
   it("reserves the recording for the caller so only they can stop it", async () => {
+    // 1: no row yet, 2: the confirmation read after the upsert.
+    mocks.selectResults = [[], [{ ownerId: user.id, state: "recording" }]];
     const fetchMock = vi.fn().mockImplementation(recorderStarted());
     vi.stubGlobal("fetch", fetchMock);
 
@@ -113,6 +115,7 @@ describe("POST /api/recorder/start", () => {
   });
 
   it("names an unnamed recording from its start host", async () => {
+    mocks.selectResults = [[], [{ ownerId: user.id, state: "recording" }]];
     vi.stubGlobal("fetch", vi.fn().mockImplementation(recorderStarted()));
 
     const response = await POST(request({ startUrl: START_URL }));
@@ -144,7 +147,8 @@ describe("POST /api/recorder/start", () => {
     const response = await POST(request());
 
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: "Recording belongs to another user" });
+    // A reconnect is only adoptable by the owner of its row, decided before any write.
+    expect(await response.json()).toEqual({ error: "Recorder is busy with another recording" });
     expect(mocks.inserts).toHaveLength(0);
     // That browser is still recording for its owner: a refusal must not touch it.
     expect(fetchMock).toHaveBeenCalledTimes(1);

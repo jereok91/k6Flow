@@ -10,7 +10,7 @@
  * recording ended when it did not.
  */
 
-import { eq, ne } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { getDb } from "../../../../lib/db/client";
 import { recordings } from "../../../../lib/db/schema";
 import { requireUser } from "../../../../lib/auth/require-user";
@@ -40,6 +40,8 @@ interface RecordingRow {
   name: string;
   startUrl: string;
   state: string;
+  viewportWidth: number;
+  viewportHeight: number;
   durationMs: number | null;
   requestCount: number | null;
   stepCount: number | null;
@@ -63,6 +65,8 @@ const RECORDING_COLUMNS = {
   name: recordings.name,
   startUrl: recordings.startUrl,
   state: recordings.state,
+  viewportWidth: recordings.viewportWidth,
+  viewportHeight: recordings.viewportHeight,
   durationMs: recordings.durationMs,
   requestCount: recordings.requestCount,
   stepCount: recordings.stepCount,
@@ -89,6 +93,19 @@ const MAX_CAPTURE_BYTES = (() => {
   return Number.isFinite(configured) && configured > 0 ? configured : 32 * 1024 * 1024;
 })();
 
+/** Move a recording that can never be stored to a terminal state. */
+async function markFailed(recordingId: string): Promise<void> {
+  try {
+    const db = getDb();
+    await db
+      .update(recordings)
+      .set({ state: "failed", completedAt: new Date() })
+      .where(and(eq(recordings.id, recordingId), ne(recordings.state, "completed")));
+  } catch (error) {
+    console.error("Failed to mark recording failed:", error);
+  }
+}
+
 /** Drop the recorder-side capture once the library holds it. Idempotent. */
 function releaseCapture(recordingId: string, token: string): void {
   void fetch(`${recorderBaseUrl()}/captures/${encodeURIComponent(recordingId)}`, {
@@ -103,7 +120,8 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(401, "Unauthorized");
   }
 
-  const body = (await request.json().catch(() => ({}))) as StopBody;
+  const parsed: unknown = await request.json().catch(() => null);
+  const body = (parsed !== null && typeof parsed === "object" ? parsed : {}) as StopBody;
   const recordingId = stringField(body.recordingId);
   if (recordingId === undefined) {
     // Without an id there is no way to prove ownership, and the recorder would
@@ -174,7 +192,12 @@ export async function POST(request: Request): Promise<Response> {
         headers: { "Content-Type": "application/json", ...NO_STORE },
       });
     } else {
-      stopAnswer = JSON.parse(text || "{}") as RecorderStopAnswer;
+      try {
+        stopAnswer = JSON.parse(text || "{}") as RecorderStopAnswer;
+      } catch (error) {
+        console.error("Recorder stop answered a malformed body:", error);
+        return jsonError(502, "Recorder answered an invalid stop response");
+      }
     }
   } catch (error) {
     console.error("Recorder stop proxy error:", error);
@@ -193,11 +216,26 @@ export async function POST(request: Request): Promise<Response> {
 
     if (capture === null) {
       if (rejection !== null) {
-        // No capture and a refused stop: relay the rejection so the UI can keep the
-        // session and retry instead of believing it finished.
+        // No capture and a refused stop: a concurrent retry may have saved the row
+        // before deleting the file, so look before failing the caller.
+        const [savedByRetry] = await db
+          .select(RECORDING_COLUMNS)
+          .from(recordings)
+          .where(eq(recordings.id, recordingId))
+          .limit(1);
+        if (savedByRetry?.state === "completed") {
+          return Response.json(
+            { status, recordingId, persisted: true, recording: toSavedRecording(savedByRetry) },
+            { headers: NO_STORE },
+          );
+        }
+        // Otherwise relay the rejection so the UI can keep the session and retry
+        // instead of believing it finished.
         return jsonError(rejection.status, "Failed to stop recording");
       }
       if (oversized) {
+        await markFailed(recordingId);
+        releaseCapture(recordingId, token);
         return Response.json(
           { status, recordingId, persisted: false, recording: null, warning: "Capture too large" },
           { headers: NO_STORE },
@@ -231,6 +269,10 @@ export async function POST(request: Request): Promise<Response> {
       if (rejection !== null) {
         return jsonError(rejection.status, "Failed to stop recording");
       }
+      // A partial capture can never become usable, so the row stops claiming to be
+      // recording and the file stops occupying the volume.
+      await markFailed(recordingId);
+      releaseCapture(recordingId, token);
       return Response.json(
         { status, recordingId, persisted: false, recording: null, warning: "Capture incomplete" },
         { headers: NO_STORE },
@@ -263,8 +305,8 @@ export async function POST(request: Request): Promise<Response> {
       .values({
         id: recordingId,
         ownerId: existing.ownerId,
-        viewportWidth: intField(body.viewport?.width, 1280),
-        viewportHeight: intField(body.viewport?.height, 720),
+        viewportWidth: intField(body.viewport?.width, existing.viewportWidth || 1280),
+        viewportHeight: intField(body.viewport?.height, existing.viewportHeight || 720),
         ...stored,
       })
       // First stop wins: a concurrent retry must not overwrite the terminal row

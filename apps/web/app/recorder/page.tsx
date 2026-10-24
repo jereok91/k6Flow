@@ -55,6 +55,8 @@ export default function RecorderPage() {
     setError(null);
     setSaved(null);
     setStopWarning(null);
+    // A refusal from an earlier recording must not disable this one's health poll.
+    stopPollingRef.current = false;
 
     try {
       const res = await fetch("/api/recorder/start", {

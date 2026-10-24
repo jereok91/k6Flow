@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   // One entry per select the route performs, in order.
   selectResults: [] as unknown[][],
   inserts: [] as Array<{ row: Record<string, unknown>; conflict: Record<string, unknown> }>,
+  updates: [] as Array<{ values: Record<string, unknown> }>,
 }));
 
 vi.mock("../../../../lib/auth/require-user", () => ({ requireUser: mocks.requireUser }));
@@ -21,6 +22,13 @@ vi.mock("../../../../lib/db/client", () => ({
       values: (row: Record<string, unknown>) => ({
         onConflictDoUpdate: async (conflict: Record<string, unknown>) => {
           mocks.inserts.push({ row, conflict });
+        },
+      }),
+    }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          mocks.updates.push({ values });
         },
       }),
     }),
@@ -86,6 +94,7 @@ describe("POST /api/recorder/stop", () => {
     mocks.requireUser.mockResolvedValue(user);
     mocks.selectResults = [[reservedRow], [completedRow]];
     mocks.inserts = [];
+    mocks.updates = [];
     delete process.env.RECORDER_AUTH_TOKEN;
   });
 
@@ -231,6 +240,8 @@ describe("POST /api/recorder/stop", () => {
   });
 
   it("relays the recorder rejection when a refused stop has no final capture", async () => {
+    // 1: the reserved row, 2: the re-read that finds nothing a retry saved.
+    mocks.selectResults = [[reservedRow], []];
     recorderAnswers(
       () => Response.json({ error: "Recording mismatch", recordingId: "rec-other" }, { status: 409 }),
       () => Response.json({ error: "Capture not found" }, { status: 404 }),
@@ -266,6 +277,8 @@ describe("POST /api/recorder/stop", () => {
       warning: "Capture incomplete",
     });
     expect(mocks.inserts).toHaveLength(0);
+    // A partial capture can never become usable: the row stops claiming to record.
+    expect(mocks.updates[0]).toMatchObject({ values: { state: "failed" } });
   });
 
   it("refuses a capture larger than the tier will store", async () => {
@@ -285,6 +298,8 @@ describe("POST /api/recorder/stop", () => {
       warning: "Capture too large",
     });
     expect(mocks.inserts).toHaveLength(0);
+    // One oversized recording must not be retried forever against the recorder.
+    expect(mocks.updates[0]).toMatchObject({ values: { state: "failed" } });
   });
 
   it("does not claim persistence when the capture is gone", async () => {
@@ -310,7 +325,8 @@ describe("POST /api/recorder/stop", () => {
 
   it("answers a recording already saved without stopping anything", async () => {
     mocks.selectResults = [[completedRow]];
-    const fetchMock = vi.fn(async () => Response.json({ status: "deleted" }));
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
+      Response.json({ status: "deleted", method: init?.method ?? "GET" }));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await POST(request({ recordingId: "rec-1", name: "Otro nombre" }));
