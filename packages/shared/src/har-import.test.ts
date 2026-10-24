@@ -362,7 +362,19 @@ describe("importHar connection timings", () => {
 // Acceptance: the reference HAR from docs/examploHar.har
 // -----------------------------------------------------------------------------
 
-describe("importHar acceptance on docs/examploHar.har", () => {
+// The reference HAR is the user's own export and is not versioned, so this
+// acceptance block only runs where the file exists instead of failing CI with
+// ENOENT.
+const hasReferenceHar = (() => {
+  try {
+    readFileSync("docs/examploHar.har", "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+describe.skipIf(!hasReferenceHar)("importHar acceptance on docs/examploHar.har", () => {
   const loadReferenceHar = (): Har => {
     const parsed: unknown = JSON.parse(readFileSync("docs/examploHar.har", "utf8"));
     expect(validateHar(parsed)).toBe(true);

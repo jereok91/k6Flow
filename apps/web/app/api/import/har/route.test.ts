@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../../../lib/auth/require-user", () => ({ requireUser: mocks.requireUser }));
 vi.mock("../../../../lib/db/client", () => ({ getDb: () => ({ insert: mocks.insert }) }));
 
+import { graphDraftCompositionSchema } from "@k6flow/shared";
 import { POST } from "./route";
 
 const COOKIE = "k6flow_session=cookie-secret-token";
@@ -74,8 +75,14 @@ const importRequest = (options?: Record<string, unknown>) => request({
   ...(options === undefined ? {} : { options }),
 });
 
-type ImportedEdge = { from: string; to: string; waitSeconds?: number };
-const storedGraph = () => mocks.values.mock.calls[0][0].graph as { edges: ImportedEdge[] };
+type StoredConnection = { source: string; target: string; waitSeconds?: number };
+type StoredComposition = {
+  version: number;
+  nodes: Array<{ id: string; kind: string; label?: string }>;
+  connections: StoredConnection[];
+};
+const storedGraph = () => mocks.values.mock.calls[0][0].graph as StoredComposition;
+const storedWaits = () => storedGraph().connections.map((connection) => connection.waitSeconds);
 
 describe("POST /api/import/har", () => {
   beforeEach(() => {
@@ -109,8 +116,7 @@ describe("POST /api/import/har", () => {
     expect(body.stats).toEqual({ totalEntries: 4, importedEntries: 3, skippedEntries: 1, steps: 3 });
 
     // useHarTimings defaults to true, so connections carry waits from the HAR.
-    const waits = storedGraph().edges.map((edge) => edge.waitSeconds);
-    expect(waits).toEqual([2.5, 2.75]);
+    expect(storedWaits()).toEqual([2.5, 2.75]);
   });
 
   it("transports the new filters to the importer", async () => {
@@ -124,15 +130,64 @@ describe("POST /api/import/har", () => {
     const body = await response.json() as { stats: Record<string, number> };
     expect(body.stats).toEqual({ totalEntries: 4, importedEntries: 2, skippedEntries: 2, steps: 2 });
 
-    const waits = storedGraph().edges.map((edge) => edge.waitSeconds);
-    expect(waits).toEqual([2.5]);
+    expect(storedWaits()).toEqual([2.5]);
   });
 
   it("honours useHarTimings = false", async () => {
     const response = await POST(importRequest({ useHarTimings: false }));
 
     expect(response.status).toBe(201);
-    expect(storedGraph().edges.map((edge) => edge.waitSeconds)).toEqual([undefined, undefined]);
+    expect(storedWaits()).toEqual([undefined, undefined]);
+  });
+
+  it("stores the graph composition the editor can open, not the raw imported graph", async () => {
+    const response = await POST(importRequest());
+
+    expect(response.status).toBe(201);
+    const stored = storedGraph();
+    // The raw HarImportedGraph shape (nodes record, edges, startNode) is gone.
+    expect(stored).not.toHaveProperty("edges");
+    expect(stored).not.toHaveProperty("startNode");
+    expect(Array.isArray(stored.nodes)).toBe(true);
+    expect(stored.version).toBe(1);
+    expect(stored.nodes.map((node) => node.kind)).toEqual(["http-request", "http-request", "http-request"]);
+    expect(stored.connections).toEqual([
+      { source: stored.nodes[0].id, target: stored.nodes[1].id, waitSeconds: 2.5 },
+      { source: stored.nodes[1].id, target: stored.nodes[2].id, waitSeconds: 2.75 },
+    ]);
+    expect(graphDraftCompositionSchema.safeParse(stored).success).toBe(true);
+  });
+
+  it("appends the bridge warnings to the response without changing its shape", async () => {
+    const upload = harEntry({
+      url: "https://api.example.com/v1/upload",
+      method: "POST",
+      startedDateTime: "2026-01-01T00:00:00.000Z",
+    });
+    const response = await POST(request({
+      name: "Imported flow",
+      har: {
+        log: {
+          version: "1.2",
+          creator: { name: "test", version: "1" },
+          entries: [{
+            ...upload,
+            request: {
+              ...upload.request,
+              postData: { mimeType: "multipart/form-data; boundary=--x", text: "------x" },
+            },
+          }],
+        },
+      },
+    }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as { warnings: string[]; stats: Record<string, number> };
+    expect(body.stats.importedEntries).toBe(1);
+    expect(body.warnings).toEqual([
+      'Content type "multipart/form-data" on "Step 1: POST /v1/upload" cannot be represented by the typed body; the body was imported as text',
+    ]);
+    expect(graphDraftCompositionSchema.safeParse(storedGraph()).success).toBe(true);
   });
 
   it("rejects an unknown resource type instead of importing unfiltered", async () => {

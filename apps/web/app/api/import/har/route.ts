@@ -7,7 +7,7 @@ import { getDb } from "../../../../lib/db/client";
 import { scenarios } from "../../../../lib/db/schema";
 import { requireUser } from "../../../../lib/auth/require-user";
 import { jsonError } from "../../../../lib/auth/http";
-import { importHar, isHarResourceType, validateHar, type HarImportOptions, type HarResourceType } from "@k6flow/shared";
+import { harGraphToComposition, importHar, isHarResourceType, validateHar, type HarImportOptions, type HarResourceType } from "@k6flow/shared";
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -180,6 +180,10 @@ export async function POST(request: Request): Promise<Response> {
       return jsonError(422, result.warnings[0] || "No entries could be imported");
     }
 
+    // The editor validates and renders a graph composition, so the imported
+    // HAR graph is converted before it is stored (D5).
+    const bridged = harGraphToComposition(result.graph);
+
     // Save as scenario
     const db = getDb();
     const scenarioId = randomUUID();
@@ -188,14 +192,14 @@ export async function POST(request: Request): Promise<Response> {
       id: scenarioId,
       ownerId: user.id,
       name: body.name,
-      graph: result.graph,
+      graph: bridged.composition,
     });
 
     return Response.json({
       id: scenarioId,
       name: body.name,
       stats: result.stats,
-      warnings: result.warnings,
+      warnings: [...result.warnings, ...bridged.warnings],
     }, { status: 201 });
   } catch (e) {
     console.error("Failed to import HAR:", e);

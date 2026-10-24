@@ -157,6 +157,7 @@ export type {
 
 // HAR import
 export { importHar, validateHar } from './har-import';
+export { harGraphToComposition } from './har-to-composition';
 export { HAR_RESOURCE_TYPES, classifyHarEntry, isHarResourceType } from './har-import';
 export type {
   Har, HarEntry, HarLog, HarImportOptions, HarImportResult,
