@@ -59,12 +59,15 @@ type EnvLauncher interface {
 // Deps are the constructor dependencies. Logger defaults to slog.Default;
 // Launcher is the engine (required, see RunLauncher) wired by tests with a
 // fake and consumed by startRun/stopRun — this unit never talks to containers.
+// Frames is optional: nil means GET /api/runs/{runId}/metrics has no snapshot
+// and answers 404 (cmd/server wires the live metrics hub).
 type Deps struct {
 	Token    string
 	Store    *runs.Store
 	Launcher RunLauncher
 	Logger   *slog.Logger
 	Limits   RunLimits
+	Frames   FrameSource
 }
 
 // RunLimits are the per-run ceilings checked by start and preflight after
@@ -101,6 +104,7 @@ type handler struct {
 	token    string
 	logger   *slog.Logger
 	limits   RunLimits
+	frames   FrameSource
 }
 
 // NewHandler wires contract 04: static Bearer auth on every /api/* route, the
@@ -112,7 +116,7 @@ func NewHandler(deps Deps) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	h := &handler{store: deps.Store, launcher: deps.Launcher, token: deps.Token, logger: logger, limits: deps.Limits}
+	h := &handler{store: deps.Store, launcher: deps.Launcher, token: deps.Token, logger: logger, limits: deps.Limits, frames: deps.Frames}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("POST /api/runs/preflight", h.preflight)
@@ -123,6 +127,7 @@ func NewHandler(deps Deps) http.Handler {
 	mux.HandleFunc("POST /api/runs/{runId}/stop", h.stopRun)
 	mux.HandleFunc("GET /api/runs/{runId}/summary", h.getSummary)
 	mux.HandleFunc("GET /api/runs/{runId}/diagnostic", h.getDiagnostic)
+	mux.HandleFunc("GET /api/runs/{runId}/metrics", h.getRunMetrics)
 	mux.HandleFunc("GET /api/runs/{runId}/endpoints", h.getEndpoints)
 	mux.HandleFunc("GET /api/runs/{runId}/failures", h.getFailures)
 	mux.HandleFunc("POST /api/runs/emergency-stop", h.emergencyStop)

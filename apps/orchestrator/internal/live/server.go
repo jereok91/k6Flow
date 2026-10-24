@@ -32,6 +32,11 @@
 //     lands and `seq` stays monotonic with allowed gaps. OnFrame NEVER blocks:
 //     the engine tap (R3-blocking-sink-stalls-completion advisory) must not be
 //     stalled by a slow dashboard client.
+//   - Snapshot for the polling fallback: OnFrame also retains the latest
+//     window frame per run in a bounded, mutex-guarded cache (frames.go; 256
+//     runs, oldest insertion evicted) and CloseRun drops the entry. The read
+//     side is Server.LastFrame, served by `GET /api/runs/{runId}/metrics`
+//     when the browser cannot open the socket. The frame shape is unchanged.
 //   - Single writer: one goroutine per connection drains the channel and
 //     writes TextMessage frames (gorilla permits one concurrent writer);
 //     frame messages can therefore never interleave. Write failures drop the
@@ -133,6 +138,9 @@ type Server struct {
 	hub            *hub
 	lister         RunLister
 	feed           *runsFeed
+	// frames retains the latest window frame per run for the polling
+	// fallback (frames.go); LastFrame is its read side.
+	frames *frameCache
 }
 
 var (
@@ -154,6 +162,7 @@ func New(deps Deps) *Server {
 		hub:            newHub(logger),
 		lister:         deps.Runs,
 		feed:           newRunsFeed(deps.MaxRunsSubscribers),
+		frames:         newFrameCache(maxRetainedFrames),
 	}
 	s.upgrader = websocket.Upgrader{
 		Subprotocols:     []string{subprotocol},
@@ -175,8 +184,19 @@ func (s *Server) Handler() http.Handler {
 }
 
 // OnFrame implements metrics.FrameSink (encode once, non-blocking fan-out).
+// The frame is also retained as the run's latest window so the polling
+// fallback (LastFrame) can serve it when the WebSocket is unavailable; the
+// cache write is mutex-guarded map work, never a channel send or I/O.
 func (s *Server) OnFrame(frame metrics.MetricsFrame) {
+	s.frames.store(frame)
 	s.hub.OnFrame(frame)
+}
+
+// LastFrame returns the latest window frame retained for runID. The polling
+// fallback reads it through httpapi's snapshot endpoint; false means the run is
+// unknown here or has not closed a window yet (callers answer 404).
+func (s *Server) LastFrame(runID string) (metrics.MetricsFrame, bool) {
+	return s.frames.last(runID)
 }
 
 // BroadcastState sends a state change message to all subscribers of a run.
@@ -205,6 +225,9 @@ func (s *Server) BroadcastEnd(run runs.Run) {
 // frame) to every subscriber of runID and prunes the registry entry. Safe to
 // call when the run has no subscribers; concurrent with broadcasts.
 func (s *Server) CloseRun(runID string, code int) {
+	// The run reached its terminal end: the retained window is not served
+	// any more (no snapshot for a finished run).
+	s.frames.drop(runID)
 	subs := s.hub.detach(runID)
 	for _, sub := range subs {
 		sub.closeWithCode(code)

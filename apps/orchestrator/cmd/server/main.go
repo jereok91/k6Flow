@@ -184,13 +184,23 @@ func newRootHandler(api http.Handler, ws http.Handler) http.Handler {
 // newAPIHandler wires config-driven Bearer auth (SERVICE_TOKEN, fail-closed
 // inside httpapi), the run store and the engine-backed launcher into the
 // contract-04 handler. /healthz stays public and byte-identical to the
-// Phase 1 probe (asserted in main_test.go).
+// Phase 1 probe (asserted in main_test.go). It wires no live-metrics snapshot
+// source; main uses newAPIHandlerWithFrames.
 func newAPIHandler(cfg config.Config, store *runs.Store, launcher httpapi.RunLauncher, logger *slog.Logger) http.Handler {
+	return newAPIHandlerWithFrames(cfg, store, launcher, logger, nil)
+}
+
+// newAPIHandlerWithFrames is newAPIHandler plus the live-metrics snapshot
+// source behind `GET /api/runs/{runId}/metrics` (the polling fallback for the
+// metrics WebSocket). The live hub is the only writer of the latest per-run
+// frame, so it is passed in here; nil means the endpoint answers 404.
+func newAPIHandlerWithFrames(cfg config.Config, store *runs.Store, launcher httpapi.RunLauncher, logger *slog.Logger, frames httpapi.FrameSource) http.Handler {
 	return httpapi.NewHandler(httpapi.Deps{
 		Token:    cfg.ServiceToken,
 		Store:    store,
 		Launcher: launcher,
 		Logger:   logger,
+		Frames:   frames,
 		Limits: httpapi.RunLimits{
 			MaxVUs:       cfg.MaxVUsPerRun,
 			MaxMemoryMiB: cfg.MaxMemoryMiBPerRun,
@@ -414,7 +424,7 @@ func main() {
 	}
 
 	// REST API + metrics WS on one root mux; /healthz stays byte-identical.
-	srv := newHTTPServer(cfg.Addr, newRootHandler(newAPIHandler(cfg, store, eng, logger), ws.Handler()))
+	srv := newHTTPServer(cfg.Addr, newRootHandler(newAPIHandlerWithFrames(cfg, store, eng, logger, ws), ws.Handler()))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
