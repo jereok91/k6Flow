@@ -147,6 +147,43 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
     design, out of this feature's scope.
   - `R1-005`/`R4-005`/`R3-003` (raised ceilings in `deploy/.env.example`) → **owner's call**, kept
     in `bda6843`; `git revert bda6843` restores the baseline guard.
-- L14 (fix slices): `b0e033b` recorder teardown + capture release · `88749a7` web ownership,
-  completeness, atomic save. 108 test files / 2132 tests green, `pnpm typecheck` clean, live run
-  after rebuilding the recorder. Only the owner's recordings (`tets`, `23`) remain in the dev DB.
+- L15 (third native review `review-b98d3c5c9dbab918`): `correction_required` with 1 BLOCKER +
+  5 CRITICAL (`R1-001`, `R1-002`, `R3-001`, `R3-002`, `R3-003`, `R4-001`). Bounded correction
+  declared at 92 diff lines (budget 200) and applied in `d2944c2`:
+  - The start route no longer forwards a client-supplied `recordingId` (the recorder mints it),
+    so a caller can neither name another user's recording nor replay a finished one.
+  - A row already `completed` is refused with 409 and the just-started session is abandoned.
+  - A recorder 409 on stop is only forgiven when the capture proves the recording ended;
+    otherwise the rejection is relayed so the UI keeps the session.
+  - Provenance requires ownership (no admin bypass), matching the owner-scoped link.
+  Ordering note: the correction plan must be captured **before** the candidate changes, so the
+  fix was temporarily rolled back (`dfc01d5`) and re-applied (`7ddf0eb`) to satisfy the binding.
+  The provider's `targeted_validation` collect binding was rejected twice by the facade
+  (`does not carry one non-empty matching provider lineage and target token`, then
+  `missing or stale for current STATUS`) even against the exact tree the provider names; the
+  owner chose a fresh review instead of pursuing that route.
+- L16 (fourth native review `review-93c2fb37be6e23b8`, fresh START on the corrected candidate):
+  closed `escalated` (`R1-002`/`R4-001` causality unknown). Fixes in `b446c71`, `dcb9242`,
+  `8bc2e4b`:
+  - `R1-001` (no size cap on a capture read/persisted) → fixed: `RECORDER_MAX_CAPTURE_BYTES`
+    (32 MiB default) refuses oversized captures with `persisted:false`.
+  - `R4-001` (a timed-out browser teardown still wrote a plain end marker) → fixed: the end
+    event carries `incomplete:true` and the web tier treats that capture as partial.
+  - `R1-003`/`R1-004` → fixed: foreign recordings answer 404 in both detail and stop routes, and
+    a refused stop relays a generic body (the recorder's body names the live session).
+  - `R4-003`/`R4-004`/`R4-005`/`R3-004` → fixed: DB failure answers 503, a duplicate stop that
+    loses the race to the capture delete answers with the stored row, and the completed path
+    retries a delete that failed earlier.
+  - `R3-001`/`R3-002`/`R3-003` → fixed: the page bounds the stop request (30s abort) and stops
+    polling after a 409; the start route survives a literal `null` body.
+  - `R2-001`/`R2-002`/`R2-003`/`R2-004` → fixed: `||` fallbacks for the capture URL and name, a
+    malformed recorder answer is reported as such, and the reconnect-refusal test now uses a
+    reconnected answer.
+  - `R1-002`/`R4-002`/`R2-005`/`R3-005` (raised ceilings in `deploy/.env.example`) → still the
+    owner's call; flagged by every round.
+  Live after the rebuild: U2 reading U1's recording → 404; U1 stop → `persisted:true`, capture
+  released, row `completed`. Dev DB back to the owner's two recordings.
+- L17 (slice boundaries): recorder durability/ownership rounds `ed19c86`, `6a424bc`, `b0e033b`,
+  `88749a7`, `b446c71` · web rounds `255d732`, `d2944c2`/`7ddf0eb`, `dcb9242` · library/docs
+  `736000c`, `9ef6933`, `fd796a9`, `f1c79e6`, `756c270`. State: 108 test files / 2135 tests +
+  26 recorder tests green, `pnpm typecheck` clean.
