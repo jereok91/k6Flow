@@ -121,3 +121,34 @@ composición armada a mano.
 
 Verificación del padre: 43 tests focales, `pnpm test` **2027**, typecheck 0/0, build 0.
 
+## T8 — pantalla de importación
+
+Sin UI la ruta no se usa: falta subir el `.har`, ver las peticiones con filtros de
+DevTools, elegir cuáles van, revisar las variables sugeridas y confirmar.
+
+Decisiones:
+- D7 — El filtrado y la selección por petición ocurren en el navegador: se poda el HAR
+  y se envía solo el subconjunto elegido, así la ruta no necesita cambios.
+- D8 — La vista previa usa los módulos compartidos (`importHar`, `harGraphToComposition`,
+  `suggestHarVariables`) del lado del cliente; `apps/web/app/editor/page.tsx` ya consume
+  `@k6flow/shared` en el navegador, así que es el mismo patrón.
+- D9 — La lógica de filtrado/poda va en un módulo puro con tests; la página solo compone.
+
+- [x] T8a Módulo puro `har-preview.ts`: clasificar/filtrar entradas (tipo, método, rango
+      de estado, dominio, texto), podar el HAR conservando `log` y `pages`, resumen y
+      contadores. Tests.
+- [x] T8b Página `/import`: subir archivo, tabla de peticiones con casillas, filtros,
+      panel de variables sugeridas, nombre del escenario y confirmación que hace POST a
+      `/api/import/har` y muestra el resultado enlazando al editor.
+
+### T8 — evidencia
+
+`har-preview.ts` (247 líneas, 30 tests) + `app/import/page.tsx` (893 líneas). La página
+lee el archivo en el navegador, valida, muestra la tabla con casillas, filtra como
+DevTools, sugiere variables y hace POST solo con el subconjunto elegido (visible ∧
+marcado), sin tocar la ruta. Verificado por el padre: 30 tests focales, `pnpm test`
+**2057**, typecheck 0, build 0 con `○ /import`.
+
+Fuera de alcance declarado: enlace de navegación en el sidebar, tests de navegador y
+partir la página en componentes.
+
