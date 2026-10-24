@@ -1,5 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -146,6 +146,26 @@ describe("recorder lifecycle", () => {
     expect((await captureOf(base, "rec-never-written")).status).toBe(404);
     expect((await captureOf(base, "..%2Fmain")).status).toBe(404);
     expect((await captureOf(base, "rec-served", "")).status).toBe(401);
+
+    // An unreadable capture answers 404: it must never take the recorder down.
+    mkdirSync(join(captureDir, "rec-directory.ndjson"));
+    expect((await captureOf(base, "rec-directory")).status).toBe(404);
+    expect((await health(base)).status).toBe("ok");
+  }, 60_000);
+
+  it("answers duplicate stops from the one teardown they share", async () => {
+    const base = await startRecorder();
+    expect((await start(base, "rec-dup-stop")).status).toBe(200);
+
+    // A client retry must not open a second teardown that closes the capture early.
+    const [first, second] = await Promise.all([stop(base), stop(base)]);
+    expect([first.status, second.status]).toEqual([200, 200]);
+    expect(await first.json()).toMatchObject({ status: "stopped", recordingId: "rec-dup-stop" });
+    expect(await second.json()).toMatchObject({ status: "stopped", recordingId: "rec-dup-stop" });
+
+    const events = captureEvents("rec-dup-stop");
+    expect(events.filter((e) => e.type === "end")).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ type: "end", data: { reason: "manual" } });
   }, 60_000);
 
   it("answers idle when there is nothing to stop", async () => {

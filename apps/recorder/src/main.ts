@@ -29,6 +29,8 @@ let statsTimer: NodeJS.Timeout | null = null;
 const usedRecordingIds = new Set<string>();
 // Pending teardown; a new start waits for it so two sessions never overlap.
 let stopping: Promise<void> | null = null;
+/** The teardown currently running, shared by every caller that stops at once. */
+let inFlightTeardown: Promise<TeardownResult> | null = null;
 
 /** What a teardown actually ended, reported back to whoever asked for the stop. */
 interface TeardownResult {
@@ -316,8 +318,14 @@ const httpServer = createServer((req, res) => {
       requestedId = "";
     }
 
-    // readCapture validates the id before it can reach the filesystem.
-    const capture = readCapture(CAPTURE_DIR, requestedId);
+    // readCapture validates the id before it can reach the filesystem and never
+    // throws: an unreadable capture is a 404 for this request, not a dead process.
+    let capture: string | null = null;
+    try {
+      capture = readCapture(CAPTURE_DIR, requestedId);
+    } catch (error) {
+      console.error("Capture read failed:", error);
+    }
     if (capture === null) {
       res.writeHead(404, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ error: "Capture not found" }));
@@ -484,7 +492,17 @@ function startTimers(): void {
 }
 
 function stopRecording(reason: string): Promise<TeardownResult> {
+  // A duplicate stop joins the teardown already running: a second teardown would
+  // close the capture writer under the first one and truncate the capture.
+  if (inFlightTeardown !== null) return inFlightTeardown;
+
   const run = teardown(reason);
+  inFlightTeardown = run;
+  const clearInFlight = () => {
+    if (inFlightTeardown === run) inFlightTeardown = null;
+  };
+  run.then(clearInFlight, clearInFlight);
+
   const tracked: Promise<void> = run.then(() => {}, () => {}).then(() => {
     if (stopping === tracked) stopping = null;
   });
@@ -511,27 +529,43 @@ async function teardown(reason: string): Promise<TeardownResult> {
   }
 
   const endingId = recordingId;
+  // Own the writer before the first await: whatever happens next, this teardown
+  // closes the capture it started with, never a later recording's.
+  const writer = captureWriter;
+  captureWriter = null;
+
   let durationMs = 0;
-  if (session) {
-    // Detach first so a concurrent stop is a no-op. Session callbacks are bound
-    // to their own recordingId, so late events from `ending` cannot leak into a
-    // recording started while it shuts down.
-    const ending = session;
-    session = null;
-    durationMs = ending.durationMs;
-    await ending.stop();
+  let events = 0;
+  let failure: unknown = null;
+
+  try {
+    if (session) {
+      // Detach first so a concurrent stop joins this teardown. Session callbacks are
+      // bound to their own recordingId, so late events from `ending` cannot leak into
+      // a recording started while it shuts down.
+      const ending = session;
+      session = null;
+      durationMs = ending.durationMs;
+      await ending.stop();
+    }
+  } catch (error) {
+    // A failed browser teardown must not keep the capture open: the writer is
+    // still closed below, and the stop answers with the failure.
+    failure = error;
   }
 
-  // Close the capture last, after the session stopped emitting events, and wait
-  // for the flush: a stop that answers before the file is on disk would let the
-  // caller read a truncated capture.
-  let events = 0;
-  if (captureWriter) {
-    const writer = captureWriter;
-    captureWriter = null;
-    await writer.end(reason);
-    events = writer.count;
-    console.log(`Capture written to: ${writer.path} (${events} events)`);
+  try {
+    // Close the capture last, after the session stopped emitting events, and wait
+    // for the flush: a stop that answers before the file is on disk would let the
+    // caller read a truncated capture. A flush failure rejects instead of passing
+    // as success.
+    if (writer) {
+      await writer.end(reason);
+      events = writer.count;
+      console.log(`Capture written to: ${writer.path} (${events} events)`);
+    }
+  } catch (error) {
+    failure = failure ?? error;
   }
 
   // Only clear the id if no new recording took over during the await.
@@ -539,6 +573,7 @@ async function teardown(reason: string): Promise<TeardownResult> {
     recordingId = null;
   }
 
+  if (failure !== null) throw failure;
   return { recordingId: endingId, events, durationMs, reason };
 }
 

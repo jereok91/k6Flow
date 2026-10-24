@@ -29,5 +29,12 @@ export function capturePath(dir: string, recordingId: string): string | null {
 export function readCapture(dir: string, recordingId: string): string | null {
   const path = capturePath(dir, recordingId);
   if (path === null || !existsSync(path)) return null;
-  return readFileSync(path, "utf8");
+  try {
+    return readFileSync(path, "utf8");
+  } catch (error) {
+    // A permission error, a directory at the capture path, or a race with a
+    // rewrite is an unreadable capture, not a reason to fail the request.
+    console.error("[capture-store] Read failed:", error);
+    return null;
+  }
 }

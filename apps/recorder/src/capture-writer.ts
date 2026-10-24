@@ -88,11 +88,13 @@ export class CaptureWriter {
     this.stream = null;
     if (!stream) return Promise.resolve();
 
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
       stream.once("finish", () => resolve());
+      // A failed flush must not look like a closed capture: the stop has to be able
+      // to report that the end marker never reached the disk.
       stream.once("error", (error) => {
         console.error("[CaptureWriter] Close error:", error);
-        resolve();
+        reject(error);
       });
       stream.end();
     });
