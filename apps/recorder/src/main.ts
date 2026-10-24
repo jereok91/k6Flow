@@ -571,6 +571,9 @@ async function teardown(reason: string): Promise<TeardownResult> {
   let durationMs = 0;
   let events = 0;
   let failure: unknown = null;
+  // A browser that did not close in time may still be emitting events, so the
+  // capture cannot be presented as a finished recording.
+  let incomplete = false;
 
   try {
     if (session) {
@@ -588,6 +591,7 @@ async function teardown(reason: string): Promise<TeardownResult> {
     // A failed browser teardown must not keep the capture open: the writer is
     // still closed below, and the stop answers with the failure.
     failure = error;
+    incomplete = true;
   }
 
   try {
@@ -596,7 +600,7 @@ async function teardown(reason: string): Promise<TeardownResult> {
     // caller read a truncated capture. A flush failure rejects instead of passing
     // as success.
     if (writer) {
-      await writer.end(reason);
+      await writer.end(reason, { incomplete });
       events = writer.count;
       console.log(`Capture written to: ${writer.path} (${events} events)`);
     }

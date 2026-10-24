@@ -72,6 +72,15 @@ describe("summarizeCapture", () => {
     expect(summarizeCapture(ndjson(truncated)).complete).toBe(false);
   });
 
+  it("treats an end marker the recorder flagged as incomplete as a partial capture", () => {
+    // A browser that did not close in time may still have been emitting events.
+    const flagged = CAPTURE.map((event) =>
+      event.type === "end" ? { ...event, data: { ...event.data, incomplete: true } } : event,
+    );
+
+    expect(summarizeCapture(ndjson(flagged)).complete).toBe(false);
+  });
+
   it("ignores unparsable lines instead of failing the stop", () => {
     const summary = summarizeCapture(`${ndjson(CAPTURE)}\n{not json}\n`);
 

@@ -20,7 +20,7 @@ export type CaptureEvent =
   | { type: "step"; data: Step }
   | { type: "state_change"; data: { state: string; timestamp: number } }
   | { type: "navigation"; data: { url: string; title: string; timestamp: number } }
-  | { type: "end"; data: { endedAt: number; reason: string } };
+  | { type: "end"; data: { endedAt: number; reason: string; incomplete?: boolean } };
 
 /**
  * CaptureWriter writes recording events to an NDJSON file.
@@ -78,10 +78,10 @@ export class CaptureWriter {
    * Write the end marker and resolve once the file is fully flushed to disk, so
    * a caller that answers a stop request never exposes a truncated capture.
    */
-  end(reason: string): Promise<void> {
+  end(reason: string, options: { incomplete?: boolean } = {}): Promise<void> {
     this.write({ 
       type: "end", 
-      data: { endedAt: Date.now(), reason } 
+      data: { endedAt: Date.now(), reason, ...(options.incomplete === true && { incomplete: true }) } 
     });
 
     const stream = this.stream;

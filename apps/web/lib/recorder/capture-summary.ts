@@ -41,7 +41,8 @@ export function summarizeCapture(content: string): CaptureSummary {
         : 0,
     startUrl: metadata?.startUrl ?? null,
     startedAt: metadata?.startedAt ?? null,
-    complete: endEvent !== undefined,
+    complete: endEvent !== undefined
+      && (endEvent.data as { incomplete?: boolean }).incomplete !== true,
     bytes: Buffer.byteLength(content, "utf8"),
   };
 }
