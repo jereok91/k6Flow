@@ -65,6 +65,13 @@ describe("summarizeCapture", () => {
     expect(summary).toMatchObject({ requestCount: 1, stepCount: 1, startUrl: null, durationMs: 0 });
   });
 
+  it("marks a finished capture as complete and a truncated one as not", () => {
+    expect(summarizeCapture(ndjson(CAPTURE)).complete).toBe(true);
+
+    const truncated = CAPTURE.filter((event) => event.type !== "end");
+    expect(summarizeCapture(ndjson(truncated)).complete).toBe(false);
+  });
+
   it("ignores unparsable lines instead of failing the stop", () => {
     const summary = summarizeCapture(`${ndjson(CAPTURE)}\n{not json}\n`);
 

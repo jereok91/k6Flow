@@ -16,6 +16,7 @@ import { recordings } from "../../../../lib/db/schema";
 import { requireUser } from "../../../../lib/auth/require-user";
 import { jsonError } from "../../../../lib/auth/http";
 import { defaultRecordingName, summarizeCapture } from "../../../../lib/recorder/capture-summary";
+import { intField, stringField } from "../../../../lib/recorder/fields";
 import { recorderBaseUrl, recorderToken } from "../../../../lib/recorder/upstream";
 
 interface StopBody {
@@ -78,14 +79,6 @@ function toSavedRecording(row: RecordingRow): SavedRecording {
     durationMs: row.durationMs ?? 0,
     scenarioId: row.scenarioId,
   };
-}
-
-function stringField(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
-
-function intField(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
 }
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -184,6 +177,17 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const summary = summarizeCapture(capture);
+
+    // A readable file without its end marker is a partial capture: a crash or a
+    // failed flush. Storing it as completed would hide the loss and hand the
+    // review screen a truncated recording.
+    if (!summary.complete) {
+      return Response.json(
+        { status, recordingId, persisted: false, recording: null, warning: "Capture incomplete" },
+        { headers: NO_STORE },
+      );
+    }
+
     const startUrl = stringField(body.startUrl) ?? existing.startUrl ?? summary.startUrl ?? "";
     const name = defaultRecordingName(
       stringField(body.name) ?? existing.name,
@@ -229,6 +233,14 @@ export async function POST(request: Request): Promise<Response> {
       .limit(1);
 
     const saved = after ? toSavedRecording(after) : toSavedRecording({ ...existing, ...stored });
+
+    // The library holds the capture now; dropping the recorder-side file keeps
+    // the capture volume bounded.
+    void fetch(`${recorderBaseUrl()}/captures/${encodeURIComponent(recordingId)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => undefined);
+
     return Response.json(
       { status, recordingId, persisted: true, recording: { ...saved, captureBytes: summary.bytes } },
       { headers: NO_STORE },

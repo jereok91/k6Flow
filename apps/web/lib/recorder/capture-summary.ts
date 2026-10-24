@@ -17,24 +17,31 @@ export interface CaptureSummary {
   startUrl: string | null;
   /** When the recording began, from the capture itself. */
   startedAt: number | null;
+  /**
+   * True only when the capture carries its end marker. A crash or a failed flush
+   * leaves a file that is readable but incomplete, and it must not be stored as
+   * a completed recording.
+   */
+  complete: boolean;
   bytes: number;
 }
 
 export function summarizeCapture(content: string): CaptureSummary {
   const events = parseNDJSONCapture(content);
   const metadata = extractMetadata(events);
-  const endedAt = events.find((event) => event.type === "end");
+  const endEvent = events.find((event) => event.type === "end");
 
   return {
     // network_request lines are the same exchange before its response arrives.
     requestCount: extractNetworkEntries(events).length,
     stepCount: extractSteps(events).length,
     durationMs:
-      metadata && endedAt && endedAt.type === "end"
-        ? Math.max(0, endedAt.data.endedAt - metadata.startedAt)
+      metadata && endEvent && endEvent.type === "end"
+        ? Math.max(0, endEvent.data.endedAt - metadata.startedAt)
         : 0,
     startUrl: metadata?.startUrl ?? null,
     startedAt: metadata?.startedAt ?? null,
+    complete: endEvent !== undefined,
     bytes: Buffer.byteLength(content, "utf8"),
   };
 }

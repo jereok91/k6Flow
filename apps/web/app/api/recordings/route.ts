@@ -116,6 +116,10 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
 
     const db = getDb();
 
+    // Provenance must be a recording this caller actually owns: an id from
+    // another account is dropped instead of being written into the version row.
+    const sourceRecordingId = await ownedRecordingId(db, user, body.recordingId);
+
     // K6R7-02: Append to existing scenario if appendToScenarioId provided
     if (body.appendToScenarioId) {
       // Verify scenario exists and user has access
@@ -150,7 +154,7 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
           version: nextVersion,
           graph: existing.graph,
           changeDescription: `Before appending recording: ${body.name}`,
-          sourceRecordingId: body.recordingId || null,
+          sourceRecordingId,
           createdBy: user.id,
         });
 
@@ -163,7 +167,7 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
           })
           .where(eq(scenarios.id, body.appendToScenarioId));
 
-        await linkRecording(tx, user.id, body.recordingId, body.appendToScenarioId);
+        await linkRecording(tx, user.id, sourceRecordingId, body.appendToScenarioId);
       });
 
       return Response.json({
@@ -196,13 +200,11 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
         version: 1,
         graph,
         changeDescription: `Created from recording: ${body.name}`,
-        sourceRecordingId: typeof body.recordingId === "string" && body.recordingId !== ""
-          ? body.recordingId
-          : null,
+        sourceRecordingId,
         createdBy: user.id,
       });
 
-      await linkRecording(tx, user.id, body.recordingId, scenarioId);
+      await linkRecording(tx, user.id, sourceRecordingId, scenarioId);
     });
 
     return Response.json({
@@ -216,17 +218,37 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
   }
 }
 
-/** A DB handle or an open transaction: helpers accept either. */
-type Executor = ReturnType<typeof getDb> | Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+/** What the link helper needs from a DB handle or an open transaction. */
+type Updater = Pick<ReturnType<typeof getDb>, "update">;
+
+/**
+ * The recording id to use as provenance, or null when the caller does not own
+ * it. Unknown and foreign ids are indistinguishable on purpose.
+ */
+async function ownedRecordingId(
+  db: ReturnType<typeof getDb>,
+  user: { id: string; role: string },
+  candidate: unknown,
+): Promise<string | null> {
+  if (typeof candidate !== "string" || candidate === "") return null;
+  const [row] = await db
+    .select({ ownerId: recordings.ownerId })
+    .from(recordings)
+    .where(eq(recordings.id, candidate))
+    .limit(1);
+  if (!row) return null;
+  return row.ownerId === user.id || user.role === "admin" ? candidate : null;
+}
 
 /**
  * Link a recording to the scenario it produced.
  *
  * Scoped to its owner so a recording id from another account can never be
- * claimed by saving a scenario with that id.
+ * claimed by saving a scenario with that id. The recording's state belongs to
+ * the stop route: saving must never mark a live recording completed.
  */
 async function linkRecording(
-  db: Executor,
+  db: Updater,
   ownerId: string,
   recordingId: unknown,
   scenarioId: string,
@@ -234,6 +256,6 @@ async function linkRecording(
   if (typeof recordingId !== "string" || recordingId === "") return;
   await db
     .update(recordings)
-    .set({ scenarioId, state: "completed" })
+    .set({ scenarioId })
     .where(and(eq(recordings.id, recordingId), eq(recordings.ownerId, ownerId)));
 }

@@ -102,6 +102,7 @@ describe("POST /api/recordings", () => {
   });
 
   it("records the first version of a scenario created from a recording", async () => {
+    mocks.selectResults = [[{ ownerId: user.id }]];
     const response = await POST(request(body()));
 
     expect(response.status).toBe(200);
@@ -122,11 +123,25 @@ describe("POST /api/recordings", () => {
       createdBy: user.id,
     });
 
+    // The link only records provenance: the recording's state belongs to the stop
+    // route, and saving a live recording must not mark it completed.
     expect(mocks.updates).toHaveLength(1);
     expect(mocks.updates[0]).toMatchObject({
       table: recordings,
-      values: { scenarioId: saved.id, state: "completed" },
+      values: { scenarioId: saved.id },
     });
+  });
+
+  it("drops a recording id this user does not own from the provenance", async () => {
+    mocks.selectResults = [[{ ownerId: "someone-else" }]];
+
+    const response = await POST(request(body()));
+
+    expect(response.status).toBe(200);
+    const [version] = insertInto(scenarioVersions);
+    expect(version.row).toMatchObject({ version: 1, sourceRecordingId: null });
+    // Nothing is linked either: a foreign recording id is simply dropped.
+    expect(mocks.updates).toHaveLength(0);
   });
 
   it("still creates the version when the scenario is not linked to a recording", async () => {
@@ -141,8 +156,9 @@ describe("POST /api/recordings", () => {
   });
 
   it("keeps appending a recording as the next version of an existing scenario", async () => {
-    // 1: the existing scenario, 2: its highest version so far.
+    // 1: provenance ownership, 2: the existing scenario, 3: its highest version.
     mocks.selectResults = [
+      [{ ownerId: user.id }],
       [{ id: "scenario-1", ownerId: user.id, name: "Existente", graph: { version: 1, nodes: {} } }],
       [{ version: 3 }],
     ];

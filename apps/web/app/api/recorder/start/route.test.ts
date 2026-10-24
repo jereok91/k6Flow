@@ -111,7 +111,7 @@ describe("POST /api/recorder/start", () => {
     expect(mocks.inserts).toHaveLength(0);
   });
 
-  it("refuses to adopt a live recording owned by another user", async () => {
+  it("refuses to adopt a live recording owned by another user without stopping it", async () => {
     mocks.selectResults = [[{ ownerId: "someone-else" }]];
     const fetchMock = vi.fn().mockImplementation(recorderStarted());
     vi.stubGlobal("fetch", fetchMock);
@@ -121,8 +121,8 @@ describe("POST /api/recorder/start", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "Recording belongs to another user" });
     expect(mocks.inserts).toHaveLength(0);
-    // The session it tried to adopt is abandoned, not left running.
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // That browser is still recording for its owner: a refusal must not touch it.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("refuses a recorder answer without a recording id", async () => {
@@ -133,6 +133,23 @@ describe("POST /api/recorder/start", () => {
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: "Recorder did not return a recording id" });
     expect(mocks.inserts).toHaveLength(0);
+  });
+
+  it("never abandons a session the recorder handed back as a reconnect", async () => {
+    mocks.getDb.mockImplementation(() => {
+      throw new Error("connect ECONNREFUSED");
+    });
+    const fetchMock = vi.fn(async () =>
+      Response.json({ status: "reconnected", recordingId: "rec-live" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(503);
+    // A reconnected session belongs to whoever started it: only a session this
+    // request created may be abandoned.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("stops the session it just started when the reservation cannot be stored", async () => {

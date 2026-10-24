@@ -71,11 +71,12 @@ const stopAnswer = (info: Record<string, unknown>, status = 200) =>
 const captureAnswer = (content: string, status = 200) =>
   new Response(content, { status, headers: { "Content-Type": "application/x-ndjson" } });
 
-/** Stubs fetch with the recorder's /stop answer first and its /captures answer second. */
+/** Stubs the recorder calls in order: /stop, /captures download, /captures delete. */
 const recorderAnswers = (stop: () => Response, capture: () => Response) => {
   const fetchMock = vi.fn();
   fetchMock.mockImplementationOnce(async () => stop());
   fetchMock.mockImplementationOnce(async () => capture());
+  fetchMock.mockImplementationOnce(async () => Response.json({ status: "deleted" }));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 };
@@ -225,6 +226,28 @@ describe("POST /api/recorder/stop", () => {
       persisted: true,
     });
     expect(mocks.inserts).toHaveLength(1);
+  });
+
+  it("does not store a capture that never got its end marker", async () => {
+    // A crash or a failed flush leaves a readable file: storing it would hand the
+    // review screen a truncated recording and report success for it.
+    const partial = CAPTURE.split("\n").filter((line) => !line.includes('"type":"end"')).join("\n") + "\n";
+    recorderAnswers(
+      () => stopAnswer({ status: "stopped", recordingId: "rec-1", events: 4, durationMs: 3000, reason: "manual" }),
+      () => captureAnswer(partial),
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "stopped",
+      recordingId: "rec-1",
+      persisted: false,
+      recording: null,
+      warning: "Capture incomplete",
+    });
+    expect(mocks.inserts).toHaveLength(0);
   });
 
   it("does not claim persistence when the capture is gone", async () => {
