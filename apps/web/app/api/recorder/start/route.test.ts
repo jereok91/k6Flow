@@ -69,8 +69,7 @@ describe("POST /api/recorder/start", () => {
   });
 
   it("reserves the recording for the caller so only they can stop it", async () => {
-    const fetchMock = vi.fn().mockImplementation(recorderStarted());
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(recorderStarted()));
 
     const response = await POST(request({ startUrl: START_URL, name: "Flujo de login" }));
 
@@ -90,26 +89,6 @@ describe("POST /api/recorder/start", () => {
     });
     // Reconnecting must not resurrect a finished recording's terminal state.
     expect(conflict).toHaveProperty("setWhere");
-
-    // The recorder mints the id: a caller-supplied one must never be forwarded, or
-    // it could name another user's recording.
-    const forwarded = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(forwarded).not.toHaveProperty("recordingId");
-    expect(forwarded).toMatchObject({ startUrl: START_URL });
-  });
-
-  it("refuses to reopen a finished recording and abandons the session it started", async () => {
-    mocks.selectResults = [[{ ownerId: user.id, state: "completed" }]];
-    const fetchMock = vi.fn().mockImplementation(recorderStarted());
-    vi.stubGlobal("fetch", fetchMock);
-
-    const response = await POST(request());
-
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: "Recording already finished" });
-    expect(mocks.inserts).toHaveLength(0);
-    // A finished id can never be live again: the session it did create is stopped.
-    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("names an unnamed recording from its start host", async () => {

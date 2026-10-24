@@ -222,13 +222,12 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
 type Updater = Pick<ReturnType<typeof getDb>, "update">;
 
 /**
- * The recording id to use as provenance, or null when the caller does not own it.
- * Unknown and foreign ids are indistinguishable on purpose, and an admin gets no
- * bypass: the link is owner-scoped, so provenance must be owned too.
+ * The recording id to use as provenance, or null when the caller does not own
+ * it. Unknown and foreign ids are indistinguishable on purpose.
  */
 async function ownedRecordingId(
   db: ReturnType<typeof getDb>,
-  user: { id: string },
+  user: { id: string; role: string },
   candidate: unknown,
 ): Promise<string | null> {
   if (typeof candidate !== "string" || candidate === "") return null;
@@ -238,7 +237,7 @@ async function ownedRecordingId(
     .where(eq(recordings.id, candidate))
     .limit(1);
   if (!row) return null;
-  return row.ownerId === user.id ? candidate : null;
+  return row.ownerId === user.id || user.role === "admin" ? candidate : null;
 }
 
 /**
