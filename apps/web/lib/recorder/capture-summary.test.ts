@@ -45,11 +45,12 @@ describe("summarizeCapture", () => {
     expect(summary.stepCount).toBe(2);
   });
 
-  it("reads the start URL and the recorded duration from the capture itself", () => {
+  it("reports the recorded duration and its start instant", () => {
     const summary = summarizeCapture(ndjson(CAPTURE));
 
     expect(summary.startUrl).toBe("https://shop.example.com/login");
     expect(summary.durationMs).toBe(5_000);
+    expect(summary.startedAt).toBe(1_700_000_000_000);
   });
 
   it("reports the stored byte size of the capture", () => {
@@ -89,5 +90,12 @@ describe("defaultRecordingName", () => {
 
   it("still names a recording whose start URL cannot be parsed", () => {
     expect(defaultRecordingName(undefined, "not a url")).toBe("Grabación sin título");
+  });
+
+  it("names an unnamed recording after the moment it started, not the moment it is saved", () => {
+    const startedAt = Date.UTC(2026, 9, 24, 20, 0);
+
+    expect(defaultRecordingName(undefined, "https://shop.example.com/login", startedAt))
+      .toBe("Grabación shop.example.com 2026-10-24 20:00");
   });
 });

@@ -141,26 +141,30 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
 
       const nextVersion = (maxVersion?.version || 0) + 1;
 
-      await db.insert(scenarioVersions).values({
-        id: randomUUID(),
-        scenarioId: body.appendToScenarioId,
-        version: nextVersion,
-        graph: existing.graph,
-        changeDescription: `Before appending recording: ${body.name}`,
-        sourceRecordingId: body.recordingId || null,
-        createdBy: user.id,
+      // One transaction: a version without its graph update (or an unlinked
+      // recording) must not survive a half-failed append.
+      await db.transaction(async (tx) => {
+        await tx.insert(scenarioVersions).values({
+          id: randomUUID(),
+          scenarioId: body.appendToScenarioId,
+          version: nextVersion,
+          graph: existing.graph,
+          changeDescription: `Before appending recording: ${body.name}`,
+          sourceRecordingId: body.recordingId || null,
+          createdBy: user.id,
+        });
+
+        // Update scenario with new graph
+        await tx
+          .update(scenarios)
+          .set({
+            graph,
+            updatedAt: new Date(),
+          })
+          .where(eq(scenarios.id, body.appendToScenarioId));
+
+        await linkRecording(tx, user.id, body.recordingId, body.appendToScenarioId);
       });
-
-      // Update scenario with new graph
-      await db
-        .update(scenarios)
-        .set({
-          graph,
-          updatedAt: new Date(),
-        })
-        .where(eq(scenarios.id, body.appendToScenarioId));
-
-      await linkRecording(db, user.id, body.recordingId, body.appendToScenarioId);
 
       return Response.json({
         id: body.appendToScenarioId,
@@ -173,28 +177,33 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
 
     // Create new scenario
     const scenarioId = randomUUID();
-    await db.insert(scenarios).values({
-      id: scenarioId,
-      ownerId: user.id,
-      name: body.name,
-      graph,
-    });
 
-    // The graph this save produced is the scenario's first version, so its history
-    // starts at what was created and keeps the recording it came from as provenance.
-    await db.insert(scenarioVersions).values({
-      id: randomUUID(),
-      scenarioId,
-      version: 1,
-      graph,
-      changeDescription: `Created from recording: ${body.name}`,
-      sourceRecordingId: typeof body.recordingId === "string" && body.recordingId !== ""
-        ? body.recordingId
-        : null,
-      createdBy: user.id,
-    });
+    // One transaction: the scenario, its first version and the recording link are
+    // one save. A retry after a half-failed write must not duplicate any of them.
+    await db.transaction(async (tx) => {
+      await tx.insert(scenarios).values({
+        id: scenarioId,
+        ownerId: user.id,
+        name: body.name,
+        graph,
+      });
 
-    await linkRecording(db, user.id, body.recordingId, scenarioId);
+      // The graph this save produced is the scenario's first version, so its history
+      // starts at what was created and keeps the recording it came from as provenance.
+      await tx.insert(scenarioVersions).values({
+        id: randomUUID(),
+        scenarioId,
+        version: 1,
+        graph,
+        changeDescription: `Created from recording: ${body.name}`,
+        sourceRecordingId: typeof body.recordingId === "string" && body.recordingId !== ""
+          ? body.recordingId
+          : null,
+        createdBy: user.id,
+      });
+
+      await linkRecording(tx, user.id, body.recordingId, scenarioId);
+    });
 
     return Response.json({
       id: scenarioId,
@@ -207,6 +216,9 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
   }
 }
 
+/** A DB handle or an open transaction: helpers accept either. */
+type Executor = ReturnType<typeof getDb> | Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
 /**
  * Link a recording to the scenario it produced.
  *
@@ -214,7 +226,7 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
  * claimed by saving a scenario with that id.
  */
 async function linkRecording(
-  db: ReturnType<typeof getDb>,
+  db: Executor,
   ownerId: string,
   recordingId: unknown,
   scenarioId: string,

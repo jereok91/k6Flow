@@ -15,6 +15,8 @@ export interface CaptureSummary {
   stepCount: number;
   durationMs: number;
   startUrl: string | null;
+  /** When the recording began, from the capture itself. */
+  startedAt: number | null;
   bytes: number;
 }
 
@@ -32,15 +34,20 @@ export function summarizeCapture(content: string): CaptureSummary {
         ? Math.max(0, endedAt.data.endedAt - metadata.startedAt)
         : 0,
     startUrl: metadata?.startUrl ?? null,
+    startedAt: metadata?.startedAt ?? null,
     bytes: Buffer.byteLength(content, "utf8"),
   };
 }
 
 /**
  * Display name for a recording: what the user typed, or a stable fallback built
- * from the start host and the recording time.
+ * from the start host and the time the recording began.
  */
-export function defaultRecordingName(name: string | undefined, startUrl: string | undefined): string {
+export function defaultRecordingName(
+  name: string | undefined,
+  startUrl: string | undefined,
+  startedAt?: number | null,
+): string {
   const typed = typeof name === "string" ? name.trim() : "";
   if (typed !== "") return typed;
 
@@ -52,6 +59,7 @@ export function defaultRecordingName(name: string | undefined, startUrl: string 
   }
   if (host === null || host === "") return "Grabación sin título";
 
-  const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+  const when = new Date(startedAt ?? Date.now());
+  const stamp = when.toISOString().slice(0, 16).replace("T", " ");
   return `Grabación ${host} ${stamp}`;
 }

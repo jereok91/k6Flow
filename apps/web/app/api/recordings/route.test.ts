@@ -8,33 +8,35 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../lib/auth/require-user", () => ({ requireUser: mocks.requireUser }));
-vi.mock("../../../lib/db/client", () => ({
-  getDb: () => ({
-    // Where() answers both shapes the route uses: awaited directly, and .limit(1).
-    select: () => ({
-      from: () => ({
-        where: () => {
-          const rows = (mocks.selectResults.shift() ?? []) as unknown[];
-          const pending = Promise.resolve(rows) as Promise<unknown[]> & { limit: () => Promise<unknown[]> };
-          pending.limit = async () => rows;
-          return pending;
-        },
-      }),
-    }),
-    insert: (table: unknown) => ({
-      values: async (row: Record<string, unknown>) => {
-        mocks.inserts.push({ table, row });
+const database = {
+  // Where() answers both shapes the route uses: awaited directly, and .limit(1).
+  select: () => ({
+    from: () => ({
+      where: () => {
+        const rows = (mocks.selectResults.shift() ?? []) as unknown[];
+        const pending = Promise.resolve(rows) as Promise<unknown[]> & { limit: () => Promise<unknown[]> };
+        pending.limit = async () => rows;
+        return pending;
       },
     }),
-    update: (table: unknown) => ({
-      set: (values: Record<string, unknown>) => ({
-        where: async () => {
-          mocks.updates.push({ table, values });
-        },
-      }),
+  }),
+  insert: (table: unknown) => ({
+    values: async (row: Record<string, unknown>) => {
+      mocks.inserts.push({ table, row });
+    },
+  }),
+  update: (table: unknown) => ({
+    set: (values: Record<string, unknown>) => ({
+      where: async () => {
+        mocks.updates.push({ table, values });
+      },
     }),
   }),
-}));
+  // A save is atomic: the route runs it inside one transaction.
+  transaction: async (run: (tx: unknown) => Promise<unknown>) => run(database),
+};
+
+vi.mock("../../../lib/db/client", () => ({ getDb: () => database }));
 
 import { POST } from "./route";
 import { recordings, scenarios, scenarioVersions } from "../../../lib/db/schema";

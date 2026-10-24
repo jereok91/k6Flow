@@ -100,6 +100,10 @@ export default function RecorderReviewPage() {
 
     setLoading(true);
     setError(null);
+    // The uploaded file replaces any library recording this screen was opened for:
+    // keeping its id would link the saved scenario to the wrong provenance.
+    setRecordingId(null);
+    setSavedRecordingName(null);
 
     try {
       const content = await file.text();
@@ -131,10 +135,14 @@ export default function RecorderReviewPage() {
       }
 
       const recording = data.recording as SavedRecordingInfo | null;
+      // Provenance is recorded only once the library answered for real.
+      setRecordingId(id);
       setSavedRecordingName(recording?.name ?? null);
       if (recording?.name) setScenarioName(recording.name);
       applyCapture(data.capture, recording?.name ?? "Sesión completa");
     } catch (err) {
+      setRecordingId(null);
+      setSavedRecordingName(null);
       setError(err instanceof Error ? err.message : "Failed to load recording");
     } finally {
       setLoading(false);
@@ -144,7 +152,6 @@ export default function RecorderReviewPage() {
   useEffect(() => {
     const requestedId = new URLSearchParams(window.location.search).get("id");
     if (requestedId === null || requestedId === "") return;
-    setRecordingId(requestedId);
     void loadRecording(requestedId);
   }, [loadRecording]);
 

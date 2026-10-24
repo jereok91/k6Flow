@@ -1,23 +1,22 @@
 /**
- * POST /api/recorder/stop — stop the recording and persist its capture.
+ * POST /api/recorder/stop — stop a recording and persist its capture.
  *
- * The recorder owns the session; this route owns the library entry. It stops
- * through the recorder, reads the finished capture back and stores it in
- * `recordings`, so the review screen and the recordings list work off the
- * database instead of a file inside the recorder container.
+ * The recorder owns the browser session; this route owns the library entry. It
+ * proves the caller owns the recording *before* touching the recorder (one
+ * session is shared by the whole instance), stops it, reads the finished capture
+ * back and stores it in `recordings`.
  *
  * A stop the recorder refuses is relayed as-is: the UI must never be told a
  * recording ended when it did not.
  */
 
-import { eq } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import { getDb } from "../../../../lib/db/client";
 import { recordings } from "../../../../lib/db/schema";
 import { requireUser } from "../../../../lib/auth/require-user";
 import { jsonError } from "../../../../lib/auth/http";
 import { defaultRecordingName, summarizeCapture } from "../../../../lib/recorder/capture-summary";
-
-const RECORDER_URL = process.env.RECORDER_UPSTREAM || "http://localhost:8081";
+import { recorderBaseUrl, recorderToken } from "../../../../lib/recorder/upstream";
 
 interface StopBody {
   recordingId?: unknown;
@@ -34,20 +33,16 @@ interface RecorderStopAnswer {
   reason?: string;
 }
 
-function recorderToken(request: Request): string {
-  // The server-side token wins; the client header keeps local setups working.
-  if (process.env.RECORDER_AUTH_TOKEN) return process.env.RECORDER_AUTH_TOKEN;
-  const header = request.headers.get("authorization") ?? "";
-  const match = /^Bearer\s+(.+)$/i.exec(header);
-  return match ? match[1] : "dev-token";
-}
-
-function stringField(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
-
-function intField(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
+interface RecordingRow {
+  id: string;
+  ownerId: string;
+  name: string;
+  startUrl: string;
+  state: string;
+  durationMs: number | null;
+  requestCount: number | null;
+  stepCount: number | null;
+  scenarioId: string | null;
 }
 
 interface SavedRecording {
@@ -61,6 +56,40 @@ interface SavedRecording {
   scenarioId: string | null;
 }
 
+const RECORDING_COLUMNS = {
+  id: recordings.id,
+  ownerId: recordings.ownerId,
+  name: recordings.name,
+  startUrl: recordings.startUrl,
+  state: recordings.state,
+  durationMs: recordings.durationMs,
+  requestCount: recordings.requestCount,
+  stepCount: recordings.stepCount,
+  scenarioId: recordings.scenarioId,
+};
+
+function toSavedRecording(row: RecordingRow): SavedRecording {
+  return {
+    id: row.id,
+    name: row.name,
+    startUrl: row.startUrl,
+    requestCount: row.requestCount ?? 0,
+    stepCount: row.stepCount ?? 0,
+    durationMs: row.durationMs ?? 0,
+    scenarioId: row.scenarioId,
+  };
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+function intField(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
+}
+
+const NO_STORE = { "Cache-Control": "no-store" };
+
 export async function POST(request: Request): Promise<Response> {
   const user = await requireUser(request.headers.get("cookie"));
   if (user === null) {
@@ -68,186 +97,147 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const body = (await request.json().catch(() => ({}))) as StopBody;
-  const requestedId = stringField(body.recordingId);
+  const recordingId = stringField(body.recordingId);
+  if (recordingId === undefined) {
+    // Without an id there is no way to prove ownership, and the recorder would
+    // stop whichever session happens to be live.
+    return jsonError(400, "Missing recording id");
+  }
   const token = recorderToken(request);
-
-  let stopAnswer: RecorderStopAnswer;
-  let stopStatus: number;
-  try {
-    const stopRes = await fetch(`${RECORDER_URL}/stop`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(requestedId ? { recordingId: requestedId } : {}),
-    });
-    stopStatus = stopRes.status;
-    const text = await stopRes.text();
-    if (!stopRes.ok) {
-      // 401/409/500 from the recorder are the user's answer, not ours to reinterpret.
-      return new Response(text || JSON.stringify({ error: "Failed to stop recording" }), {
-        status: stopStatus,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-    stopAnswer = JSON.parse(text || "{}") as RecorderStopAnswer;
-  } catch (error) {
-    console.error("Recorder stop proxy error:", error);
-    return jsonError(502, "Failed to connect to recorder service");
-  }
-
-  const recordingId = stopAnswer.recordingId ?? requestedId ?? null;
-  const status = stopAnswer.status ?? (recordingId === null ? "idle" : "stopped");
-  if (recordingId === null) {
-    return Response.json({ status, recordingId: null, persisted: false, recording: null }, {
-      headers: { "Cache-Control": "no-store" },
-    });
-  }
 
   let db;
   try {
     db = getDb();
   } catch (error) {
-    console.error("Recording persistence unavailable:", error);
-    return Response.json(
-      { status, recordingId, persisted: false, recording: null, warning: "Recording store unavailable" },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    console.error("Recording store unavailable:", error);
+    return jsonError(503, "Recording store unavailable");
   }
 
+  let existing: RecordingRow;
   try {
-    const [existing] = await db
-      .select({
-        id: recordings.id,
-        ownerId: recordings.ownerId,
-        name: recordings.name,
-        startUrl: recordings.startUrl,
-        state: recordings.state,
-        durationMs: recordings.durationMs,
-        requestCount: recordings.requestCount,
-        stepCount: recordings.stepCount,
-        scenarioId: recordings.scenarioId,
-      })
+    const [row] = await db
+      .select(RECORDING_COLUMNS)
       .from(recordings)
       .where(eq(recordings.id, recordingId))
       .limit(1);
-
-    if (existing && existing.ownerId !== user.id && user.role !== "admin") {
-      return jsonError(409, "Recording belongs to another user");
+    if (!row) {
+      return jsonError(404, "Recording not found");
     }
-
-    // A second stop for a recording that is already saved is idempotent: the stored
-    // numbers are the ones the first stop measured, so nothing is re-read or rewritten
-    // (recomputing them from the capture would drift from that measurement).
-    if (existing && existing.state === "completed") {
+    // Ownership is decided here, before the stop request reaches the recorder.
+    if (row.ownerId !== user.id && user.role !== "admin") {
+      return jsonError(403, "Forbidden");
+    }
+    // A recording already saved is idempotent: answer the stored numbers instead
+    // of recomputing them from a second source.
+    if (row.state === "completed") {
       return Response.json(
-        {
-          status,
-          recordingId,
-          persisted: true,
-          recording: {
-            id: existing.id,
-            name: existing.name,
-            startUrl: existing.startUrl,
-            requestCount: existing.requestCount ?? 0,
-            stepCount: existing.stepCount ?? 0,
-            durationMs: existing.durationMs ?? 0,
-            scenarioId: existing.scenarioId,
-          } satisfies SavedRecording,
-        },
-        { headers: { "Cache-Control": "no-store" } },
+        { status: "idle", recordingId, persisted: true, recording: toSavedRecording(row) },
+        { headers: NO_STORE },
       );
     }
+    existing = row;
+  } catch (error) {
+    console.error("Failed to read recording:", error);
+    return jsonError(500, "Internal server error");
+  }
 
-    const captureRes = await fetch(`${RECORDER_URL}/captures/${encodeURIComponent(recordingId)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => null);
+  let stopAnswer: RecorderStopAnswer;
+  try {
+    const stopRes = await fetch(`${recorderBaseUrl()}/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ recordingId }),
+    });
+    const text = await stopRes.text();
+    if (stopRes.status === 409) {
+      // Another session is live, so this one already ended on its own (inactivity
+      // or max duration). Its capture is final: collect it and leave the live
+      // session untouched.
+      stopAnswer = { status: "stopped", recordingId, durationMs: 0 };
+    } else if (!stopRes.ok) {
+      return new Response(text || JSON.stringify({ error: "Failed to stop recording" }), {
+        status: stopRes.status,
+        headers: { "Content-Type": "application/json", ...NO_STORE },
+      });
+    } else {
+      stopAnswer = JSON.parse(text || "{}") as RecorderStopAnswer;
+    }
+  } catch (error) {
+    console.error("Recorder stop proxy error:", error);
+    return jsonError(502, "Failed to connect to recorder service");
+  }
+
+  const status = stopAnswer.status ?? "stopped";
+
+  try {
+    const captureRes = await fetch(
+      `${recorderBaseUrl()}/captures/${encodeURIComponent(recordingId)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    ).catch(() => null);
     const capture = captureRes?.ok ? await captureRes.text() : null;
 
     if (capture === null) {
-      // The capture is gone (recorder restarted, already collected). If this
-      // recording was persisted before, answer with that instead of failing a
-      // retry the user already completed.
-      if (existing) {
-        return Response.json(
-          {
-            status,
-            recordingId,
-            persisted: true,
-            recording: {
-              id: existing.id,
-              name: existing.name,
-              startUrl: existing.startUrl,
-              requestCount: existing.requestCount ?? 0,
-              stepCount: existing.stepCount ?? 0,
-              durationMs: existing.durationMs ?? 0,
-              scenarioId: existing.scenarioId,
-            } satisfies SavedRecording,
-          },
-          { headers: { "Cache-Control": "no-store" } },
-        );
-      }
       return Response.json(
         { status, recordingId, persisted: false, recording: null, warning: "Capture unavailable" },
-        { headers: { "Cache-Control": "no-store" } },
+        { headers: NO_STORE },
       );
     }
 
     const summary = summarizeCapture(capture);
-    const startUrl = stringField(body.startUrl) ?? summary.startUrl ?? "";
-    const name = defaultRecordingName(stringField(body.name) ?? existing?.name, startUrl);
+    const startUrl = stringField(body.startUrl) ?? existing.startUrl ?? summary.startUrl ?? "";
+    const name = defaultRecordingName(
+      stringField(body.name) ?? existing.name,
+      startUrl,
+      summary.startedAt,
+    );
     const durationMs = stopAnswer.durationMs && stopAnswer.durationMs > 0
       ? stopAnswer.durationMs
       : summary.durationMs;
 
-    const saved: SavedRecording = {
-      id: recordingId,
+    const stored = {
       name,
       startUrl,
+      state: "completed",
+      durationMs,
       requestCount: summary.requestCount,
       stepCount: summary.stepCount,
-      durationMs,
-      captureBytes: summary.bytes,
-      scenarioId: existing?.scenarioId ?? null,
+      captureData: capture,
+      completedAt: new Date(),
     };
 
     await db
       .insert(recordings)
       .values({
         id: recordingId,
-        ownerId: existing?.ownerId ?? user.id,
-        name,
-        startUrl,
-        state: "completed",
+        ownerId: existing.ownerId,
         viewportWidth: intField(body.viewport?.width, 1280),
         viewportHeight: intField(body.viewport?.height, 720),
-        durationMs,
-        requestCount: summary.requestCount,
-        stepCount: summary.stepCount,
-        captureData: capture,
-        completedAt: new Date(),
+        ...stored,
       })
+      // First stop wins: a concurrent retry must not overwrite the terminal row
+      // the other request just wrote.
       .onConflictDoUpdate({
         target: recordings.id,
-        set: {
-          name,
-          startUrl,
-          state: "completed",
-          durationMs,
-          requestCount: summary.requestCount,
-          stepCount: summary.stepCount,
-          captureData: capture,
-          completedAt: new Date(),
-        },
+        set: stored,
+        setWhere: ne(recordings.state, "completed"),
       });
 
+    const [after] = await db
+      .select(RECORDING_COLUMNS)
+      .from(recordings)
+      .where(eq(recordings.id, recordingId))
+      .limit(1);
+
+    const saved = after ? toSavedRecording(after) : toSavedRecording({ ...existing, ...stored });
     return Response.json(
-      { status, recordingId, persisted: true, recording: saved },
-      { headers: { "Cache-Control": "no-store" } },
+      { status, recordingId, persisted: true, recording: { ...saved, captureBytes: summary.bytes } },
+      { headers: NO_STORE },
     );
   } catch (error) {
     console.error("Failed to persist recording:", error);
     return Response.json(
       { status, recordingId, persisted: false, recording: null, warning: "Failed to save recording" },
-      { headers: { "Cache-Control": "no-store" } },
+      { headers: NO_STORE },
     );
   }
 }

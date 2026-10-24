@@ -62,6 +62,7 @@ export default function RecorderPage() {
           Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
+          name: recordingName,
           startUrl: startUrl.trim(),
           viewportWidth: 1280,
           viewportHeight: 720,
@@ -74,14 +75,15 @@ export default function RecorderPage() {
       }
 
       const data = await res.json().catch(() => ({}));
-      // The recorder owns the id: its answer is the only one the WebSocket, the
-      // stop and the capture will agree on.
-      const authoritativeId = typeof data.recordingId === "string" && data.recordingId !== ""
-        ? data.recordingId
-        : `rec-${Date.now()}`;
+      // The recorder owns the id: the WebSocket, the stop and the capture lookup
+      // all use the one it minted. A response without it is a contract failure,
+      // never something to paper over with a client-made id.
+      if (typeof data.recordingId !== "string" || data.recordingId === "") {
+        throw new Error("El grabador no devolvió un identificador de grabación");
+      }
 
-      setRecordingId(authoritativeId);
-      setWsUrl(getWsUrl(authoritativeId));
+      setRecordingId(data.recordingId);
+      setWsUrl(getWsUrl(data.recordingId));
       setState("recording");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error iniciando grabación");
