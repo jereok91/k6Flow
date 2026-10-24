@@ -41,12 +41,18 @@ export async function POST(request: Request): Promise<Response> {
   })();
   const token = recorderToken(request);
 
+  // The recorder mints the recording id. Forwarding a client-supplied one would let
+  // a caller name another user's id (or replay a finished one) and leave a session
+  // this tier cannot stop behind.
+  const forwarded: Record<string, unknown> = { ...body };
+  delete forwarded.recordingId;
+
   let answer: Record<string, unknown>;
   try {
     const res = await fetch(`${recorderBaseUrl()}/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: rawBody || "{}",
+      body: JSON.stringify(forwarded),
     });
     const text = await res.text();
     if (!res.ok) {
@@ -76,7 +82,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const db = getDb();
     const [existing] = await db
-      .select({ ownerId: recordings.ownerId })
+      .select({ ownerId: recordings.ownerId, state: recordings.state })
       .from(recordings)
       .where(eq(recordings.id, recordingId))
       .limit(1);
@@ -87,6 +93,13 @@ export async function POST(request: Request): Promise<Response> {
     // its owner.
     if (existing && existing.ownerId !== user.id && user.role !== "admin") {
       return jsonError(409, "Recording belongs to another user");
+    }
+
+    // A finished recording can never become live again: answering 200 here would
+    // leave a running browser whose id the stop route short-circuits as done.
+    if (existing?.state === "completed") {
+      if (createdSession) abandonSession(recordingId, token);
+      return jsonError(409, "Recording already finished");
     }
 
     await db

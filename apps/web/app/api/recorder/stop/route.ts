@@ -135,6 +135,8 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   let stopAnswer: RecorderStopAnswer;
+  // A refused stop is only forgiven once the capture proves the recording is over.
+  let rejection: { status: number; body: string } | null = null;
   try {
     const stopRes = await fetch(`${recorderBaseUrl()}/stop`, {
       method: "POST",
@@ -143,10 +145,11 @@ export async function POST(request: Request): Promise<Response> {
     });
     const text = await stopRes.text();
     if (stopRes.status === 409) {
-      // Another session is live, so this one already ended on its own (inactivity
-      // or max duration). Its capture is final: collect it and leave the live
-      // session untouched.
-      stopAnswer = { status: "stopped", recordingId, durationMs: 0 };
+      // The recorder stopped nothing: this recording is not the live session, so it
+      // ended on its own (inactivity or max duration). Whether its capture is final
+      // is decided below, from the capture itself, never from this rejection.
+      rejection = { status: 409, body: text };
+      stopAnswer = { status: "ended", recordingId, durationMs: 0 };
     } else if (!stopRes.ok) {
       return new Response(text || JSON.stringify({ error: "Failed to stop recording" }), {
         status: stopRes.status,
@@ -170,6 +173,14 @@ export async function POST(request: Request): Promise<Response> {
     const capture = captureRes?.ok ? await captureRes.text() : null;
 
     if (capture === null) {
+      if (rejection !== null) {
+        // No capture and a refused stop: relay the rejection so the UI can keep the
+        // session and retry instead of believing it finished.
+        return new Response(rejection.body || JSON.stringify({ error: "Failed to stop recording" }), {
+          status: rejection.status,
+          headers: { "Content-Type": "application/json", ...NO_STORE },
+        });
+      }
       return Response.json(
         { status, recordingId, persisted: false, recording: null, warning: "Capture unavailable" },
         { headers: NO_STORE },
@@ -182,6 +193,12 @@ export async function POST(request: Request): Promise<Response> {
     // failed flush. Storing it as completed would hide the loss and hand the
     // review screen a truncated recording.
     if (!summary.complete) {
+      if (rejection !== null) {
+        return new Response(rejection.body || JSON.stringify({ error: "Failed to stop recording" }), {
+          status: rejection.status,
+          headers: { "Content-Type": "application/json", ...NO_STORE },
+        });
+      }
       return Response.json(
         { status, recordingId, persisted: false, recording: null, warning: "Capture incomplete" },
         { headers: NO_STORE },
