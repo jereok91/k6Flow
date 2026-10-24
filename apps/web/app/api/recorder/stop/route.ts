@@ -207,12 +207,22 @@ export async function POST(request: Request): Promise<Response> {
   const status = stopAnswer.status ?? "stopped";
 
   try {
-    const captureRes = await fetch(
-      `${recorderBaseUrl()}/captures/${encodeURIComponent(recordingId)}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    ).catch(() => null);
-    const oversized = Number(captureRes?.headers.get("content-length") ?? "0") > MAX_CAPTURE_BYTES;
-    const capture = captureRes?.ok && !oversized ? await captureRes.text() : null;
+    let captureRes: Response | null = null;
+    try {
+      captureRes = await fetch(
+        `${recorderBaseUrl()}/captures/${encodeURIComponent(recordingId)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+    } catch (error) {
+      // A unreachable recorder is not a missing capture: the recording stays
+      // retryable instead of being reported as finished with nothing saved.
+      console.error("Capture fetch failed:", error);
+      return jsonError(502, "Failed to read the capture");
+    }
+    // The recorder refuses an oversized capture itself (413); honour both signals.
+    const oversized = captureRes.status === 413
+      || Number(captureRes.headers.get("content-length") ?? "0") > MAX_CAPTURE_BYTES;
+    const capture = captureRes.ok && !oversized ? await captureRes.text() : null;
 
     if (capture === null) {
       if (rejection !== null) {
@@ -269,10 +279,9 @@ export async function POST(request: Request): Promise<Response> {
       if (rejection !== null) {
         return jsonError(rejection.status, "Failed to stop recording");
       }
-      // A partial capture can never become usable, so the row stops claiming to be
-      // recording and the file stops occupying the volume.
+      // The row stops claiming to be recording, but the file is kept: it is the only
+      // copy, and the review screen offers a manual upload of exactly that file.
       await markFailed(recordingId);
-      releaseCapture(recordingId, token);
       return Response.json(
         { status, recordingId, persisted: false, recording: null, warning: "Capture incomplete" },
         { headers: NO_STORE },
