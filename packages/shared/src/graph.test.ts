@@ -194,3 +194,37 @@ describe("editor metadata and disabled nodes", () => {
     if (!result.success) expect(result.error.issues[0]?.message).toBe("Expected at least one enabled node");
   });
 });
+
+// The wait between two requests is configured on the connection, translated to
+// sleep() in the k6 script, and persisted canonically in seconds.
+describe("connection wait", () => {
+  const waited = (waitSeconds: unknown) =>
+    ({ version: 1, nodes: [node("a"), node("b")], connections: [{ source: "a", target: "b", waitSeconds }] });
+
+  it("accepts a connection without a wait", () => {
+    expect(graphDraftStructureSchema.safeParse(graph()).success).toBe(true);
+  });
+
+  it("accepts whole and fractional seconds within the bound", () => {
+    for (const value of [0, 1, 2.5, 60, 3600]) {
+      expect(graphDraftStructureSchema.safeParse(waited(value)).success).toBe(true);
+    }
+  });
+
+  it("rejects a wait outside 0..3600 seconds", () => {
+    for (const value of [-1, -0.5, 3600.5, 86_400]) {
+      expect(graphDraftStructureSchema.safeParse(waited(value)).success).toBe(false);
+    }
+  });
+
+  it("rejects a non-finite or non-numeric wait", () => {
+    for (const value of [Number.POSITIVE_INFINITY, Number.NaN, "5"]) {
+      expect(graphDraftStructureSchema.safeParse(waited(value)).success).toBe(false);
+    }
+  });
+
+  it("rejects an unknown connection field instead of silently dropping it", () => {
+    const input = { version: 1, nodes: [node("a"), node("b")], connections: [{ source: "a", target: "b", wait: 5 }] };
+    expect(graphDraftStructureSchema.safeParse(input).success).toBe(false);
+  });
+});

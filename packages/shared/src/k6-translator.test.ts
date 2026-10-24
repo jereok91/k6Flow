@@ -643,3 +643,52 @@ describe("translateToK6 disabled nodes", () => {
     expect(result.script).toContain("https://independent.test");
   });
 });
+
+// The wait between two requests is configured on the connection and must reach
+// the generated script as sleep(), after the source request and before the next.
+describe("connection wait in the generated script", () => {
+  const request = (id: string, url: string) => ({
+    id,
+    kind: "http-request" as const,
+    references: [],
+    parameters: { method: "GET" as const, url: { kind: "literal" as const, value: url } },
+  });
+
+  const chain = (waitSeconds?: number): GraphDraftComposition => ({
+    version: 1,
+    nodes: [request("first", "https://a.test"), request("second", "https://b.test")],
+    connections: [{ source: "first", target: "second", ...(waitSeconds === undefined ? {} : { waitSeconds }) }],
+  });
+
+  it("emits sleep between the two requests", () => {
+    const { script } = translateToK6(chain(5));
+    expect(script).toContain("import { sleep } from 'k6';");
+    const first = script.indexOf("https://a.test");
+    const slept = script.indexOf("sleep(5);");
+    const second = script.indexOf("https://b.test");
+    expect(first).toBeGreaterThan(-1);
+    expect(slept).toBeGreaterThan(first);
+    expect(second).toBeGreaterThan(slept);
+  });
+
+  it("keeps fractional seconds as configured", () => {
+    expect(translateToK6(chain(2.5)).script).toContain("sleep(2.5);");
+  });
+
+  it("does not import or emit sleep when there is no wait", () => {
+    const { script } = translateToK6(chain());
+    expect(script).not.toContain("sleep(");
+    expect(script).not.toContain("import { sleep }");
+  });
+
+  it("treats a zero wait as no wait", () => {
+    const { script } = translateToK6(chain(0));
+    expect(script).not.toContain("sleep(");
+  });
+
+  it("does not wait for a connection whose source is disabled", () => {
+    const graph = chain(5);
+    graph.nodes[0] = { ...graph.nodes[0], disabled: true } as (typeof graph.nodes)[number];
+    expect(translateToK6(graph).script).not.toContain("sleep(");
+  });
+});

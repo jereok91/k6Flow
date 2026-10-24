@@ -13,6 +13,14 @@ const nodeLabelSchema = z.string().max(MAX_NODE_LABEL_LENGTH)
   .refine((value) => value.trim().length > 0, { message: "Expected a nonblank label" });
 const nodePositionSchema = z.strictObject({ x: z.number().finite(), y: z.number().finite() });
 
+// Wait between two requests, configured on the connection and emitted as
+// sleep() in the k6 script. Persisted in seconds; absent means no wait, so
+// graphs saved before it existed keep translating unchanged.
+const MAX_CONNECTION_WAIT_SECONDS = 3600;
+const connectionWaitSchema = z.number().finite()
+  .min(0, { message: "Expected a wait of at least 0 seconds" })
+  .max(MAX_CONNECTION_WAIT_SECONDS, { message: "Expected a wait of at most 3600 seconds" });
+
 const graphStructureShape = z.strictObject({
   version: z.literal(CONTRACT_VERSION),
   nodes: z.array(z.strictObject({
@@ -23,7 +31,11 @@ const graphStructureShape = z.strictObject({
     position: nodePositionSchema.optional(),
     disabled: z.boolean().optional(),
   })),
-  connections: z.array(z.strictObject({ source: identifier, target: identifier })),
+  connections: z.array(z.strictObject({
+    source: identifier,
+    target: identifier,
+    waitSeconds: connectionWaitSchema.optional(),
+  })),
 });
 
 export type GraphDraftStructure = z.infer<typeof graphStructureShape>;

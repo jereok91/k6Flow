@@ -198,12 +198,25 @@ export function translateToK6(
     return [id, diagnostic ? `__node${index}` : safe ? legacy : `__k6flow_node${index}`];
   }));
 
+  // Waits live on connections: the pause after a node's request and before the
+  // next one. A disabled endpoint makes the edge moot, so it is not waited for.
+  const waitsBySource = new Map<string, number[]>();
+  for (const conn of graph.connections) {
+    if (disabledIds.has(conn.source) || disabledIds.has(conn.target)) continue;
+    const wait = conn.waitSeconds;
+    if (wait === undefined || wait <= 0) continue;
+    waitsBySource.set(conn.source, [...(waitsBySource.get(conn.source) ?? []), wait]);
+  }
+
   // Generate imports
   const imports: string[] = ["import http from 'k6/http';"];
   if (diagnostic) imports.push("import { Counter } from 'k6/metrics';");
   const hasChecks = enabledNodes.some((n) => n.kind === "response-validation");
   if (hasChecks) {
     imports.push("import { check } from 'k6';");
+  }
+  if (waitsBySource.size > 0) {
+    imports.push("import { sleep } from 'k6';");
   }
   const hasUserPool = enabledNodes.some((n) => n.kind === "user-pool");
   if (hasUserPool) {
@@ -555,6 +568,11 @@ export function translateToK6(
         for (const output of node.parameters?.outputs ?? []) success.push(`  if (!${varName} || typeof ${varName}[${JSON.stringify(output.header)}] !== 'string') __diagReason = 'pool';`);
       }
       bodyLines.push(...instrumentDiagnosticNode(bodyLines.splice(start), id, false, success));
+    }
+    // The wait belongs to the edge leaving this node, so it lands after the
+    // node's own work and before the next request.
+    for (const wait of waitsBySource.get(id) ?? []) {
+      bodyLines.push(`  sleep(${wait});`);
     }
   }
   if (diagnostic) bodyLines.push("  __diagEmit('', 'complete', 0, 0, __diagFailed ? 'failure' : 'success', __diagFailed ? 'prior-failure' : 'none');");
