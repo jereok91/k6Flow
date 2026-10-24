@@ -183,7 +183,23 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
     owner's call; flagged by every round.
   Live after the rebuild: U2 reading U1's recording → 404; U1 stop → `persisted:true`, capture
   released, row `completed`. Dev DB back to the owner's two recordings.
-- L17 (slice boundaries): recorder durability/ownership rounds `ed19c86`, `6a424bc`, `b0e033b`,
-  `88749a7`, `b446c71` · web rounds `255d732`, `d2944c2`/`7ddf0eb`, `dcb9242` · library/docs
-  `736000c`, `9ef6933`, `fd796a9`, `f1c79e6`, `756c270`. State: 108 test files / 2135 tests +
-  26 recorder tests green, `pnpm typecheck` clean.
+- L18 (fifth native review `review-6402ebf9e5663ba7`): closed `escalated` (`R4-001` causality
+  unknown; the remaining findings were corroborated). Fixes in `0128394`, `e69630f`:
+  - `R1-001` (ownership decided by a read-then-insert race: the first caller to commit owned a
+    live session it did not start) → fixed: a `reconnected` answer is adoptable only by the
+    owner of its row, decided before any write, and the reservation is confirmed after the
+    upsert. Live: U2 start while U1 records → 409 `Recorder is busy with another recording` and
+    U1's session keeps running.
+  - `R4-002`/`R3-001` (the recorder buffered the whole capture before the web cap applied) →
+    fixed: the size is stat-ed first (`MAX_CAPTURE_BYTES`, 32 MiB) and an oversized file answers
+    413 without being read.
+  - `R4-003`/`R4-004`/`R3-005` (an unusable capture left the row `recording` and the file on the
+    volume, retried forever) → fixed: oversized and partial captures move the row to `failed`
+    and release the file. Live: partial capture → `persisted:false`, row `failed`, file released.
+  - `R1-002`/`R3-002`/`R2-003`/`R2-004`/`R3-004`/`R3-006`/`R2-001`/`R2-002` → fixed: null stop body,
+    malformed 2xx parsed as such, viewport preserved across the stop, a refused stop looks for a
+    row a retry saved, the poll flag resets on a new recording, and review links only provenance
+    it loaded.
+  - `R1-003`/`R4-001`/`R2-005` (raised ceilings in `deploy/.env.example`) → still the owner's
+    call; flagged by all five rounds.
+  Live after rebuilding: busy refusal, normal stop persisted, partial capture terminal.
