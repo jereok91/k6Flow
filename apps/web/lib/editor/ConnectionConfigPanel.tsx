@@ -11,6 +11,7 @@ import {
   WAIT_UNITS,
   isValidWait,
   toDisplay,
+  toDisplayInUnit,
   toSeconds,
   type WaitUnit,
 } from "./connection-wait";
@@ -41,6 +42,12 @@ export function ConnectionConfigPanel({
   const seconds = toSeconds(Number(value), unit);
   const valid = value.trim() !== "" && isValidWait(seconds);
 
+  // Keep the total when the unit changes: 300 s stays 300 s, shown as 5 min.
+  const changeUnit = (nextUnit: WaitUnit) => {
+    setValue(toDisplayInUnit(toSeconds(Number(value) || 0, unit), nextUnit));
+    setUnit(nextUnit);
+  };
+
   const save = () => {
     if (!valid) return;
     onChange(seconds > 0 ? seconds : undefined);
@@ -70,7 +77,7 @@ export function ConnectionConfigPanel({
             className="input"
             aria-label="Unidad del tiempo de espera"
             value={unit}
-            onChange={(event) => setUnit(event.target.value as WaitUnit)}
+            onChange={(event) => changeUnit(event.target.value as WaitUnit)}
           >
             {WAIT_UNITS.map((candidate) => (
               <option key={candidate} value={candidate}>

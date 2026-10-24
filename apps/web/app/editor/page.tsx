@@ -213,6 +213,8 @@ function EditorPage() {
   );
   const selectNode = useCallback((node: K6NodeType | null) => {
     setSelectedNodeId(node?.id ?? null);
+    // Only one inspector at a time: a stale edge id would keep the wrong panel alive.
+    if (node) setSelectedEdgeId(null);
   }, []);
 
   const selectEdge = useCallback((edge: K6Edge | null) => {

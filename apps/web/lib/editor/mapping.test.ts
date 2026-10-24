@@ -425,4 +425,10 @@ describe("connection wait through the editor mapping", () => {
     const tampered = [{ ...edges[0], data: { waitSeconds: "soon" } }];
     expect(fromReactFlowGraph(nodes, tampered).connections[0]).toEqual({ source: "a", target: "b" });
   });
+
+  it("drops a wait outside the contract bound instead of persisting it", () => {
+    const { nodes, edges } = toReactFlowGraph(withWait());
+    const tooLong = [{ ...edges[0], data: { waitSeconds: 3601 } }];
+    expect(fromReactFlowGraph(nodes, tooLong).connections[0]).toEqual({ source: "a", target: "b" });
+  });
 });

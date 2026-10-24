@@ -35,3 +35,12 @@ export function formatWaitLabel(seconds: number | undefined): string | undefined
 export function isValidWait(seconds: number): boolean {
   return Number.isFinite(seconds) && seconds >= 0 && seconds <= MAX_WAIT_SECONDS;
 }
+
+/**
+ * The same total wait written in `unit`, for when the user switches the unit.
+ * Switching must never reinterpret the number and silently multiply the wait.
+ */
+export function toDisplayInUnit(seconds: number, unit: WaitUnit): string {
+  const value = unit === "minutes" ? seconds / 60 : seconds;
+  return String(Number(value.toFixed(4)));
+}

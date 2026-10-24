@@ -4,7 +4,7 @@
 
 import type { Node, Edge } from "@xyflow/react";
 import type { GraphDraftComposition } from "@k6flow/shared";
-import { formatWaitLabel } from "./connection-wait";
+import { formatWaitLabel, isValidWait } from "./connection-wait";
 
 // -----------------------------------------------------------------------------
 // Types
@@ -161,7 +161,7 @@ export function fromReactFlowGraph(
       return {
         source: edge.source,
         target: edge.target,
-        ...(typeof wait === "number" && Number.isFinite(wait) && wait >= 0 ? { waitSeconds: wait } : {}),
+        ...(typeof wait === "number" && isValidWait(wait) ? { waitSeconds: wait } : {}),
       };
     }),
     ...(load !== undefined && { load }),

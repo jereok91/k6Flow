@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { MAX_WAIT_SECONDS, formatWaitLabel, isValidWait, toDisplay, toSeconds } from "./connection-wait";
+import { MAX_WAIT_SECONDS, formatWaitLabel, isValidWait, toDisplay, toDisplayInUnit, toSeconds } from "./connection-wait";
 
 describe("toSeconds", () => {
   it("keeps seconds as they are", () => {
@@ -56,5 +56,23 @@ describe("isValidWait", () => {
     for (const value of [-1, MAX_WAIT_SECONDS + 1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(isValidWait(value)).toBe(false);
     }
+  });
+});
+
+// Switching the unit must not silently multiply the wait.
+describe("toDisplayInUnit", () => {
+  it("keeps the total when converting to minutes", () => {
+    expect(toDisplayInUnit(300, "minutes")).toBe("5");
+    expect(toDisplayInUnit(90, "minutes")).toBe("1.5");
+    expect(toDisplayInUnit(3600, "minutes")).toBe("60");
+  });
+
+  it("keeps the total when staying in seconds", () => {
+    expect(toDisplayInUnit(90, "seconds")).toBe("90");
+    expect(toDisplayInUnit(0, "seconds")).toBe("0");
+  });
+
+  it("rounds a fractional minute instead of losing the value", () => {
+    expect(toDisplayInUnit(5, "minutes")).toBe("0.0833");
   });
 });
