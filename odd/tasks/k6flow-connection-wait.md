@@ -64,3 +64,19 @@ generado.
 L2: sin cambios de requerimientos; el usuario confirmó con "si dale arranca" que
 avanzara con la implementación propuesta.
 
+L3 — Recibo nativo: `review-7528231eb34faf20` revisó el rango `90fa362..33c3116`
+(13 archivos, 504 líneas, committed-only, riesgo medio, lentes risk + reliability)
+y cerró **APPROVED** sin corrección; el acknowledgement exacto quemó su autoridad
+(`gentle-ai.review-acknowledged/v1`, revisión consumida sha256:7819329b…).
+
+Avisos informativos, no bloqueantes, que quedan como trabajo aparte:
+- R3-001 (reliability, `ConnectionConfigPanel.tsx:73`): cambiar la unidad no
+  reconvierte el número escrito, así que pasar de "5 segundos" a "minutos" deja 5
+  y guarda 300 s. El preview de `sleep()` lo muestra, pero el valor se reinterpreta.
+- R3-002 (reliability, `mapping.ts:164`): al leer la arista se descartan valores
+  no finitos o negativos, pero no se aplica la cota de 3600 del contrato, así que un
+  valor mayor sobrevive al mapeo y lo rechaza el esquema más tarde.
+- R3-003 (reliability, `page.tsx:1244`, sugerencia): el panel de la conexión se
+  condiciona a `!selectedNode`, y el id de la arista seleccionada no se limpia al
+  elegir un nodo, así que queda un id viejo en el estado.
+
