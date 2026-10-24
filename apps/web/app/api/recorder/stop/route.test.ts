@@ -221,11 +221,27 @@ describe("POST /api/recorder/stop", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      status: "stopped",
+      // Not "stopped": the recorder stopped nothing, the capture proves it ended.
+      status: "ended",
       recordingId: "rec-1",
       persisted: true,
     });
     expect(mocks.inserts).toHaveLength(1);
+  });
+
+  it("relays the recorder rejection when a refused stop has no final capture", async () => {
+    recorderAnswers(
+      () => Response.json({ error: "Recording mismatch", recordingId: "rec-other" }, { status: 409 }),
+      () => Response.json({ error: "Capture not found" }, { status: 404 }),
+    );
+
+    const response = await POST(request());
+
+    // No capture means nothing proves the recording is over: the caller must see the
+    // rejection and retry instead of believing the stop succeeded.
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Recording mismatch", recordingId: "rec-other" });
+    expect(mocks.inserts).toHaveLength(0);
   });
 
   it("does not store a capture that never got its end marker", async () => {
