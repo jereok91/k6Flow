@@ -390,3 +390,39 @@ describe("editor metadata", () => {
     expect(createNode("user-pool", { x: 0, y: 0 }).data.disabled).toBe(false);
   });
 });
+
+// The wait between two requests belongs to the connection, so it has to survive
+// the trip to React Flow edges and back into the composition.
+describe("connection wait through the editor mapping", () => {
+  const withWait = (waitSeconds?: number): GraphDraftComposition => ({
+    version: 1,
+    nodes: [
+      { id: "a", kind: "http-request", references: [], parameters: { method: "GET", url: { kind: "literal", value: "https://a.test" } } },
+      { id: "b", kind: "http-request", references: [], parameters: { method: "GET", url: { kind: "literal", value: "https://b.test" } } },
+    ],
+    connections: [{ source: "a", target: "b", ...(waitSeconds === undefined ? {} : { waitSeconds }) }],
+  } as GraphDraftComposition);
+
+  it("carries the wait onto the edge", () => {
+    const { edges } = toReactFlowGraph(withWait(15));
+    expect(edges[0].data).toEqual({ waitSeconds: 15 });
+    expect(edges[0].label).toBe("15 s");
+  });
+
+  it("brings the wait back into the composition", () => {
+    const { nodes, edges } = toReactFlowGraph(withWait(15));
+    expect(fromReactFlowGraph(nodes, edges).connections[0]).toEqual({ source: "a", target: "b", waitSeconds: 15 });
+  });
+
+  it("does not invent a wait for a connection that has none", () => {
+    const { nodes, edges } = toReactFlowGraph(withWait());
+    expect(edges[0].data).toBeUndefined();
+    expect(fromReactFlowGraph(nodes, edges).connections[0]).toEqual({ source: "a", target: "b" });
+  });
+
+  it("drops a wait that is not a usable number", () => {
+    const { nodes, edges } = toReactFlowGraph(withWait());
+    const tampered = [{ ...edges[0], data: { waitSeconds: "soon" } }];
+    expect(fromReactFlowGraph(nodes, tampered).connections[0]).toEqual({ source: "a", target: "b" });
+  });
+});

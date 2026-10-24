@@ -8,6 +8,8 @@ export { HttpRequestConfigPanel, collectReferences, collectSampleValues, runEndp
 export { AuthenticationConfigPanel } from "./AuthenticationConfigPanel";
 export { ResponseValidationConfigPanel } from "./ResponseValidationConfigPanel";
 export { UserPoolConfigPanel } from "./UserPoolConfigPanel";
+export { ConnectionConfigPanel } from "./ConnectionConfigPanel";
+export { formatWaitLabel, isValidWait, toDisplay, toSeconds, MAX_WAIT_SECONDS, WAIT_UNITS, type WaitUnit } from "./connection-wait";
 export { ScriptPanel } from "./ScriptPanel";
 export { RunExecutionPanel } from "./RunExecutionPanel";
 export { RunHistoryPanel, type RunHistoryEntry } from "./RunHistoryPanel";

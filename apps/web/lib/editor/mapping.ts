@@ -4,6 +4,7 @@
 
 import type { Node, Edge } from "@xyflow/react";
 import type { GraphDraftComposition } from "@k6flow/shared";
+import { formatWaitLabel } from "./connection-wait";
 
 // -----------------------------------------------------------------------------
 // Types
@@ -23,6 +24,12 @@ export interface K6NodeData {
 
 export type K6Node = Node<K6NodeData>;
 export type K6Edge = Edge;
+
+/** What a connection carries beyond its endpoints. */
+export interface ConnectionEdgeData {
+  /** Pause between the source request and the next one, in seconds. */
+  waitSeconds?: number;
+}
 
 // Default labels for each node kind
 const NODE_LABELS: Record<NodeKind, string> = {
@@ -105,6 +112,12 @@ export function toReactFlowGraph(composition: GraphDraftComposition): {
     id: `edge-${index}`,
     source: conn.source,
     target: conn.target,
+    ...(formatWaitLabel(conn.waitSeconds) === undefined
+      ? {}
+      : { label: formatWaitLabel(conn.waitSeconds) }),
+    ...(conn.waitSeconds === undefined
+      ? {}
+      : { data: { waitSeconds: conn.waitSeconds } satisfies ConnectionEdgeData }),
   }));
 
   return { nodes, edges };
@@ -143,10 +156,14 @@ export function fromReactFlowGraph(
   return {
     version: 1,
     nodes: mappedNodes,
-    connections: edges.map((edge) => ({
-      source: edge.source,
-      target: edge.target,
-    })),
+    connections: edges.map((edge) => {
+      const wait = (edge.data as ConnectionEdgeData | undefined)?.waitSeconds;
+      return {
+        source: edge.source,
+        target: edge.target,
+        ...(typeof wait === "number" && Number.isFinite(wait) && wait >= 0 ? { waitSeconds: wait } : {}),
+      };
+    }),
     ...(load !== undefined && { load }),
   };
 }

@@ -42,6 +42,8 @@ interface FlowEditorProps {
   onNodesChange: (nodes: K6NodeType[]) => void;
   onEdgesChange: (edges: K6Edge[]) => void;
   onNodeSelect?: (node: K6NodeType | null) => void;
+  /** A connection was selected on its own, or the selection moved away from it. */
+  onEdgeSelect?: (edge: K6Edge | null) => void;
   readOnly?: boolean;
   /** Changes whenever the page replaces the graph, even when node IDs are reused. */
   flowSession: string;
@@ -75,6 +77,7 @@ export function FlowEditor({
   onNodesChange,
   onEdgesChange,
   onNodeSelect,
+  onEdgeSelect,
   readOnly = false,
   flowSession,
   onNodesRemoved,
@@ -110,14 +113,21 @@ export function FlowEditor({
 
   // Handle selection changes
   const handleSelectionChange: OnSelectionChangeFunc = useCallback(
-    ({ nodes: selectedNodes }) => {
+    ({ nodes: selectedNodes, edges: selectedEdges }) => {
       if (selectedNodes.length === 1) {
         onNodeSelect?.(selectedNodes[0] as K6NodeType);
       } else {
         onNodeSelect?.(null);
       }
+      // A connection is only "selected" when no node is, so the two inspectors
+      // never compete for the same space.
+      if (selectedNodes.length === 0 && selectedEdges.length === 1) {
+        onEdgeSelect?.(selectedEdges[0] as K6Edge);
+      } else {
+        onEdgeSelect?.(null);
+      }
     },
-    [onNodeSelect],
+    [onNodeSelect, onEdgeSelect],
   );
 
   // Handle node changes - controlled mode

@@ -26,6 +26,8 @@ import {
   AuthenticationConfigPanel,
   ResponseValidationConfigPanel,
   UserPoolConfigPanel,
+  ConnectionConfigPanel,
+  formatWaitLabel,
   ScriptPanel,
   RunExecutionPanel,
   RunHistoryPanel,
@@ -132,6 +134,7 @@ function EditorPage() {
   // node synced in an effect reached the config panel one commit late, so React reverted
   // the controlled field to the stale value and the caret jumped to the end on each key.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [scenarioNameInput, setScenarioNameInput] = useState("");
   const [attachments, setAttachments] = useState<AttachmentInfo[]>([]);
@@ -210,6 +213,27 @@ function EditorPage() {
   );
   const selectNode = useCallback((node: K6NodeType | null) => {
     setSelectedNodeId(node?.id ?? null);
+  }, []);
+
+  const selectEdge = useCallback((edge: K6Edge | null) => {
+    setSelectedEdgeId(edge?.id ?? null);
+  }, []);
+
+  const selectedEdge = useMemo(
+    () => edges.find((edge) => edge.id === selectedEdgeId) ?? null,
+    [edges, selectedEdgeId],
+  );
+
+  const nodeLabel = useCallback(
+    (id: string) => nodes.find((node) => node.id === id)?.data.label ?? id,
+    [nodes],
+  );
+
+  // The wait belongs to the connection, so editing it rewrites that edge only.
+  const updateEdgeWait = useCallback((edgeId: string, waitSeconds: number | undefined) => {
+    setEdges((current) => current.map((edge) => (edge.id === edgeId
+      ? { ...edge, data: waitSeconds === undefined ? undefined : { waitSeconds }, label: formatWaitLabel(waitSeconds) }
+      : edge)));
   }, []);
 
   // Check orchestrator on mount
@@ -1217,8 +1241,23 @@ function EditorPage() {
           onNodesChange={setNodes}
           onEdgesChange={setEdges}
           onNodeSelect={selectNode}
+          onEdgeSelect={selectEdge}
           onNodesRemoved={handleNodesRemoved}
         />
+        {!selectedNode && selectedEdge && (
+          <aside aria-label="Inspector de la conexión"
+            className="absolute top-4 right-4 z-30 w-80 flex flex-col gap-2 [&>div]:!static [&>div]:!w-full [&>div]:!max-h-none"
+            style={{ maxHeight: "calc(100% - 32px)" }}>
+            <ConnectionConfigPanel
+              key={selectedEdge.id}
+              fromLabel={nodeLabel(selectedEdge.source)}
+              toLabel={nodeLabel(selectedEdge.target)}
+              waitSeconds={(selectedEdge.data as { waitSeconds?: number } | undefined)?.waitSeconds}
+              onChange={(waitSeconds) => updateEdgeWait(selectedEdge.id, waitSeconds)}
+              onClose={() => setSelectedEdgeId(null)}
+            />
+          </aside>
+        )}
         {selectedNode && <aside aria-label="Inspector del nodo"
           className="absolute top-4 right-4 z-30 w-80 overflow-y-auto flex flex-col gap-2 [&>div]:!static [&>div]:!w-full [&>div]:!max-h-none"
           style={{ maxHeight: "calc(100% - 32px)" }}>
