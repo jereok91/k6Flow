@@ -8,6 +8,8 @@ import { useRouter } from "next/navigation";
 import { RpsChart, LatencyChart, Sparkline } from "./MetricsChart";
 import { describeRunFailure } from "./run-failure";
 import { normalizedRunStatus, runNotifications } from "./run-notifications";
+import { appendFrameToChart, applyFrameToMetrics } from "./run-metrics";
+import type { MetricsFrameInput } from "./run-metrics";
 import { useToast } from "../notifications/ToastProvider";
 
 // k6 exit code to human-readable error message (see run-failure.ts)
@@ -240,6 +242,21 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
       }
     };
 
+    // One funnel for every frame source: the WS `tick`/`metrics` messages and
+    // the polling fallback (REST snapshot) share the pure mapping, so the two
+    // paths cannot diverge. `seq` identifies the window, so a snapshot the WS
+    // already delivered (or the same snapshot on a later poll tick) is not
+    // appended twice to the chart.
+    let lastFrameSeq: number | null = null;
+    const applyFrame = (frame: MetricsFrameInput) => {
+      if (cancelled) return;
+      const seq = typeof frame.seq === "number" ? frame.seq : null;
+      if (seq !== null && seq === lastFrameSeq) return;
+      lastFrameSeq = seq;
+      setMetrics(prev => applyFrameToMetrics(prev, frame));
+      setChartData(prev => appendFrameToChart(prev, frame));
+    };
+
     // Fetch final status (for completion and errors)
     const fetchStatus = async () => {
       try {
@@ -311,53 +328,13 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
           
           // Handle tick message (wraps metrics frame)
           if (msg.type === "tick" && msg.version === 1) {
-            const frame = msg.frame;
-            const windowStartSec = (frame.window?.startMs ?? 0) / 1000;
-            
-            setMetrics(prev => ({
-              ...prev,
-              vus: frame.activeVUs ?? prev.vus,
-              requestRate: frame.reqPerSec ?? prev.requestRate,
-              avgDuration: frame.latencyMs?.avg ?? prev.avgDuration,
-              p95Duration: frame.latencyMs?.p95 ?? prev.p95Duration,
-              errorRate: frame.httpFailureFraction ?? prev.errorRate,
-            }));
-
-            // Update chart data
-            setChartData(prev => ({
-              time: [...prev.time, windowStartSec],
-              rps: [...prev.rps, frame.reqPerSec ?? 0],
-              avgLatency: [...prev.avgLatency, frame.latencyMs?.avg ?? 0],
-              p95Latency: [...prev.p95Latency, frame.latencyMs?.p95 ?? 0],
-              p99Latency: [...prev.p99Latency, frame.latencyMs?.p99 ?? 0],
-              vus: [...prev.vus, frame.activeVUs ?? 0],
-              errorRate: [...prev.errorRate, frame.httpFailureFraction ?? 0],
-            }));
+            applyFrame(msg.frame);
             return;
           }
 
           // Legacy: handle direct metrics frame (backward compat)
           if (msg.type === "metrics" && msg.version === 1) {
-            const windowStartSec = (msg.window?.startMs ?? 0) / 1000;
-            
-            setMetrics(prev => ({
-              ...prev,
-              vus: msg.activeVUs ?? prev.vus,
-              requestRate: msg.reqPerSec ?? prev.requestRate,
-              avgDuration: msg.latencyMs?.avg ?? prev.avgDuration,
-              p95Duration: msg.latencyMs?.p95 ?? prev.p95Duration,
-              errorRate: msg.httpFailureFraction ?? prev.errorRate,
-            }));
-
-            setChartData(prev => ({
-              time: [...prev.time, windowStartSec],
-              rps: [...prev.rps, msg.reqPerSec ?? 0],
-              avgLatency: [...prev.avgLatency, msg.latencyMs?.avg ?? 0],
-              p95Latency: [...prev.p95Latency, msg.latencyMs?.p95 ?? 0],
-              p99Latency: [...prev.p99Latency, msg.latencyMs?.p99 ?? 0],
-              vus: [...prev.vus, msg.activeVUs ?? 0],
-              errorRate: [...prev.errorRate, msg.httpFailureFraction ?? 0],
-            }));
+            applyFrame(msg);
           }
         } catch {
           // Ignore malformed frames
@@ -380,11 +357,25 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
       };
     };
     
-    // Polling fallback
+    // Polling fallback. Each tick also fetches the latest window frame over
+    // REST: with the WebSocket unavailable the cards and the chart must keep
+    // moving. A missing snapshot (404) is silent and never touches status or
+    // completion handling.
     let pollInterval: NodeJS.Timeout | null = null;
+    const fetchMetricsSnapshot = async () => {
+      try {
+        const res = await fetch(`/api/orchestrator/runs/${runId}/metrics`, { cache: "no-store" });
+        if (res.status !== 200) return;
+        const frame: MetricsFrameInput = await res.json();
+        applyFrame(frame);
+      } catch {
+        // No snapshot available: polling stays status-only for this tick.
+      }
+    };
     const startPolling = () => {
       if (pollInterval || cancelled || completionStarted) return;
       pollInterval = setInterval(async () => {
+        if (!cancelled && !completionStarted) await fetchMetricsSnapshot();
         const data = await fetchStatus();
         if (data && !cancelled) {
           observeStatus(data.status, data.errors || []);
