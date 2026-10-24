@@ -15,12 +15,23 @@ interface User {
   role: string;
 }
 
-const navItems = [
+/** One sidebar destination: route, Spanish label and Material Symbols icon. */
+interface NavItem {
+  path: string;
+  label: string;
+  icon: string;
+  /** Shows the live active-run badge next to the label. */
+  countable?: boolean;
+}
+
+/** Sidebar destinations, in display order. */
+export const navItems: readonly NavItem[] = [
   { path: "/", label: "Inicio", icon: "grid_view" },
   { path: "/scenarios", label: "Escenarios", icon: "account_tree" },
   { path: "/executions", label: "Ejecuciones", icon: "play_circle", countable: true },
   { path: "/recordings", label: "Grabaciones", icon: "fiber_manual_record" },
   { path: "/recorder", label: "Grabar", icon: "videocam" },
+  { path: "/import", label: "Importar", icon: "upload_file" },
   { path: "/editor", label: "Editor", icon: "edit_square" },
   { path: "/environments", label: "Entornos", icon: "layers" },
 ];
