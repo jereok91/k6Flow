@@ -78,7 +78,7 @@ ENTRYPOINT ["/app/start.sh"]
 # Con grabador. La base oficial de Playwright trae Chromium y sus dependencias de sistema ya
 # resueltas (instalarlas con apt durante el build es lento y frágil); se borran los navegadores
 # que la app no usa y se reemplaza Node 20 por el 22 que pide la app.
-FROM mcr.microsoft.com/playwright:v1.52.0-noble AS all-in-one
+FROM mcr.microsoft.com/playwright:v1.64.1-noble AS all-in-one
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 COPY --from=node:22.23.4-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 # La app sólo usa Chromium headless: fuera Firefox, WebKit, el Chromium con ventana y ffmpeg.

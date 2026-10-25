@@ -24,7 +24,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       # Recorder lifecycle tests drive a real Chromium (Playwright 1.52, pinned by the lockfile).
-      - run: pnpm --filter @k6flow/recorder exec playwright install --with-deps chromium
+      - run: pnpm --filter @k6flow/recorder exec playwright install --with-deps chromium chromium-headless-shell
       - run: pnpm --filter @k6flow/recorder test
       - run: pnpm lint
       - run: pnpm --filter @k6flow/web build
