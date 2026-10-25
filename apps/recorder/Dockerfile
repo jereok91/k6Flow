@@ -3,6 +3,9 @@ FROM mcr.microsoft.com/playwright:v1.52.0-noble
 
 WORKDIR /app
 
+# La base de Playwright trae Node 20: se le reemplaza por el 22 parcheado (CVE-2026-111497).
+COPY --from=node:22.23.4-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 

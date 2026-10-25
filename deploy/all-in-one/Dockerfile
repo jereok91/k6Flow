@@ -6,7 +6,7 @@
 #
 # El compose de al lado sólo agrega PostgreSQL, como yopass agrega redis.
 # El orquestador necesita /var/run/docker.sock para lanzar un contenedor de k6 por ejecución.
-FROM node:22.22.0-bookworm-slim AS workspace
+FROM node:22.23.4-bookworm-slim AS workspace
 WORKDIR /workspace
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
@@ -28,7 +28,7 @@ RUN pnpm --filter @k6flow/recorder exec esbuild src/main.ts --bundle --platform=
     --format=esm --outfile=/out/recorder.mjs --external:playwright --external:ws
 
 # Sólo dependencias de producción: recorta cientos de MB frente al workspace completo.
-FROM node:22.22.0-bookworm-slim AS prod-deps
+FROM node:22.23.4-bookworm-slim AS prod-deps
 WORKDIR /workspace
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -45,7 +45,7 @@ COPY apps/orchestrator ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/orchestrator ./cmd/server
 
 # Contenido común de la app: standalone de Next, workspace mínimo y binario Go.
-FROM node:22.22.0-bookworm-slim AS app
+FROM node:22.23.4-bookworm-slim AS app
 WORKDIR /app
 COPY --from=workspace /workspace/apps/web/.next/standalone ./
 COPY --from=workspace /workspace/apps/web/.next/static ./apps/web/.next/static
@@ -80,7 +80,7 @@ ENTRYPOINT ["/app/start.sh"]
 # que la app no usa y se reemplaza Node 20 por el 22 que pide la app.
 FROM mcr.microsoft.com/playwright:v1.52.0-noble AS all-in-one
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-COPY --from=node:22.22.0-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22.23.4-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 # La app sólo usa Chromium headless: fuera Firefox, WebKit, el Chromium con ventana y ffmpeg.
 RUN rm -rf /ms-playwright/firefox* /ms-playwright/webkit* /ms-playwright/chromium-[0-9]* \
            /ms-playwright/ffmpeg* /usr/lib/node_modules /usr/local/lib/node_modules

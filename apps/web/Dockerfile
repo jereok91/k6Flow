@@ -1,4 +1,4 @@
-FROM node:22.22.0-alpine3.23 AS dependencies
+FROM node:22.23.4-alpine3.23 AS dependencies
 WORKDIR /workspace
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
@@ -29,7 +29,7 @@ COPY apps/web apps/web
 WORKDIR /workspace/apps/web
 CMD ["node", "--experimental-strip-types", "scripts/release-setup.ts"]
 
-FROM node:22.22.0-alpine3.23 AS production
+FROM node:22.23.4-alpine3.23 AS production
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=builder --chown=node:node /workspace/apps/web/.next/standalone ./
