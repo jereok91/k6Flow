@@ -56,3 +56,16 @@ S3 (versiones objetivo): `next@^16.4.3` · `node:22.23.4` en todas las imágenes
   y playwright/ws/zod/postcss/sharp en el resto).
 - L3 (decisión): se parchea en el orden Go → Node → dependencias → Next, un commit por frente, y cada
   frente se verifica antes de pasar al siguiente; Next va último porque son tres minors.
+- L4 (2026-10-25, usuario: "ayudame a solucionar esto"): las tres trampas de la verificación se
+  convierten en guardas que fallan solas, no en arreglos puntuales.
+  - Playwright: `apps/recorder/Dockerfile` y la etapa `all-in-one` lanzan Chromium headless durante
+    el build; un desemparejamiento librería/navegadores o un headless shell ausente rompe el build.
+    RED comprobado con librería 1.52 sobre base 1.64 (`Executable doesn't exist at
+    /ms-playwright/chromium_headless_shell-1169/...`), GREEN en las dos imágenes reales
+    (`chromium 156.0.8078.4`).
+  - Compose: `scripts/check-release-compose.sh` resuelve `WEB_PORT=4567` y exige exactamente un
+    puerto publicado; un test de contrato fija los compose publicados al mapeo único. RED comprobado
+    agregando un segundo puerto (`published=1 total=2`).
+  - CI instala `chromium` y `chromium-headless-shell` con el motivo escrito al lado.
+  Evidencia: `7403a7a`, CI verde (40185110919) y release `v0.4.1` verificada en vivo contra la imagen
+  publicada descargada sin credenciales (17/17).
