@@ -29,6 +29,19 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
   never invents one, so the id used for the WebSocket, the stop, the capture and the review is
   always the same one.
 
+S7 (verbatim, user): "no me guardo request hay algo raro cuando capturo cuando inetento capturar los flujos"
+  - A recorded step shows the requests that happened during it. A capture whose network events and
+    step markers come from different clocks (CDP monotonic seconds vs wall clock ms) must still
+    group every request into the step that follows it in the append-only log, and must not lose the
+    requests that precede the first marker.
+  - New captures carry one clock: network events are stamped with wall-clock time, with the CDP
+    numbers kept only to measure durations.
+
+S8 (verbatim, user): "ademas no se ve igual que el resto de apps" / "debes alinear el esto de esta vsiata"
+  - The review screen uses the application shell and design tokens (sidebar, cards, buttons,
+    typography, Spanish copy) like the recorder and recordings screens, instead of a standalone
+    dark page.
+
 ## Tasks
 
 - T1 — Recorder: await the capture flush, return the stopped id/event count/duration from
@@ -54,6 +67,15 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
 - T9 — Deploy docs: recorder token (shared by web and recorder) and its two recording limits
   documented in the deployment table, plus the capture volume and stop→library copy. Route:
   inline. Commit: `9ef6933`.
+
+- T10 — Grouping: `groupBySteps` follows the capture log order (steps as separators) instead of
+  sorting mixed clocks, and `calculateThinkTimes` ignores timestamps from another clock. Route:
+  inline. Commit: `9130b80`.
+- T11 — Recorder: network events are stamped with wall-clock time; CDP numbers stay in `timing`
+  for durations. Route: inline. Commit: `bd4cfac`.
+- T12 — Review screen: rebuilt on `MainLayout` with the design tokens, Spanish copy, per-step
+  request counts, method/status/classification badges and an actionable save bar. Route: inline.
+  Commit: `50bc7f4`.
 
 ## Log
 
@@ -204,6 +226,21 @@ S6 (derived from S1): the recording id is authoritative and comes from the recor
     for a row a retry saved, the poll flag resets on a new recording, review links only
     provenance it loaded.
   Live after rebuilding: busy refusal, normal stop persisted, partial capture terminal.
+- L20 (user, verbatim): "ayudame con esto auto • 0 requests • 2.3s think time ... no me guardo
+  request hay algo raro cuando capturo cuando inetento capturar los flujos" and "ademas no se ve
+  igual que el resto de apps". Evidence from their recording `rec-1792885685861`:
+  `network_entry.request.timestamp` = 339305349.278 (CDP monotonic seconds) while
+  `step.data.timestamp` = 1792885691367 (wall clock ms) and `ui_event` = 1792885691559. Sorting
+  mixed clocks put all 105 entries before the first step (log index 18), and `groupBySteps` drops
+  everything before the first marker, so every step reported 0 requests and the think times became
+  plain step-to-step gaps.
+- L21 (fix + evidence for S7/S8): `9130b80` groups by log order — replayed against the owner's
+  recording `rec-1792885685861` it now yields 12 steps with 105 requests distributed (5/18/26/4/10/
+  10/4/7/4/13/0/4) and sane think times, instead of 0/0 everywhere. `bd4cfac` makes new captures
+  coherent: after rebuilding the recorder, a fresh recording reported `step ts 1792886520507` and
+  `entry ts 1792886516010` in the same clock. `50bc7f4` rebuilds the review screen on the app
+  shell; both the new and the old recording answer HTTP 200 through the page. Suites: 109 test
+  files / 2142 tests + 28 recorder tests green, `pnpm typecheck` clean.
 - L19 (sixth native review `review-58cc0e53c121e697`): `correction_required` with 1 BLOCKER +
   4 CRITICAL (`R1-001`, `R3-001`, `R4-001`, `R4-002`, `R4-003`). Bounded plan declared at 45 diff
   lines, applied in 39 (`8eb0035`):
