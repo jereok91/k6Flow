@@ -241,6 +241,16 @@ S8 (verbatim, user): "ademas no se ve igual que el resto de apps" / "debes aline
   `entry ts 1792886516010` in the same clock. `50bc7f4` rebuilds the review screen on the app
   shell; both the new and the old recording answer HTTP 200 through the page. Suites: 109 test
   files / 2142 tests + 28 recorder tests green, `pnpm typecheck` clean.
+- L22 (seventh native review `review-a466f6f1fab14fb4`, over the grouping fix and the review
+  screen): `correction_required` with `R1-001` CRITICAL in scope — the oversized-capture branch
+  deleted the only copy after refusing to store it, i.e. the same data-loss class as round 6.
+  Fixed in `579a1ad` (3 diff lines of a 12-line plan): an oversized capture is marked `failed`
+  and its file is kept; deleting now only happens after the library holds the capture.
+  The `targeted_validation` route was rejected again by the facade, third time, so the correction
+  cannot be validated natively. Warnings left as follow-ups: a 409 plus an incomplete capture
+  leaves the row `recording` for the UI to retry forever (mark it `failed` before relaying), a
+  partial capture that is kept is not stored in the library so the review screen cannot open it,
+  the capture delete is fire-and-forget, and the capture-size limit has one name per tier.
 - L19 (sixth native review `review-58cc0e53c121e697`): `correction_required` with 1 BLOCKER +
   4 CRITICAL (`R1-001`, `R3-001`, `R4-001`, `R4-002`, `R4-003`). Bounded plan declared at 45 diff
   lines, applied in 39 (`8eb0035`):
