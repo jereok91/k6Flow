@@ -23,6 +23,12 @@ COPY apps/recorder apps/recorder
 
 WORKDIR /app/apps/recorder
 
+# Guarda: la librería de Playwright se instala desde el lockfile mientras los navegadores vienen de
+# la imagen base, así que ambas versiones tienen que coincidir. Si una capa cacheada deja una
+# librería distinta (pasó: 1.52 sobre una base 1.64) o falta el headless shell, el build falla acá
+# en vez de romper la primera grabación en producción.
+RUN node -e "const { chromium } = require('playwright'); chromium.launch({ headless: true }).then(async (browser) => { console.log('chromium', browser.version()); await browser.close(); }).catch((error) => { console.error('Playwright no puede lanzar Chromium:', error.message.split('\\n')[0]); process.exit(1); })"
+
 # Environment
 ENV PORT=8081
 ENV NODE_ENV=production

@@ -54,7 +54,7 @@ Your k6flow instance is now running at `https://your-domain.com`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ADMIN_USERNAME` | `admin` | Initial admin username |
-| `WEB_PORT` | `3000` | Internal web server port |
+| `WEB_PORT` | `3000` | Host port the web UI is published on. Change it here: adding a second compose file with a `ports:` entry does **not** replace the mapping, because Compose merges the lists and the app ends up published on both ports |
 | `ALLOWED_TARGETS` | (empty) | Comma-separated allowed test targets |
 | `ENDPOINT_TEST_ALLOWED_TARGETS` | (empty) | Comma-separated `host:port` entries the endpoint test may contact. Fail-closed: absent, empty or malformed denies every target, unlike `ALLOWED_TARGETS` |
 | `RECORDER_AUTH_TOKEN` | `dev-token` | Token shared by the recorder service and the web tier. The web tier uses it to stop a recording and read its capture back, so both must receive the same value |

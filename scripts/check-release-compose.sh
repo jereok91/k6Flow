@@ -46,4 +46,22 @@ if K6FLOW_VERSION=9.9.9 POSTGRES_PASSWORD=ci-dummy-password ADMIN_PASSWORD=ci-du
   exit 1
 fi
 
-echo "Release composes are pull-only and honour K6FLOW_VERSION."
+# El puerto del host se cambia con WEB_PORT. Un archivo extra que redefina `ports` NO sirve:
+# compose fusiona las listas y termina publicando los dos puertos (pasó al verificar la imagen).
+for file in "$compose_file" "$all_in_one_file"; do
+  count=$(grep -c '\${WEB_PORT:-3000}:3000' "$file" || true)
+  if [[ $count -ne 1 ]]; then
+    echo "$file must declare the web port exactly once, as \${WEB_PORT:-3000}:3000 (found $count)" >&2
+    exit 1
+  fi
+  published=$(WEB_PORT=4567 POSTGRES_PASSWORD=ci-dummy-password ADMIN_PASSWORD=ci-dummy-password \
+    docker compose -f "$file" config 2>/dev/null | grep -c 'published: "4567"' || true)
+  total=$(WEB_PORT=4567 POSTGRES_PASSWORD=ci-dummy-password ADMIN_PASSWORD=ci-dummy-password \
+    docker compose -f "$file" config 2>/dev/null | grep -c 'published:' || true)
+  if [[ $published -ne 1 || $total -ne 1 ]]; then
+    echo "WEB_PORT=4567 must publish exactly that one port in $file (published=$published total=$total)" >&2
+    exit 1
+  fi
+done
+
+echo "Release composes are pull-only, honour K6FLOW_VERSION and publish only WEB_PORT."

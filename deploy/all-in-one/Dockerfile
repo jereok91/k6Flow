@@ -89,6 +89,10 @@ COPY --from=app /app /app
 COPY --from=app /workspace /workspace
 # Junto a apps/recorder para que resuelva playwright/ws desde su node_modules.
 COPY --from=workspace /out/recorder.mjs /workspace/apps/recorder/recorder.mjs
+# Guarda: la librería de Playwright (del lockfile) y los navegadores (de la base) tienen que ser la
+# misma versión, y el headless shell tiene que haber sobrevivido al borrado de arriba. Si una capa
+# cacheada deja otra librería, el build falla acá y no en la primera grabación del usuario.
+RUN node -e "const { chromium } = require('/workspace/apps/recorder/node_modules/playwright'); chromium.launch({ headless: true }).then(async (browser) => { console.log('chromium', browser.version()); await browser.close(); }).catch((error) => { console.error('Playwright no puede lanzar Chromium:', error.message.split('\\n')[0]); process.exit(1); })"
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \

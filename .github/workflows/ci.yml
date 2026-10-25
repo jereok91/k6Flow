@@ -23,7 +23,9 @@ jobs:
           cache: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
-      # Recorder lifecycle tests drive a real Chromium (Playwright 1.52, pinned by the lockfile).
+      # Recorder lifecycle tests drive a real Chromium, pinned by the lockfile. Since Playwright
+      # 1.64 the headless shell is a separate download, and both are needed: `chromium` alone
+      # leaves every headless launch failing.
       - run: pnpm --filter @k6flow/recorder exec playwright install --with-deps chromium chromium-headless-shell
       - run: pnpm --filter @k6flow/recorder test
       - run: pnpm lint

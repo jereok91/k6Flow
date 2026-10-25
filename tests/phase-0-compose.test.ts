@@ -151,3 +151,14 @@ test("CI checks both languages and the runtime boundary", () => {
     assert.ok(commands.includes(command), `CI missing ${command}`);
   }
 });
+
+// Guarda de 2026-10-25: al verificar la imagen publicada se comprobó que un archivo extra con
+// `ports` NO reemplaza el del compose base; Docker Compose fusiona las listas y termina publicando
+// los dos puertos (3000 y el nuevo). El puerto del host se cambia sólo con WEB_PORT.
+test("published composes publish exactly one web port and let WEB_PORT move it", () => {
+  for (const file of ["deploy/docker-compose.release.yml", "deploy/docker-compose.all-in-one.yml"]) {
+    const config = load(file);
+    const mappings: string[] = Object.values(config.services).flatMap((service: any) => service.ports ?? []);
+    assert.deepEqual(mappings, ["${WEB_PORT:-3000}:3000"], `${file} must publish only the web port, from WEB_PORT`);
+  }
+});

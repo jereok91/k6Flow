@@ -82,9 +82,17 @@ docker compose -f docker-compose.all-in-one.yml up -d
 Al arrancar, el contenedor aplica las migraciones, crea el admin y levanta web, orchestrator y
 grabador. `docker compose logs -f k6flow` muestra ese arranque.
 
+Las imágenes con grabador emparejan la librería de Playwright (del lockfile) con los navegadores de
+la imagen base: las dos llevan la misma versión, y el `Dockerfile` lanza Chromium durante el build
+para que un desemparejamiento falle ahí y no en la primera grabación.
+
 **Variante sin grabador** (misma app, sin Chromium): agregá `K6FLOW_IMAGE=k6flow-slim` al `.env`.
 La pantalla de grabación responde `502` a propósito (no hay servicio de captura), y todo lo demás
 —editor, ejecuciones, biblioteca, import HAR, variables— funciona igual.
+
+**Cambiar el puerto**: usá `WEB_PORT` en el `.env` (por ejemplo `WEB_PORT=8088`). Si en vez de eso
+agregás otro archivo con `ports:`, Compose fusiona las listas y el servicio queda publicado en los
+dos puertos. Ese contrato lo verifica `scripts/check-release-compose.sh` en CI.
 
 ### Opción B — versión fija con servicios separados (recomendado)
 
