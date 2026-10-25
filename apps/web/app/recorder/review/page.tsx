@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo } from "react";
+import Link from "next/link";
 import {
   parseNDJSONCapture,
   extractMetadata,
@@ -12,6 +13,7 @@ import {
   type StepGroup,
   type NDJSONNetworkEntry,
 } from "@k6flow/shared";
+import { MainLayout } from "../../../lib/layout";
 
 interface ReviewEntry {
   entry: NDJSONNetworkEntry["data"];
@@ -35,14 +37,42 @@ interface SavedRecordingInfo {
   scenarioId: string | null;
 }
 
+const CLASSIFICATION_LABEL: Record<ReviewEntry["classification"], string> = {
+  core: "núcleo",
+  static: "estático",
+  third_party: "tercero",
+  analytics: "analytics",
+  noise: "ruido",
+};
+
+function classificationClass(classification: ReviewEntry["classification"]): string {
+  if (classification === "core") return "bg-secondary/10 text-secondary";
+  if (classification === "third_party" || classification === "analytics") return "bg-tertiary/10 text-tertiary";
+  return "bg-surface-container-high text-on-surface-variant";
+}
+
+function statusClass(status: number | undefined): string {
+  if (status === undefined || status === 0) return "badge-error";
+  if (status >= 500) return "badge-error";
+  if (status >= 400) return "badge-warning";
+  return "badge-success";
+}
+
+function pathOf(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return url;
+  }
+}
+
 export default function RecorderReviewPage() {
   const [captureData, setCaptureData] = useState<NDJSONCaptureEvent[] | null>(null);
   const [reviewSteps, setReviewSteps] = useState<ReviewStep[]>([]);
   const [metadata, setMetadata] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Id of the recording this review was opened for, either from ?id= or from the
-  // capture metadata, so saving can link the scenario to its provenance.
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [savedRecordingName, setSavedRecordingName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -51,51 +81,42 @@ export default function RecorderReviewPage() {
   const applyCapture = useCallback((content: string, fallbackStepName: string) => {
     const events = parseNDJSONCapture(content);
     const meta = extractMetadata(events);
-    const stepGroups = groupBySteps(events);
+    const groups = groupBySteps(events);
 
-    // A capture can end before any step is marked (blank start page, or a stop
-    // right after the first navigation). Its requests are still what the user
-    // recorded, so they are reviewed as one implicit step instead of vanishing.
-    let groups: StepGroup[] = stepGroups;
-    if (groups.length === 0) {
-      const entries = extractNetworkEntries(events);
-      groups = entries.length === 0
-        ? []
-        : [
-            {
-              step: {
-                id: "step-capture",
-                name: fallbackStepName,
-                kind: "auto",
-                timestamp: meta?.startedAt ?? 0,
-              },
-              entries,
-              uiEvents: [],
-            },
-          ];
-    }
-    const thinkTimes = calculateThinkTimes(groups);
-
-    // Convert to review format
-    const steps: ReviewStep[] = groups.map((group, index) => ({
-      step: group.step,
-      entries: group.entries.map((entry) => ({
-        entry,
-        classification: classifyNetworkEntry(entry, meta?.startUrl || ""),
-        // Include core by default, exclude others
-        included: classifyNetworkEntry(entry, meta?.startUrl || "") === "core",
-      })),
-      thinkTime: thinkTimes[index] ?? 0,
-    }));
+    // A capture can end before any step is marked (blank start page, or a stop right
+    // after the first navigation). Its requests are still what the user recorded, so
+    // they are reviewed as one implicit step instead of vanishing.
+    const reviewGroups: StepGroup[] = groups.length === 0
+      ? (() => {
+          const entries = extractNetworkEntries(events);
+          return entries.length === 0
+            ? []
+            : [{
+                step: { id: "step-capture", name: fallbackStepName, kind: "auto" as const, timestamp: meta?.startedAt ?? 0 },
+                entries,
+                uiEvents: [],
+              }];
+        })()
+      : groups;
+    const thinkTimes = calculateThinkTimes(reviewGroups);
 
     setCaptureData(events);
     setMetadata(meta);
-    setReviewSteps(steps);
+    setReviewSteps(
+      reviewGroups.map((group, index) => ({
+        step: group.step,
+        entries: group.entries.map((entry) => ({
+          entry,
+          classification: classifyNetworkEntry(entry, meta?.startUrl || ""),
+          included: classifyNetworkEntry(entry, meta?.startUrl || "") === "core",
+        })),
+        thinkTime: thinkTimes[index] ?? 0,
+      })),
+    );
   }, []);
 
-  // Load capture file
-  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
 
     setLoading(true);
@@ -106,10 +127,9 @@ export default function RecorderReviewPage() {
     setSavedRecordingName(null);
 
     try {
-      const content = await file.text();
-      applyCapture(content, file.name.replace(/\.ndjson$/i, ""));
+      applyCapture(await file.text(), file.name.replace(/\.ndjson$/i, ""));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to parse capture file");
+      setError(err instanceof Error ? err.message : "No se pudo leer el archivo");
     } finally {
       setLoading(false);
     }
@@ -126,16 +146,15 @@ export default function RecorderReviewPage() {
       if (!res.ok) {
         throw new Error(
           res.status === 404
-            ? "Esta grabación no está guardada. Subí el archivo .ndjson a mano."
+            ? "Esta grabación no está guardada. Podés subir el archivo .ndjson a mano."
             : data?.error || `No se pudo cargar la grabación (HTTP ${res.status})`,
         );
       }
       if (typeof data?.capture !== "string" || data.capture === "") {
-        throw new Error("La grabación no tiene captura guardada. Subí el archivo .ndjson a mano.");
+        throw new Error("La grabación no tiene captura guardada. Podés subir el archivo .ndjson a mano.");
       }
 
       const recording = data.recording as SavedRecordingInfo | null;
-      // Provenance is recorded only once the library answered for real.
       setRecordingId(id);
       setSavedRecordingName(recording?.name ?? null);
       if (recording?.name) setScenarioName(recording.name);
@@ -143,7 +162,7 @@ export default function RecorderReviewPage() {
     } catch (err) {
       setRecordingId(null);
       setSavedRecordingName(null);
-      setError(err instanceof Error ? err.message : "Failed to load recording");
+      setError(err instanceof Error ? err.message : "No se pudo cargar la grabación");
     } finally {
       setLoading(false);
     }
@@ -155,274 +174,277 @@ export default function RecorderReviewPage() {
     void loadRecording(requestedId);
   }, [loadRecording]);
 
-  // Toggle entry inclusion
   const toggleEntry = useCallback((stepIndex: number, entryIndex: number) => {
     setReviewSteps((steps) =>
       steps.map((step, si) =>
         si === stepIndex
-          ? {
-              ...step,
-              entries: step.entries.map((entry, ei) =>
-                ei === entryIndex ? { ...entry, included: !entry.included } : entry
-              ),
-            }
-          : step
-      )
+          ? { ...step, entries: step.entries.map((entry, ei) => (ei === entryIndex ? { ...entry, included: !entry.included } : entry)) }
+          : step,
+      ),
     );
   }, []);
 
-  // Toggle all entries in a step
-  const toggleStepEntries = useCallback((stepIndex: number, included: boolean) => {
+  const setStepIncluded = useCallback((stepIndex: number, included: boolean) => {
     setReviewSteps((steps) =>
       steps.map((step, si) =>
-        si === stepIndex
-          ? {
-              ...step,
-              entries: step.entries.map((entry) => ({ ...entry, included })),
-            }
-          : step
-      )
+        si === stepIndex ? { ...step, entries: step.entries.map((entry) => ({ ...entry, included })) } : step,
+      ),
     );
   }, []);
 
-  // Count included entries
-  const includedCount = useMemo(() => {
-    return reviewSteps.reduce(
-      (acc, step) => acc + step.entries.filter((e) => e.included).length,
-      0
-    );
-  }, [reviewSteps]);
+  const includedCount = useMemo(
+    () => reviewSteps.reduce((total, step) => total + step.entries.filter((entry) => entry.included).length, 0),
+    [reviewSteps],
+  );
+  const totalCount = useMemo(
+    () => reviewSteps.reduce((total, step) => total + step.entries.length, 0),
+    [reviewSteps],
+  );
 
-  const totalCount = useMemo(() => {
-    return reviewSteps.reduce((acc, step) => acc + step.entries.length, 0);
-  }, [reviewSteps]);
-
-  // Generate scenario
   const handleSave = useCallback(async () => {
-    if (!scenarioName.trim()) {
-      alert("Please enter a scenario name");
-      return;
-    }
+    if (scenarioName.trim() === "" || metadata === null) return;
 
     setSaving(true);
+    setError(null);
     try {
-      const includedEntries = reviewSteps.flatMap((step) =>
-        step.entries.filter((e) => e.included).map((e) => ({
-          entry: e.entry,
-          stepId: step.step.id,
-          stepName: step.step.name,
-          thinkTime: step.thinkTime,
-        }))
+      const entries = reviewSteps.flatMap((step) =>
+        step.entries
+          .filter((entry) => entry.included)
+          .map((entry) => ({
+            entry: entry.entry,
+            stepId: step.step.id,
+            stepName: step.step.name,
+            thinkTime: step.thinkTime,
+          })),
       );
 
       const response = await fetch("/api/recordings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: scenarioName,
+          name: scenarioName.trim(),
           startUrl: metadata.startUrl,
           viewport: metadata.viewport,
           // Provenance is only the library entry this screen really loaded: an
           // uploaded file carries a recorder id in its metadata that no row backs.
           recordingId,
-          entries: includedEntries,
+          entries,
         }),
       });
 
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw new Error(body?.error || `Failed to save scenario (HTTP ${response.status})`);
+        throw new Error(body?.error || `No se pudo guardar el escenario (HTTP ${response.status})`);
       }
 
       const result = await response.json();
-      // Redirect to editor
       window.location.href = `/editor?scenario=${result.id}`;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError(err instanceof Error ? err.message : "No se pudo guardar el escenario");
     } finally {
       setSaving(false);
     }
-  }, [reviewSteps, scenarioName, metadata, recordingId]);
+  }, [metadata, recordingId, reviewSteps, scenarioName]);
 
   return (
-    <div className="min-h-screen bg-gray-900 p-6 text-white">
-      <h1 className="mb-6 text-2xl font-bold">Review Recording</h1>
-
-      {savedRecordingName && (
-        <p className="mb-4 text-sm text-gray-400">
-          Recording: <span className="text-white">{savedRecordingName}</span>
-          {recordingId && <span className="ml-2 font-mono text-gray-500">{recordingId}</span>}
-        </p>
-      )}
-
-      {/* File upload — fallback when the capture is not in the library */}
-      {!captureData && (
-        <div className="rounded-lg border-2 border-dashed border-gray-700 p-8 text-center">
-          <label className="cursor-pointer">
-            <span className="text-gray-400">
-              {loading ? "Loading..." : "Drop a capture file or click to upload"}
-            </span>
-            <input
-              type="file"
-              accept=".ndjson"
-              onChange={handleFileUpload}
-              className="hidden"
-              disabled={loading}
-            />
-          </label>
-        </div>
-      )}
-
-      {error && (
-        <div className="mb-4 rounded bg-red-900/50 p-3 text-red-300">{error}</div>
-      )}
-
-      {/* Metadata */}
-      {metadata && (
-        <div className="mb-6 rounded bg-gray-800 p-4">
-          <h2 className="mb-2 font-semibold">Recording Info</h2>
-          <div className="grid grid-cols-2 gap-4 text-sm text-gray-400">
-            <div>
-              <span className="text-gray-500">URL:</span> {metadata.startUrl}
+    <MainLayout>
+      <div className="px-gutter-desktop py-space-xl flex flex-col gap-space-xl">
+        {/* Header */}
+        <section className="flex flex-col md:flex-row md:items-end justify-between gap-space-lg">
+          <div className="flex flex-col gap-space-xs">
+            <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
+              <span className="material-symbols-outlined text-secondary text-[16px]">fact_check</span>
+              <span>Revisión de grabación</span>
             </div>
-            <div>
-              <span className="text-gray-500">Viewport:</span>{" "}
-              {metadata.viewport?.width}x{metadata.viewport?.height}
-            </div>
-            <div>
-              <span className="text-gray-500">Steps:</span> {reviewSteps.length}
-            </div>
-            <div>
-              <span className="text-gray-500">Requests:</span> {includedCount}/{totalCount}
-            </div>
+            <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">
+              {savedRecordingName ?? (metadata?.startUrl ? pathOf(metadata.startUrl) : "Revisar peticiones")}
+            </h1>
+            <p className="text-body-md text-on-surface-variant">
+              {metadata
+                ? `${reviewSteps.length} pasos · ${includedCount} de ${totalCount} peticiones seleccionadas`
+                : "Elegí qué peticiones de la sesión formarán parte del escenario."}
+            </p>
           </div>
-        </div>
-      )}
 
-      {/* Steps */}
-      {reviewSteps.length > 0 && (
-        <div className="space-y-4">
-          {reviewSteps.map((reviewStep, stepIndex) => (
-            <div key={reviewStep.step.id} className="rounded bg-gray-800 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold">{reviewStep.step.name}</h3>
-                  <span className="text-xs text-gray-500">
-                    {reviewStep.step.kind} • {reviewStep.entries.length} requests
-                    {reviewStep.thinkTime > 0 && ` • ${reviewStep.thinkTime.toFixed(1)}s think time`}
-                  </span>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    className="rounded bg-green-700 px-2 py-1 text-xs hover:bg-green-600"
-                    onClick={() => toggleStepEntries(stepIndex, true)}
-                  >
-                    Include All
-                  </button>
-                  <button
-                    className="rounded bg-gray-700 px-2 py-1 text-xs hover:bg-gray-600"
-                    onClick={() => toggleStepEntries(stepIndex, false)}
-                  >
-                    Exclude All
-                  </button>
-                </div>
-              </div>
+          <div className="flex items-center gap-space-sm">
+            <Link href="/recordings" className="btn-secondary">
+              <span className="material-symbols-outlined text-[18px]">video_library</span>
+              <span>Grabaciones</span>
+            </Link>
+            {captureData && (
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || scenarioName.trim() === "" || includedCount === 0}
+                className="btn-primary"
+              >
+                {saving ? (
+                  <>
+                    <div className="animate-spin w-4 h-4 border-2 border-on-primary-container border-t-transparent rounded-full" />
+                    <span>Guardando…</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-[18px]">save</span>
+                    <span>Guardar escenario</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </section>
 
-              {/* Entries */}
-              <div className="space-y-1">
-                {reviewStep.entries.map((reviewEntry, entryIndex) => (
-                  <div
-                    key={reviewEntry.entry.request.id}
-                    className={`flex items-center justify-between rounded px-3 py-2 text-sm ${
-                      reviewEntry.included
-                        ? "bg-gray-700"
-                        : "bg-gray-800/50 text-gray-500 line-through"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 truncate">
-                      <button
-                        className={`h-4 w-4 rounded border ${
-                          reviewEntry.included
-                            ? "border-green-500 bg-green-500"
-                            : "border-gray-500"
-                        }`}
-                        onClick={() => toggleEntry(stepIndex, entryIndex)}
-                      />
-                      <span
-                        className={`rounded px-1 text-xs ${
-                          reviewEntry.entry.request.method === "GET"
-                            ? "bg-blue-900 text-blue-300"
-                            : "bg-orange-900 text-orange-300"
-                        }`}
-                      >
-                        {reviewEntry.entry.request.method}
-                      </span>
-                      <span className="truncate">
-                        {new URL(reviewEntry.entry.request.url).pathname}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`rounded px-1 text-xs ${
-                          reviewEntry.classification === "core"
-                            ? "bg-green-900 text-green-300"
-                            : reviewEntry.classification === "static"
-                              ? "bg-gray-700 text-gray-400"
-                              : reviewEntry.classification === "analytics"
-                                ? "bg-purple-900 text-purple-300"
-                                : "bg-gray-700 text-gray-400"
-                        }`}
-                      >
-                        {reviewEntry.classification}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {reviewEntry.entry.response?.status || "—"}
-                      </span>
-                    </div>
+        {error && (
+          <div className="p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm flex items-center gap-space-sm">
+            <span className="material-symbols-outlined text-[16px]">error</span>
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Metadata / scenario bar */}
+        {metadata && (
+          <section className="card flex flex-col lg:flex-row lg:items-center justify-between gap-space-lg">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-md flex-1">
+              {[
+                { icon: "link", label: "URL", value: metadata.startUrl },
+                { icon: "aspect_ratio", label: "Viewport", value: `${metadata.viewport?.width}×${metadata.viewport?.height}` },
+                { icon: "route", label: "Pasos", value: String(reviewSteps.length) },
+                { icon: "http", label: "Peticiones", value: `${includedCount}/${totalCount}` },
+              ].map((item) => (
+                <div key={item.label} className="flex items-start gap-space-sm">
+                  <span className="material-symbols-outlined text-[18px] text-on-surface-variant">{item.icon}</span>
+                  <div className="min-w-0">
+                    <p className="text-label-code-sm text-on-surface-variant uppercase tracking-wider">{item.label}</p>
+                    <p className="text-body-sm text-on-surface font-mono truncate">{item.value}</p>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
 
-      {/* Actions */}
-      {reviewSteps.length > 0 && (
-        <div className="mt-6 flex items-center justify-between">
-          <input
-            type="text"
-            placeholder="Scenario name..."
-            value={scenarioName}
-            onChange={(e) => setScenarioName(e.target.value)}
-            className="w-64 rounded bg-gray-800 px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <div className="flex gap-3">
-            <button
-              className="rounded bg-gray-700 px-4 py-2 hover:bg-gray-600"
-              onClick={() => {
-                setCaptureData(null);
-                setReviewSteps([]);
-                setMetadata(null);
-                setScenarioName("");
-                // Dropping the loaded recording keeps a later upload from being
-                // linked to the provenance of the one just cleared.
-                setRecordingId(null);
-                setSavedRecordingName(null);
-              }}
-            >
-              Clear
-            </button>
-            <button
-              className="rounded bg-blue-600 px-4 py-2 hover:bg-blue-500 disabled:opacity-50"
-              onClick={handleSave}
-              disabled={saving || !scenarioName.trim()}
-            >
-              {saving ? "Saving..." : `Save as Scenario (${includedCount} requests)`}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+            <div className="lg:w-72">
+              <label className="block text-body-sm text-on-surface-variant mb-space-sm">Nombre del escenario</label>
+              <input
+                type="text"
+                value={scenarioName}
+                onChange={(event) => setScenarioName(event.target.value)}
+                placeholder="ej: Flujo de login"
+                className="input"
+              />
+            </div>
+          </section>
+        )}
+
+        {/* Empty / loading */}
+        {!captureData && (
+          <section className="card text-center py-space-xl">
+            {loading ? (
+              <>
+                <div className="animate-spin w-8 h-8 border-2 border-secondary border-t-transparent rounded-full mx-auto" />
+                <p className="text-body-md text-on-surface-variant mt-space-md">Cargando la captura…</p>
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined text-on-surface-variant text-[48px] mb-space-md">upload_file</span>
+                <h3 className="text-headline-sm text-on-surface font-medium mb-space-xs">Sin captura cargada</h3>
+                <p className="text-body-md text-on-surface-variant mb-space-lg">
+                  Abrí esta pantalla desde una grabación, o subí el archivo <span className="font-mono">.ndjson</span> a mano.
+                </p>
+                <label className="btn-secondary mx-auto cursor-pointer">
+                  <span className="material-symbols-outlined text-[18px]">folder_open</span>
+                  <span>Elegir archivo</span>
+                  <input type="file" accept=".ndjson" onChange={handleFileUpload} className="hidden" disabled={loading} />
+                </label>
+              </>
+            )}
+          </section>
+        )}
+
+        {/* Steps */}
+        {reviewSteps.map((reviewStep, stepIndex) => {
+          const stepIncluded = reviewStep.entries.filter((entry) => entry.included).length;
+          return (
+            <section key={`${reviewStep.step.id}-${stepIndex}`} className="card flex flex-col gap-space-md">
+              <header className="flex flex-col md:flex-row md:items-center justify-between gap-space-md">
+                <div className="flex items-start gap-space-md min-w-0">
+                  <span className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-label-code-sm text-secondary font-mono shrink-0">
+                    {stepIndex + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="text-headline-sm text-on-surface font-medium truncate">{reviewStep.step.name}</h2>
+                    <p className="text-body-sm text-on-surface-variant">
+                      <span className="font-mono">{reviewStep.step.kind}</span> ·{" "}
+                      {reviewStep.entries.length} peticiones · {stepIncluded} seleccionadas
+                      {reviewStep.thinkTime > 0 && ` · ${reviewStep.thinkTime.toFixed(1)}s de espera`}
+                    </p>
+                  </div>
+                </div>
+
+                {reviewStep.entries.length > 0 && (
+                  <div className="flex items-center gap-space-xs shrink-0">
+                    <button type="button" onClick={() => setStepIncluded(stepIndex, true)} className="btn-secondary py-space-xs">
+                      <span className="material-symbols-outlined text-[16px]">done_all</span>
+                      <span>Todo</span>
+                    </button>
+                    <button type="button" onClick={() => setStepIncluded(stepIndex, false)} className="btn-secondary py-space-xs">
+                      <span className="material-symbols-outlined text-[16px]">remove_done</span>
+                      <span>Nada</span>
+                    </button>
+                  </div>
+                )}
+              </header>
+
+              {reviewStep.entries.length === 0 ? (
+                <p className="text-body-sm text-on-surface-variant">
+                  Este paso no capturó tráfico (navegación o cambio de vista sin peticiones nuevas).
+                </p>
+              ) : (
+                <div className="flex flex-col divide-y divide-surface-container">
+                  {reviewStep.entries.map((reviewEntry, entryIndex) => (
+                    <div
+                      key={`${reviewEntry.entry.request.id}-${entryIndex}`}
+                      className={`flex items-center justify-between gap-space-md py-space-sm ${
+                        reviewEntry.included ? "" : "opacity-50"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleEntry(stepIndex, entryIndex)}
+                        className="flex items-center gap-space-md min-w-0 text-left flex-1"
+                        aria-pressed={reviewEntry.included}
+                      >
+                        <span
+                          className={`w-4 h-4 rounded border shrink-0 flex items-center justify-center ${
+                            reviewEntry.included ? "border-secondary bg-secondary" : "border-outline-variant"
+                          }`}
+                        >
+                          {reviewEntry.included && (
+                            <span className="material-symbols-outlined text-[12px] text-on-secondary">check</span>
+                          )}
+                        </span>
+                        <span className="font-mono text-label-code-sm px-space-xs py-0.5 rounded bg-surface-container-high text-on-surface-variant shrink-0">
+                          {reviewEntry.entry.request.method}
+                        </span>
+                        <span className="text-body-sm text-on-surface font-mono truncate">
+                          {pathOf(reviewEntry.entry.request.url)}
+                        </span>
+                      </button>
+
+                      <div className="flex items-center gap-space-xs shrink-0">
+                        <span className={`px-space-xs py-0.5 rounded text-label-code-sm ${classificationClass(reviewEntry.classification)}`}>
+                          {CLASSIFICATION_LABEL[reviewEntry.classification]}
+                        </span>
+                        <span className={`${statusClass(reviewEntry.entry.response?.status)} font-mono`}>
+                          {reviewEntry.entry.response?.status ?? "—"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    </MainLayout>
   );
 }
