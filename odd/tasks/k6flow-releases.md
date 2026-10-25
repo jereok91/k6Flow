@@ -49,7 +49,6 @@ corre migraciones + seed del admin y termina; `web` arranca sólo si terminó bi
 - [x] T6 verificación — ver L5
 
 ## Log
-
 - L1 (user, verbatim): "ahora qiero poder ir sacando releeses apartir de tag versiones, que se
   diponibilicen y que las perosas puedan usar dichas compilaiones en docker compose alogo como hace
   https://github.com/jhaals/yopass … puede ser con githuib register o con docker, creo que es mas
@@ -61,13 +60,23 @@ corre migraciones + seed del admin y termina; `web` arranca sólo si terminó bi
   migraciones ni seed; el seed es un CLI explícito (no auto-seed por diseño), así que un usuario
   nuevo no podría ni loguearse. El orchestrator necesita `/var/run/docker.sock` y la red de k6: se
   documenta como requisito, no se oculta.
+- L4 (deviation, justified): el servicio de setup necesita TS + el código de `apps/web` (seed y
+  hash de password), así que se publica una cuarta imagen `k6flow-setup` construida desde el stage
+  `setup` del mismo Dockerfile. Mantiene una sola fuente de verdad para migraciones y hashing en
+  lugar de duplicar scrypt en un script JS.
+
 - L5 (verificación, 2026-10-25): `docker compose -f deploy/docker-compose.release.yml config` resuelve con
   sólo `POSTGRES_PASSWORD` y `ADMIN_PASSWORD`, y `K6FLOW_VERSION=9.9.9` llega a las cuatro imágenes.
   Se construyó el stage `setup` y se corrió contra una base **vacía**: 14 tablas migradas, admin
   `releasecheck / admin` creado, y una segunda corrida dejó 1 usuario (idempotente). Base de prueba
   eliminada después. `scripts/check-release-compose.sh` y el YAML de los workflows validados; el CI
   del PR quedó verde con los arreglos de `check-phase-0-compose.sh`.
-- L4 (deviation, justified): el servicio de setup necesita TS + el código de `apps/web` (seed y
-  hash de password), así que se publica una cuarta imagen `k6flow-setup` construida desde el stage
-  `setup` del mismo Dockerfile. Mantiene una sola fuente de verdad para migraciones y hashing en
-  lugar de duplicar scrypt en un script JS.
+- L6 (revisión nativa del tramo, `review-d319c43d9ae6ed05`, tier high): **aprobada** y su recibo
+  consumido (`gentle-ai.review-acknowledged/v1`); primera aprobación de la sesión. Un lens
+  (reliability) fue rechazado en admisión porque una ubicación de hallazgo no era un path
+  canónico: se pidió STATUS y se volvió a correr **sólo ese slot** (protocolo), y la segunda
+  corrida fue admitida. Hallazgos informativos (no bloquean, trabajo posterior):
+  `R1-001` compose release:40 · `R2-001` docs/RELEASES.md:89-143 · `R2-002`/`R2-003`
+  check-release-compose.sh · `R3-001`/`R3-002` check-release-compose.sh · `R3-003`
+  release-setup.ts:34-41 · `R3-004` compose release:91-94 · `R3-005` compose release:57-58 ·
+  `R4-001` release-setup.ts:31-39 · `R4-002` compose release:31 · `R4-003` release.yml:33-34.
