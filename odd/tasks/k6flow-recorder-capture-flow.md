@@ -241,6 +241,19 @@ S8 (verbatim, user): "ademas no se ve igual que el resto de apps" / "debes aline
   `entry ts 1792886516010` in the same clock. `50bc7f4` rebuilds the review screen on the app
   shell; both the new and the old recording answer HTTP 200 through the page. Suites: 109 test
   files / 2142 tests + 28 recorder tests green, `pnpm typecheck` clean.
+- L23 (user report, verbatim): "cuando le doy guardar esenacrio deveulve esto" + screenshot of
+  `/editor?scenario=d8afa742…` showing `composition.connections is not iterable`. Cause:
+  `createScenarioGraph` emitted a graph the editor cannot load — `nodes` as an object map,
+  `edges` instead of `connections`, positions in a separate map. Nothing validated the shape on
+  write, so the broken graph was stored and the canvas crashed right after the redirect.
+  Fixed in `168ff24`: the graph is a draft composition of the shared contract (array of
+  http-request nodes with label/position, array of connections whose `waitSeconds` carries the
+  step's think time), the route validates it with `graphDraftCompositionSchema` before storing
+  (422 instead of a broken editor), and a JSON body is kept as JSON text as the contract declares.
+  `e08c8b4` makes the editor answer with a clear message for graphs saved before this fix instead
+  of crashing. Live: saving 8 reviewed requests produced `version 1`, 8 nodes, 7 connections with
+  `waitSeconds: 1.5`, and the loader guard accepts it. The owner's older scenario (`Linux`,
+  `d8afa742…`) keeps its old shape and now shows that message.
 - L22 (seventh native review `review-a466f6f1fab14fb4`, over the grouping fix and the review
   screen): `correction_required` with `R1-001` CRITICAL in scope — the oversized-capture branch
   deleted the only copy after refusing to store it, i.e. the same data-loss class as round 6.
