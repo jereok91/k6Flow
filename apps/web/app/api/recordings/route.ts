@@ -8,6 +8,7 @@ import { getDb } from "../../../lib/db/client";
 import { scenarios, recordings, scenarioVersions } from "../../../lib/db/schema";
 import { requireUser } from "../../../lib/auth/require-user";
 import { jsonError } from "../../../lib/auth/http";
+import { graphDraftCompositionSchema } from "@k6flow/shared";
 import { createScenarioGraph, type ReviewedEntry } from "../../../lib/recorder/save-recording";
 
 // GET /api/recordings - list user's recordings
@@ -106,13 +107,17 @@ export async function POST(request: Request): Promise<Response> {  const cookieH
       return jsonError(400, "No entries to save");
     }
 
-    // Create scenario graph from recording
-    const graph = createScenarioGraph(body.entries as ReviewedEntry[], {
-      name: body.name,
-      startUrl: body.startUrl,
-      viewport: body.viewport || { width: 1280, height: 720 },
-      recordingId: body.recordingId,
-    });
+    // Create scenario graph from recording. The result is validated against the
+    // contract the editor loads: a recording must never store a graph the canvas
+    // cannot render.
+    const parsedGraph = graphDraftCompositionSchema.safeParse(
+      createScenarioGraph(body.entries as ReviewedEntry[]),
+    );
+    if (!parsedGraph.success) {
+      console.error("Recording produced an invalid graph:", parsedGraph.error.issues);
+      return jsonError(422, "La grabación no produce un escenario válido");
+    }
+    const graph = parsedGraph.data;
 
     const db = getDb();
 
