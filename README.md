@@ -137,8 +137,13 @@ See [docs/DECISIONES.md](docs/DECISIONES.md) for detailed security practices.
 
 ## License
 
-[Your License Here]
+Apache License 2.0 — see [LICENSE](LICENSE).
+
+Third-party obligations (LGPL-3.0 libvips, MPL-2.0 lightningcss, CC-BY-4.0 caniuse data and the
+web fonts) are listed in [NOTICE](NOTICE).
 
 ## Contributing
 
-[Contributing guidelines]
+Issues and pull requests are welcome. Branches follow `type/description` (`feat/`, `fix/`, …),
+commits follow Conventional Commits, and `pnpm lint && pnpm test` must pass. Releases are cut by
+pushing a `vX.Y.Z` tag (see [docs/RELEASES.md](docs/RELEASES.md)).

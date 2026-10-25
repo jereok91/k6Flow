@@ -1,0 +1,26 @@
+K6Flow
+Copyright 2026 jereok91
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It bundles third-party software. The components that carry attribution or
+notice obligations beyond the permissive MIT/ISC/BSD/Apache-2.0 set are:
+
+  @img/sharp-libvips-linux-x64   LGPL-3.0-or-later   optional image codec used by Next.js
+  lightningcss / lightningcss-*  MPL-2.0             CSS engine used by Tailwind's build
+  caniuse-lite                   CC-BY-4.0           browser support data
+
+Those packages are used unmodified. Their full license texts ship with each
+package in the dependency tree (node_modules/<package>/LICENSE) and are also
+published with the container images built from this repository. If you
+redistribute a modified build, keep their notices and keep the libraries
+replaceable.
+
+Fonts are loaded at runtime from Google Fonts and are not bundled:
+
+  Geist            SIL Open Font License 1.1
+  JetBrains Mono   SIL Open Font License 1.1
+  Material Symbols Apache License 2.0 (Google)
+
+k6 itself is downloaded and executed by the orchestrator at run time; it is
+licensed under AGPL-3.0 by Grafana Labs and is not part of this repository.
