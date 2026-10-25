@@ -34,8 +34,16 @@ git push origin v1.2.3
 Qué pasa después:
 
 1. El workflow valida que el tag sea `vX.Y.Z` (si no, falla antes de construir nada).
-2. Construye las cuatro imágenes en paralelo y las pública con los cuatro tags.
-3. Las imágenes quedan visibles en `https://github.com/jereok91?tab=packages`.
+2. Construye las cuatro imágenes en paralelo y las pública con los cuatro tags
+   (`0.1.0`, `0.1`, `0`, `latest`).
+3. Publica un **GitHub Release** con ese tag: el changelog se genera solo desde los commits
+   desde la release anterior, y arriba lleva el bloque de imágenes y el comando para levantarlo.
+4. Las imágenes quedan visibles en `https://github.com/jereok91?tab=packages`.
+
+El Release es lo que la gente lee en
+`https://github.com/jereok91/k6Flow/releases`: no hace falta escribir notas a mano. Si querés
+agregar contexto (una migración que rompe, un cambio de configuración), editá el Release después
+del deploy (`gh release edit vX.Y.Z --notes-file mis-notas.md`); el tag y las imágenes no cambian.
 
 Si te equivocaste de versión, no borres el tag: publicá la siguiente (`v1.2.4`) y dejá el anterior;
 las imágenes son inmutables para quien fijó versión.
