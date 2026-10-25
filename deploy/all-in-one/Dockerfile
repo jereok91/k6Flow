@@ -37,7 +37,7 @@ COPY apps/recorder/package.json apps/recorder/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --prod --frozen-lockfile
 
-FROM golang:1.25.7-alpine3.23 AS orchestrator
+FROM golang:1.26.10-alpine3.23 AS orchestrator
 WORKDIR /src
 COPY apps/orchestrator/go.mod apps/orchestrator/go.sum ./
 RUN go mod download

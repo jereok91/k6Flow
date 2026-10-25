@@ -725,3 +725,20 @@ through placeholder product endpoints. Stop for review before Phase 1.
 ```
 
 **Fecha**: 2026-10-03 (Phase 9 hardening)
+
+## 2026-10-25 — Actualización de seguridad: Go 1.26.10, Node 22.23.4, Next 16.4.3
+
+Los registros de arriba congelan `golang:1.25.7` y `go 1.25.0`; esta entrada los supersede.
+
+- **Go 1.25 quedó fuera de soporte** (la política cubre las dos versiones mayores más recientes, hoy
+  1.26 y 1.27) y la última parche de la línea es 1.25.14. El módulo pasa a `go 1.26.0` y las
+  imágenes a `golang:1.26.10-alpine3.23`; `go build`, `go vet` y `go test ./...` verdes con la
+  toolchain nueva, y `go mod tidy -diff` limpio (los pines de otel/x siguen con floor ≤1.25, así que
+  el salto no obliga a moverlos). Lo que antes era una restricción de imagen (no poder compilar un
+  módulo que pide `go ≥1.26`) deja de aplicar: la imagen ya es 1.26.10.
+- **Node 22.22.0 → 22.23.4** en todas las imágenes: `CVE-2026-111497`, desbordamiento de escritura en
+  el decodificador Brotli incluido en Node (la versión parcheada por línea es 22.23.4 / 24.22.1 /
+  26.12.1).
+- **Next 16.1.6 → 16.4.3**: el audit del árbol marcaba 4 avisos critical y 38 de menor severidad, con
+  parches en ≥16.3.3 y ≥16.4.1; la app no usa `use cache` (el vector del GHSA-673q-mjm6-r5xr) pero la
+  versión entraba en rango, y el resto de los avisos no dependía de la configuración.

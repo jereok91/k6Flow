@@ -1,4 +1,4 @@
-FROM golang:1.25.7-alpine3.23 AS development
+FROM golang:1.26.10-alpine3.23 AS development
 WORKDIR /src
 COPY apps/orchestrator/go.mod apps/orchestrator/go.sum ./
 # Prefetch module dependencies at build time so container start needs no network.

@@ -143,7 +143,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up
 
 - Docker 24+ with Compose v2
 - Node.js 22.22.0, pnpm 10.32.1 (for local tests)
-- Go 1.25.7 (for local Go tests)
+- Go 1.26.10 (for local Go tests)
 
 ### Testing
 
