@@ -33,17 +33,18 @@ echo "Base lista."
 ORCHESTRATOR_ADDR="${ORCHESTRATOR_ADDR:-:8080}" /app/orchestrator &
 pids+=($!)
 
-(
-  # El grabador escucha en 8081 y usa tsx: sus imports no llevan extensión y Node ESM los rechaza.
-  cd /workspace/apps/recorder
-  PORT="${RECORDER_PORT:-8081}" ./node_modules/.bin/tsx src/main.ts
-) &
-pids+=($!)
+if [[ "${K6FLOW_RECORDER:-on}" == "on" && -f /workspace/apps/recorder/recorder.mjs ]]; then
+  # El grabador quedó empaquetado junto a sus dependencias y escucha en 8081.
+  PORT="${RECORDER_PORT:-8081}" node /workspace/apps/recorder/recorder.mjs &
+  pids+=($!)
+else
+  echo "Grabador deshabilitado en esta imagen (variante slim): la UI de grabación responde 502."
+fi
 
 PORT="${PORT:-3000}" node /app/apps/web/server.js &
 pids+=($!)
 
-echo "K6Flow arriba: web :3000 · orchestrator :8080 · recorder :8081"
+echo "K6Flow arriba: web :3000 · orchestrator :8080 · recorder ${K6FLOW_RECORDER:-on}"
 # Si cualquiera de los tres muere, el contenedor termina para que Docker lo reinicie.
 wait -n "${pids[@]}"
 echo "Un servicio de K6Flow terminó; reiniciando el contenedor." >&2

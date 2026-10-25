@@ -23,7 +23,7 @@ for expected in k6flow-web k6flow-orchestrator k6flow-recorder k6flow-setup; do
 done
 
 # El stack todo en uno usa una única imagen de la app.
-grep -q 'image: ghcr.io/jereok91/k6flow:\${K6FLOW_VERSION:-latest}' "$all_in_one_file" || {
+grep -q 'image: ghcr.io/jereok91/\${K6FLOW_IMAGE:-k6flow}:\${K6FLOW_VERSION:-latest}' "$all_in_one_file" || {
   echo "$all_in_one_file must reference the all-in-one image ghcr.io/jereok91/k6flow" >&2
   exit 1
 }

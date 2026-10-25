@@ -46,10 +46,14 @@ jobs:
           - name: k6flow-setup
             dockerfile: apps/web/Dockerfile
             target: setup
-          # Todo en uno: web + orchestrator + recorder + migraciones en una sola imagen.
+          # Todo en uno: web + orchestrator + grabador + migraciones en una sola imagen.
           - name: k6flow
             dockerfile: deploy/all-in-one/Dockerfile
-            target: 
+            target: all-in-one
+          # Misma app sin grabador: mucho más chica para quien sólo edita y ejecuta.
+          - name: k6flow-slim
+            dockerfile: deploy/all-in-one/Dockerfile
+            target: slim
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -106,12 +110,13 @@ jobs:
             echo "## Imágenes publicadas"
             echo
             echo '```'
-            for image in k6flow-web k6flow-orchestrator k6flow-recorder k6flow-setup k6flow; do
+            for image in k6flow-web k6flow-orchestrator k6flow-recorder k6flow-setup k6flow k6flow-slim; do
               echo "ghcr.io/${owner}/${image}:${version}   (también :${version%.*} , :${version%%.*} y :latest)"
             done
             echo
-            echo "\`k6flow\` es la imagen todo en uno (web + orchestrator + grabador + migraciones): con"
-            echo "\`deploy/docker-compose.all-in-one.yml\` sólo se agrega PostgreSQL."
+            echo "\`k6flow\` es la imagen todo en uno (web + orchestrator + grabador + migraciones) y"
+            echo "\`k6flow-slim\` la misma app sin grabador; con \`deploy/docker-compose.all-in-one.yml\`"
+            echo "sólo se agrega PostgreSQL (K6FLOW_IMAGE=k6flow-slim para la variante chica)."
             
             echo '```'
             echo

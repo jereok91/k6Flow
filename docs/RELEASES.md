@@ -13,6 +13,7 @@ el repositorio.
 | `ghcr.io/jereok91/k6flow-recorder` | Playwright | Grabador visual |
 | `ghcr.io/jereok91/k6flow-setup` | Migraciones + seed del admin | Se corre una vez por deploy |
 | **`ghcr.io/jereok91/k6flow`** | **Todo en uno**: web + orchestrator + grabador + migraciones | El camino simple: una imagen, un servicio |
+| `ghcr.io/jereok91/k6flow-slim` | Igual, **sin grabador** (ni Chromium) | Editor, ejecuciones e import HAR en una imagen ~4× más chica |
 
 Cada versión publica **cuatro tags** por imagen: `1.2.3`, `1.2`, `1` y `latest`.
 
@@ -80,6 +81,10 @@ docker compose -f docker-compose.all-in-one.yml up -d
 
 Al arrancar, el contenedor aplica las migraciones, crea el admin y levanta web, orchestrator y
 grabador. `docker compose logs -f k6flow` muestra ese arranque.
+
+**Variante sin grabador** (misma app, sin Chromium): agregá `K6FLOW_IMAGE=k6flow-slim` al `.env`.
+La pantalla de grabación responde `502` a propósito (no hay servicio de captura), y todo lo demás
+—editor, ejecuciones, biblioteca, import HAR, variables— funciona igual.
 
 ### Opción B — versión fija con servicios separados (recomendado)
 

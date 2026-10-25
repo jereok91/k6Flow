@@ -6,11 +6,14 @@
 #
 # La imagen incluye web, orchestrator, grabador y las migraciones: no hay servicios de build ni
 # pasos previos. Sólo PostgreSQL queda aparte, igual que redis en yopass.
+#
+# Variante sin grabador (más chica, ~1/5 del peso): agregá K6FLOW_IMAGE=k6flow-slim al .env.
 name: k6flow
 
 services:
   k6flow:
-    image: ghcr.io/jereok91/k6flow:${K6FLOW_VERSION:-latest}
+    # K6FLOW_IMAGE=k6flow-slim para la variante sin grabador.
+    image: ghcr.io/jereok91/${K6FLOW_IMAGE:-k6flow}:${K6FLOW_VERSION:-latest}
     init: true
     restart: unless-stopped
     ports:

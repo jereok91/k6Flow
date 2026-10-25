@@ -33,6 +33,9 @@ importers:
       '@types/ws':
         specifier: 8.18.1
         version: 8.18.1
+      esbuild:
+        specifier: 0.25.12
+        version: 0.25.12
       tsx:
         specifier: 4.19.4
         version: 4.19.4

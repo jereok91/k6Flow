@@ -44,6 +44,10 @@ printf 'POSTGRES_PASSWORD=change-me\nADMIN_PASSWORD=change-me-min-12-chars\n' > 
 docker compose -f docker-compose.all-in-one.yml up -d
 ```
 
+Two variants are published: `k6flow` (with the browser recorder) and `k6flow-slim` (same app
+without Chromium, ~4x smaller). Pick the slim one with `K6FLOW_IMAGE=k6flow-slim` in `.env` when
+you only need the editor, runs and HAR import.
+
 ### From the published images (one service per process)
 
 Every `vX.Y.Z` tag also publishes `ghcr.io/jereok91/k6flow-{web,orchestrator,recorder,setup}` for
