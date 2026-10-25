@@ -22,10 +22,18 @@ S3 (versiones objetivo): `next@^16.4.3` · `node:22.23.4` en todas las imágenes
 
 ## Tasks
 
-- P1 — Go: `go.mod` a 1.26 y las imágenes a `golang:1.26.10-alpine3.23`; `go build/test/vet`.
-- P2 — Node: `node:22.23.4` en web, recorder y todo-en-uno (incluido el binario que se copia sobre
-  la base de Playwright) + `engines`.
-- P3 — Dependencias: next 16.4.3, playwright 1.55.1 con su base de navegador, ws 8.21, zod 4.6.6.
+- [x] P1 — Go: `go.mod` a 1.26 y las imágenes a `golang:1.26.10-alpine3.23`; `go build/test/vet`.
+  Evidencia: `fc239ed`; build, vet, `go test ./...` (8 paquetes) y `go mod tidy -diff` limpios. El
+  build de la imagen no se pudo correr localmente (proxy.golang.org resetea desde los contenedores de
+  este host); lo cubre CI.
+- [x] P2 — Node: `node:22.23.4` en web, recorder y todo-en-uno (incluido el binario que se copia sobre
+  la base de Playwright) + `engines`. Evidencia: `9dec05b`.
+- [x] P3 — Dependencias: next 16.4.3, playwright 1.64.1 con su base de navegador, ws 8.22.0,
+  zod 4.6.7. Evidencia: `562330f`. Los caret resolvieron más alto de lo pedido y el navegador de la
+  imagen tiene que ser la misma versión que la librería, así que la base pasó a `v1.64.1-noble`; CI
+  ahora instala además `chromium-headless-shell`, que 1.64 ya no trae con `chromium`.
+- [x] P3b — devDependencies: vitest 4.1.12, yaml 2.9.1 y override de vite a 7.3.7. Evidencia:
+  `cb74b29`.
 - P4 — Verificación: typecheck, suites, build de Next, rebuild de las dos variantes y arranque real
   (login, proxies, flujo de grabación).
 
