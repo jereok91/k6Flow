@@ -124,7 +124,7 @@ export function HarSaveScenarioForm({
 
       {submitError !== null && (
         <div className="p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm">
-          <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle">
+          <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle" aria-hidden="true">
             error
           </span>
           {submitError}
@@ -139,7 +139,7 @@ export function HarSaveScenarioForm({
           </>
         ) : (
           <>
-            <span className="material-symbols-outlined text-[18px]">save</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">save</span>
             <span>Importar {summary.kept} peticiones</span>
           </>
         )}

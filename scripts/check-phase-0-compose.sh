@@ -30,7 +30,7 @@ cleanup() {
       echo "Cleanup failed for owned project $project; inspect its labeled resources." >&2
       result=1
     fi
-    for service in web orchestrator; do
+    for service in web orchestrator recorder; do
       image="$project-$service:latest"
       if ! image_ids=$(docker image ls -q "$image"); then
         echo "Cannot inspect owned image $image for cleanup" >&2
@@ -65,7 +65,7 @@ run_stack() {
       return 1
     fi
   done
-  for service in web orchestrator; do
+  for service in web orchestrator recorder; do
     resources=$(docker image ls -q "$active_project-$service") || return 1
     if [[ -n $resources ]]; then
       echo "Image collision: $active_project-$service" >&2
@@ -86,6 +86,12 @@ run_stack() {
       --target "$target" --tag "$active_project-$service" \
       --file "apps/$service/Dockerfile" .
   done
+  # The recorder has a single-stage Dockerfile and is started with --no-build.
+  remaining=$((900 - SECONDS + started))
+  [[ $remaining -gt 0 ]] || { echo "Startup budget exhausted" >&2; return 1; }
+  timeout --foreground "$remaining" docker build --force-rm \
+    --tag "$active_project-recorder" \
+    --file apps/recorder/Dockerfile .
   remaining=$((900 - SECONDS + started))
   [[ $remaining -gt 0 ]] || { echo "Startup budget exhausted" >&2; return 1; }
   if ! WEB_PORT=0 timeout --foreground "$remaining" docker compose \
@@ -95,7 +101,7 @@ run_stack() {
     compose logs --tail 40
     return 1
   fi
-  for service in web orchestrator db; do
+  for service in web orchestrator db recorder; do
     id=$(compose ps -q "$service")
     [[ -n $id ]] || { echo "Missing $service" >&2; return 1; }
     state=$(docker inspect --format '{{.State.Health.Status}}' "$id")
@@ -105,6 +111,11 @@ run_stack() {
       # Dev only (authorized 2026-10-21): orchestrator may bind exactly loopback 8080.
       if [[ $mode == dev && $service == orchestrator &&
             $bindings == '{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"8080"}]}' ]]; then
+        continue
+      fi
+      # Dev only: the recorder may bind exactly loopback 8081 for direct WS access.
+      if [[ $mode == dev && $service == recorder &&
+            $bindings == '{"8081/tcp":[{"HostIp":"127.0.0.1","HostPort":"8081"}]}' ]]; then
         continue
       fi
       [[ $bindings == '{}' || $bindings == null ]] || {
@@ -118,7 +129,7 @@ run_stack() {
   # Separate client process on the shared network: no host Go port is needed.
   compose exec -T web node -e \
     'fetch("http://orchestrator:8080/healthz", {signal: AbortSignal.timeout(10000)}).then(async r => { const j=await r.json(); if (!r.ok || j.status!=="ok" || Object.keys(j).length!==1) process.exit(1); }).catch(e => { console.error(e); process.exit(1); })'
-  echo "$mode: three healthy services, external web/internal Go probes passed, Go/DB unpublished."
+  echo "$mode: four healthy services, external web/internal Go probes passed, only the documented dev loopback ports are published."
 }
 
 run_stack production

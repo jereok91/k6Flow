@@ -122,10 +122,10 @@ export default function ScenarioDetailPage({
     return (
       <MainLayout>
         <div className="card text-center">
-          <span className="material-symbols-outlined text-error text-[32px] mb-space-md">error</span>
+          <span className="material-symbols-outlined text-error text-[32px] mb-space-md" aria-hidden="true">error</span>
           <p className="text-body-md text-error">{error || "Escenario no encontrado"}</p>
           <Link href="/scenarios" className="btn-secondary mt-space-md mx-auto">
-            <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_back</span>
             <span>Volver a escenarios</span>
           </Link>
         </div>
@@ -151,7 +151,7 @@ export default function ScenarioDetailPage({
         <section className="flex flex-col md:flex-row md:items-end justify-between gap-space-lg">
           <div className="flex flex-col gap-space-xs">
             <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
-              <span className="material-symbols-outlined text-primary text-[16px]">account_tree</span>
+              <span className="material-symbols-outlined text-primary text-[16px]" aria-hidden="true">account_tree</span>
               <span>Biblioteca de escenarios</span>
             </div>
             <h1 className="flex items-center gap-space-sm text-headline-lg text-on-surface font-semibold tracking-tight">
@@ -159,7 +159,8 @@ export default function ScenarioDetailPage({
               {scenario.isFavorite ? (
                 <span
                   className="material-symbols-outlined text-amber-400 text-[24px]"
-                  title="Favorito"
+                  role="img"
+                  aria-label="Favorito"
                   style={{ fontVariationSettings: "'FILL' 1" }}
                 >
                   star
@@ -174,11 +175,11 @@ export default function ScenarioDetailPage({
 
           <div className="flex items-center gap-space-md">
             <Link href="/scenarios" className="btn-secondary">
-              <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_back</span>
               <span>Volver</span>
             </Link>
             <Link href={`/editor?scenario=${id}`} className="btn-primary">
-              <span className="material-symbols-outlined text-[18px]">edit_square</span>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">edit_square</span>
               <span>Editar</span>
             </Link>
           </div>
@@ -230,15 +231,15 @@ export default function ScenarioDetailPage({
                 <h2 className={`${PANEL_TITLE} mb-space-md`}>Acciones rápidas</h2>
                 <div className="flex flex-col gap-space-sm">
                   <Link href={`/editor?scenario=${id}`} className="btn-primary justify-center">
-                    <span className="material-symbols-outlined text-[18px]">edit_square</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">edit_square</span>
                     <span>Abrir en el editor</span>
                   </Link>
                   <button type="button" className="btn-secondary justify-center" onClick={downloadScript}>
-                    <span className="material-symbols-outlined text-[18px]">download</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">download</span>
                     <span>Descargar guion K6</span>
                   </button>
                   <button type="button" className="btn-secondary justify-center" onClick={copyScript}>
-                    <span className="material-symbols-outlined text-[18px]">content_copy</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">content_copy</span>
                     <span>Copiar guion K6</span>
                   </button>
                 </div>
@@ -259,11 +260,11 @@ export default function ScenarioDetailPage({
                 <h2 className={PANEL_TITLE}>Guion K6</h2>
                 <div className="flex items-center gap-space-sm">
                   <button type="button" className="btn-secondary" onClick={copyScript}>
-                    <span className="material-symbols-outlined text-[18px]">content_copy</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">content_copy</span>
                     <span>Copiar</span>
                   </button>
                   <button type="button" className="btn-secondary" onClick={downloadScript}>
-                    <span className="material-symbols-outlined text-[18px]">download</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">download</span>
                     <span>Descargar</span>
                   </button>
                 </div>
@@ -322,7 +323,7 @@ export default function ScenarioDetailPage({
                         alert("La restauración de versiones estará disponible pronto");
                       }}
                     >
-                      <span className="material-symbols-outlined text-[18px]">history</span>
+                      <span className="material-symbols-outlined text-[18px]" aria-hidden="true">history</span>
                       <span>Restaurar esta versión</span>
                     </button>
                   </div>

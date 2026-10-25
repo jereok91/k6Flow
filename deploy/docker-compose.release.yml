@@ -1,0 +1,127 @@
+# K6Flow — compose de release (sólo imágenes publicadas).
+#
+# Uso para el usuario final:
+#   curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.release.yml
+#   cat > .env <<'EOF'
+#   POSTGRES_PASSWORD=una-clave-larga
+#   ADMIN_PASSWORD=otra-clave-de-12-o-mas
+#   EOF
+#   docker compose -f docker-compose.release.yml up -d
+#
+# Versión: fijala con `K6FLOW_VERSION=1.2.3` (recomendado) o dejá `latest`.
+# Requisito del host: Docker con acceso al socket (el orchestrator lanza los k6).
+name: k6flow
+
+x-k6flow-image: &k6flow-image "${K6FLOW_REGISTRY:-ghcr.io/jereok91}/k6flow-web:${K6FLOW_VERSION:-latest}"
+
+services:
+  # Aplica migraciones y crea/actualiza el admin. Corre una vez y termina.
+  setup:
+    image: "${K6FLOW_REGISTRY:-ghcr.io/jereok91}/k6flow-setup:${K6FLOW_VERSION:-latest}"
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-k6flow}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env}@db:5432/${POSTGRES_DB:-k6flow}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD (min 12 chars) in your .env}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+
+  web:
+    image: *k6flow-image
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-k6flow}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env}@db:5432/${POSTGRES_DB:-k6flow}
+      ORCHESTRATOR_INTERNAL_URL: http://orchestrator:8080
+      ORCHESTRATOR_SERVICE_TOKEN: ${ORCHESTRATOR_SERVICE_TOKEN:-k6flow-internal-token}
+      RECORDER_UPSTREAM: http://recorder:8081
+      RECORDER_AUTH_TOKEN: ${RECORDER_AUTH_TOKEN:-k6flow-internal-token}
+      ALLOWED_TARGETS: ${ALLOWED_TARGETS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+      recorder:
+        condition: service_healthy
+      orchestrator:
+        condition: service_healthy
+    networks: [edge, backend]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/healthz').then(async r => { if (!r.ok || (await r.json()).status !== 'ok') process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+
+  orchestrator:
+    image: "${K6FLOW_REGISTRY:-ghcr.io/jereok91}/k6flow-orchestrator:${K6FLOW_VERSION:-latest}"
+    environment:
+      SERVICE_TOKEN: ${ORCHESTRATOR_SERVICE_TOKEN:-k6flow-internal-token}
+      # La red donde viven los contenedores de k6 (nombre: <proyecto>_k6runner).
+      ORCHESTRATOR_NETWORK: k6flow_k6runner
+      MAX_VUS_PER_RUN: ${MAX_VUS_PER_RUN:-500}
+      MAX_MEMORY_MIB_PER_RUN: ${MAX_MEMORY_MIB_PER_RUN:-4096}
+      MAX_CPU_MILLIS_PER_RUN: ${MAX_CPU_MILLIS_PER_RUN:-4000}
+    volumes:
+      # Necesario para lanzar un contenedor k6 por ejecución.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [backend, k6runner]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  recorder:
+    image: "${K6FLOW_REGISTRY:-ghcr.io/jereok91}/k6flow-recorder:${K6FLOW_VERSION:-latest}"
+    init: true
+    environment:
+      PORT: "8081"
+      AUTH_TOKEN: ${RECORDER_AUTH_TOKEN:-k6flow-internal-token}
+      START_URL: "about:blank"
+      VIEWPORT_WIDTH: "1280"
+      VIEWPORT_HEIGHT: "720"
+      MAX_DURATION_MS: ${RECORDER_MAX_DURATION_MS:-3600000}
+      INACTIVITY_MS: ${RECORDER_INACTIVITY_MS:-300000}
+      CAPTURE_DIR: /var/lib/k6flow/captures
+    volumes:
+      - recorder-captures:/var/lib/k6flow/captures
+    networks: [edge]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8081/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  db:
+    image: postgres:17.7-alpine3.22
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-k6flow}
+      POSTGRES_USER: ${POSTGRES_USER:-k6flow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+networks:
+  edge: {}
+  backend:
+    internal: true
+  k6runner: {}
+
+volumes:
+  postgres-data: {}
+  recorder-captures: {}

@@ -55,7 +55,7 @@ export function HarFiltersPanel({
           onClick={() => onFiltersChange(() => EMPTY_FILTERS)}
           className="btn-secondary"
         >
-          <span className="material-symbols-outlined text-[16px]">filter_alt_off</span>
+          <span className="material-symbols-outlined text-[16px]" aria-hidden="true">filter_alt_off</span>
           <span>Limpiar filtros</span>
         </button>
       </div>
@@ -153,7 +153,7 @@ export function HarFiltersPanel({
           Buscar en método o URL
         </label>
         <div className="relative flex items-center">
-          <span className="material-symbols-outlined absolute left-space-md text-[18px] text-on-surface-variant">
+          <span className="material-symbols-outlined absolute left-space-md text-[18px] text-on-surface-variant" aria-hidden="true">
             search
           </span>
           <input
@@ -181,11 +181,11 @@ export function HarFiltersPanel({
         </span>
         <div className="flex items-center gap-space-xs ml-auto">
           <button type="button" onClick={onSelectVisible} className="btn-secondary">
-            <span className="material-symbols-outlined text-[16px]">check_box</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">check_box</span>
             <span>Marcar visibles</span>
           </button>
           <button type="button" onClick={onDeselectVisible} className="btn-secondary">
-            <span className="material-symbols-outlined text-[16px]">
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
               check_box_outline_blank
             </span>
             <span>Desmarcar visibles</span>

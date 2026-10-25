@@ -20,7 +20,7 @@ export type CaptureEvent =
   | { type: "step"; data: Step }
   | { type: "state_change"; data: { state: string; timestamp: number } }
   | { type: "navigation"; data: { url: string; title: string; timestamp: number } }
-  | { type: "end"; data: { endedAt: number; reason: string } };
+  | { type: "end"; data: { endedAt: number; reason: string; incomplete?: boolean } };
 
 /**
  * CaptureWriter writes recording events to an NDJSON file.
@@ -74,16 +74,30 @@ export class CaptureWriter {
     });
   }
 
-  end(reason: string): void {
+  /**
+   * Write the end marker and resolve once the file is fully flushed to disk, so
+   * a caller that answers a stop request never exposes a truncated capture.
+   */
+  end(reason: string, options: { incomplete?: boolean } = {}): Promise<void> {
     this.write({ 
       type: "end", 
-      data: { endedAt: Date.now(), reason } 
+      data: { endedAt: Date.now(), reason, ...(options.incomplete === true && { incomplete: true }) } 
     });
 
-    if (this.stream) {
-      this.stream.end();
-      this.stream = null;
-    }
+    const stream = this.stream;
+    this.stream = null;
+    if (!stream) return Promise.resolve();
+
+    return new Promise<void>((resolve, reject) => {
+      stream.once("finish", () => resolve());
+      // A failed flush must not look like a closed capture: the stop has to be able
+      // to report that the end marker never reached the disk.
+      stream.once("error", (error) => {
+        console.error("[CaptureWriter] Close error:", error);
+        reject(error);
+      });
+      stream.end();
+    });
   }
 
   private write(event: CaptureEvent): void {

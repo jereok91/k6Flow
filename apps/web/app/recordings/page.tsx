@@ -7,10 +7,14 @@ import { MainLayout } from "../../lib/layout";
 interface Recording {
   id: string;
   name: string;
-  targetUrl: string;
-  createdAt: string;
-  stepCount: number;
+  startUrl: string;
+  state: string;
+  durationMs: number | null;
+  requestCount: number | null;
+  stepCount: number | null;
   scenarioId: string | null;
+  createdAt: string;
+  completedAt: string | null;
 }
 
 interface RecordingsResponse {
@@ -74,7 +78,7 @@ export default function RecordingsPage() {
         <section className="flex flex-col md:flex-row md:items-end justify-between gap-space-lg">
           <div className="flex flex-col gap-space-xs">
             <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
-              <span className="material-symbols-outlined text-secondary text-[16px]">videocam</span>
+              <span className="material-symbols-outlined text-secondary text-[16px]" aria-hidden="true">videocam</span>
               <span>Sesiones capturadas</span>
             </div>
             <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">
@@ -86,7 +90,7 @@ export default function RecordingsPage() {
           </div>
 
           <Link href="/recorder" className="btn-primary">
-            <span className="material-symbols-outlined text-[18px]">fiber_manual_record</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">fiber_manual_record</span>
             <span>Nueva grabación</span>
           </Link>
         </section>
@@ -95,7 +99,7 @@ export default function RecordingsPage() {
         <section className="flex flex-wrap items-center gap-space-md">
           <form onSubmit={handleSearch} className="flex-1 min-w-[200px] max-w-md">
             <div className="relative flex items-center">
-              <span className="material-symbols-outlined absolute left-space-md text-[18px] text-on-surface-variant">
+              <span className="material-symbols-outlined absolute left-space-md text-[18px] text-on-surface-variant" aria-hidden="true">
                 search
               </span>
               <input
@@ -112,7 +116,7 @@ export default function RecordingsPage() {
         {/* Content */}
         {error ? (
           <div className="card text-center">
-            <span className="material-symbols-outlined text-error text-[32px] mb-space-md">error</span>
+            <span className="material-symbols-outlined text-error text-[32px] mb-space-md" aria-hidden="true">error</span>
             <p className="text-body-md text-error">{error}</p>
             <button
               type="button"
@@ -129,7 +133,7 @@ export default function RecordingsPage() {
           </div>
         ) : recordings.length === 0 ? (
           <div className="card text-center py-space-xl">
-            <span className="material-symbols-outlined text-on-surface-variant text-[48px] mb-space-md">
+            <span className="material-symbols-outlined text-on-surface-variant text-[48px] mb-space-md" aria-hidden="true">
               videocam_off
             </span>
             <h3 className="text-headline-sm text-on-surface font-medium mb-space-xs">
@@ -141,7 +145,7 @@ export default function RecordingsPage() {
                 : "Graba tu primera sesión de navegador para crear escenarios automáticamente"}
             </p>
             <Link href="/recorder" className="btn-primary mx-auto">
-              <span className="material-symbols-outlined text-[18px]">fiber_manual_record</span>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">fiber_manual_record</span>
               <span>Iniciar grabación</span>
             </Link>
           </div>
@@ -157,11 +161,11 @@ export default function RecordingsPage() {
                 >
                   <div className="flex items-start justify-between mb-space-md">
                     <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center text-secondary group-hover:bg-secondary-container group-hover:text-on-secondary-container transition-colors">
-                      <span className="material-symbols-outlined text-[22px]">videocam</span>
+                      <span className="material-symbols-outlined text-[24px]" aria-hidden="true">videocam</span>
                     </div>
                     {recording.scenarioId ? (
                       <span className="badge-success">
-                        <span className="material-symbols-outlined text-[12px]">check</span>
+                        <span className="material-symbols-outlined text-[12px]" aria-hidden="true">check</span>
                         Convertido
                       </span>
                     ) : (
@@ -176,13 +180,15 @@ export default function RecordingsPage() {
                   </h3>
 
                   <p className="text-label-code-sm text-on-surface-variant font-mono mb-space-md truncate">
-                    {recording.targetUrl}
+                    {recording.startUrl || "—"}
                   </p>
 
                   <div className="flex items-center justify-between text-label-code-sm text-on-surface-variant">
                     <div className="flex items-center gap-space-xs">
-                      <span className="material-symbols-outlined text-[14px]">layers</span>
-                      <span>{recording.stepCount} pasos</span>
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">layers</span>
+                      <span>
+                        {recording.stepCount ?? 0} pasos · {recording.requestCount ?? 0} peticiones
+                      </span>
                     </div>
                     <span className="font-mono">
                       {new Date(recording.createdAt).toLocaleDateString()}
@@ -206,7 +212,7 @@ export default function RecordingsPage() {
                     disabled={page === 1}
                     className="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">chevron_left</span>
                   </button>
                   <span className="text-body-sm text-on-surface px-space-md">
                     {page} / {totalPages}
@@ -217,7 +223,7 @@ export default function RecordingsPage() {
                     disabled={page === totalPages}
                     className="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">chevron_right</span>
                   </button>
                 </div>
               </div>

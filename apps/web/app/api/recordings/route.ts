@@ -8,6 +8,7 @@ import { getDb } from "../../../lib/db/client";
 import { scenarios, recordings, scenarioVersions } from "../../../lib/db/schema";
 import { requireUser } from "../../../lib/auth/require-user";
 import { jsonError } from "../../../lib/auth/http";
+import { graphDraftCompositionSchema } from "@k6flow/shared";
 import { createScenarioGraph, type ReviewedEntry } from "../../../lib/recorder/save-recording";
 
 // GET /api/recordings - list user's recordings
@@ -86,8 +87,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 // POST /api/recordings - save recording as new scenario or append to existing
-export async function POST(request: Request): Promise<Response> {
-  const cookieHeader = request.headers.get("cookie");
+export async function POST(request: Request): Promise<Response> {  const cookieHeader = request.headers.get("cookie");
   const user = await requireUser(cookieHeader);
   if (user === null) {
     return jsonError(401, "Unauthorized");
@@ -107,15 +107,23 @@ export async function POST(request: Request): Promise<Response> {
       return jsonError(400, "No entries to save");
     }
 
-    // Create scenario graph from recording
-    const graph = createScenarioGraph(body.entries as ReviewedEntry[], {
-      name: body.name,
-      startUrl: body.startUrl,
-      viewport: body.viewport || { width: 1280, height: 720 },
-      recordingId: body.recordingId,
-    });
+    // Create scenario graph from recording. The result is validated against the
+    // contract the editor loads: a recording must never store a graph the canvas
+    // cannot render.
+    const parsedGraph = graphDraftCompositionSchema.safeParse(
+      createScenarioGraph(body.entries as ReviewedEntry[]),
+    );
+    if (!parsedGraph.success) {
+      console.error("Recording produced an invalid graph:", parsedGraph.error.issues);
+      return jsonError(422, "La grabación no produce un escenario válido");
+    }
+    const graph = parsedGraph.data;
 
     const db = getDb();
+
+    // Provenance must be a recording this caller actually owns: an id from
+    // another account is dropped instead of being written into the version row.
+    const sourceRecordingId = await ownedRecordingId(db, user, body.recordingId);
 
     // K6R7-02: Append to existing scenario if appendToScenarioId provided
     if (body.appendToScenarioId) {
@@ -142,24 +150,30 @@ export async function POST(request: Request): Promise<Response> {
 
       const nextVersion = (maxVersion?.version || 0) + 1;
 
-      await db.insert(scenarioVersions).values({
-        id: randomUUID(),
-        scenarioId: body.appendToScenarioId,
-        version: nextVersion,
-        graph: existing.graph,
-        changeDescription: `Before appending recording: ${body.name}`,
-        sourceRecordingId: body.recordingId || null,
-        createdBy: user.id,
-      });
+      // One transaction: a version without its graph update (or an unlinked
+      // recording) must not survive a half-failed append.
+      await db.transaction(async (tx) => {
+        await tx.insert(scenarioVersions).values({
+          id: randomUUID(),
+          scenarioId: body.appendToScenarioId,
+          version: nextVersion,
+          graph: existing.graph,
+          changeDescription: `Before appending recording: ${body.name}`,
+          sourceRecordingId,
+          createdBy: user.id,
+        });
 
-      // Update scenario with new graph
-      await db
-        .update(scenarios)
-        .set({
-          graph,
-          updatedAt: new Date(),
-        })
-        .where(eq(scenarios.id, body.appendToScenarioId));
+        // Update scenario with new graph
+        await tx
+          .update(scenarios)
+          .set({
+            graph,
+            updatedAt: new Date(),
+          })
+          .where(eq(scenarios.id, body.appendToScenarioId));
+
+        await linkRecording(tx, user.id, sourceRecordingId, body.appendToScenarioId);
+      });
 
       return Response.json({
         id: body.appendToScenarioId,
@@ -172,11 +186,30 @@ export async function POST(request: Request): Promise<Response> {
 
     // Create new scenario
     const scenarioId = randomUUID();
-    await db.insert(scenarios).values({
-      id: scenarioId,
-      ownerId: user.id,
-      name: body.name,
-      graph,
+
+    // One transaction: the scenario, its first version and the recording link are
+    // one save. A retry after a half-failed write must not duplicate any of them.
+    await db.transaction(async (tx) => {
+      await tx.insert(scenarios).values({
+        id: scenarioId,
+        ownerId: user.id,
+        name: body.name,
+        graph,
+      });
+
+      // The graph this save produced is the scenario's first version, so its history
+      // starts at what was created and keeps the recording it came from as provenance.
+      await tx.insert(scenarioVersions).values({
+        id: randomUUID(),
+        scenarioId,
+        version: 1,
+        graph,
+        changeDescription: `Created from recording: ${body.name}`,
+        sourceRecordingId,
+        createdBy: user.id,
+      });
+
+      await linkRecording(tx, user.id, sourceRecordingId, scenarioId);
     });
 
     return Response.json({
@@ -188,4 +221,47 @@ export async function POST(request: Request): Promise<Response> {
     console.error("Failed to save recording:", error);
     return jsonError(500, "Failed to save recording");
   }
+}
+
+/** What the link helper needs from a DB handle or an open transaction. */
+type Updater = Pick<ReturnType<typeof getDb>, "update">;
+
+/**
+ * The recording id to use as provenance, or null when the caller does not own it.
+ * Unknown and foreign ids are indistinguishable on purpose, and an admin gets no
+ * bypass: the link is owner-scoped, so provenance must be owned too.
+ */
+async function ownedRecordingId(
+  db: ReturnType<typeof getDb>,
+  user: { id: string },
+  candidate: unknown,
+): Promise<string | null> {
+  if (typeof candidate !== "string" || candidate === "") return null;
+  const [row] = await db
+    .select({ ownerId: recordings.ownerId })
+    .from(recordings)
+    .where(eq(recordings.id, candidate))
+    .limit(1);
+  if (!row) return null;
+  return row.ownerId === user.id ? candidate : null;
+}
+
+/**
+ * Link a recording to the scenario it produced.
+ *
+ * Scoped to its owner so a recording id from another account can never be
+ * claimed by saving a scenario with that id. The recording's state belongs to
+ * the stop route: saving must never mark a live recording completed.
+ */
+async function linkRecording(
+  db: Updater,
+  ownerId: string,
+  recordingId: unknown,
+  scenarioId: string,
+): Promise<void> {
+  if (typeof recordingId !== "string" || recordingId === "") return;
+  await db
+    .update(recordings)
+    .set({ scenarioId })
+    .where(and(eq(recordings.id, recordingId), eq(recordings.ownerId, ownerId)));
 }

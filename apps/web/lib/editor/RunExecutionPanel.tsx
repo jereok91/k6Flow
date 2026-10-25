@@ -518,7 +518,7 @@ export function RunExecutionPanel({ runId, vus, onClose, onComplete }: RunExecut
             style={fullPageButtonStyle}
             title="Abrir en página completa"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>open_in_full</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true" >open_in_full</span>
           </button>
           <button onClick={onClose} style={closeButtonStyle}>
             ✕

@@ -477,7 +477,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
         {/* Header */}
         <div style={headerStyle}>
           <button onClick={() => router.back()} style={backButtonStyle}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_back</span>
             Volver
           </button>
           <div style={{ flex: 1 }}>
@@ -510,7 +510,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
           <div style={{ display: "flex", gap: 8 }}>
             {isLive && (
               <button onClick={handleStop} style={stopButtonStyle}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>stop</span>
+                <span className="material-symbols-outlined text-[16px]" aria-hidden="true">stop</span>
                 Detener
               </button>
             )}
@@ -538,7 +538,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
               ...(activeTab === "overview" ? activeTabStyle : {}),
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>monitoring</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">monitoring</span>
             Overview
           </button>
           <button
@@ -548,7 +548,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
               ...(activeTab === "endpoints" ? activeTabStyle : {}),
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>api</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">api</span>
             Endpoints
             {endpoints.length > 0 && (
               <span style={tabBadgeStyle}>{endpoints.length}</span>
@@ -562,7 +562,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
               color: failures.length > 0 || metrics.errorRate > 0 ? "#ef4444" : undefined,
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>error</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">error</span>
             Errores
             {(failures.length > 0 || metrics.errorRate > 0) && (
               <span style={{ ...tabBadgeStyle, background: "#ef4444" }}>
@@ -686,7 +686,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
             <h2 style={sectionTitleStyle}>Endpoints ({endpoints.length})</h2>
             {endpoints.length === 0 ? (
               <div style={emptyStateStyle}>
-                <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>api</span>
+                <span className="material-symbols-outlined text-[48px]" aria-hidden="true" style={{ opacity: 0.3 }}>api</span>
                 <p>No hay datos de endpoints disponibles</p>
                 <p style={{ fontSize: 12, opacity: 0.7 }}>
                   {isLive ? "Los datos se actualizan cada 5 segundos durante la ejecución" : "No se registraron requests HTTP"}
@@ -765,13 +765,13 @@ export default function RunDetailPage({ params }: { params: Promise<{ runId: str
             </h2>
             {failures.length === 0 && metrics.errorRate === 0 ? (
               <div style={emptyStateStyle}>
-                <span className="material-symbols-outlined" style={{ fontSize: 48, color: "#10b981" }}>check_circle</span>
+                <span className="material-symbols-outlined text-[48px]" aria-hidden="true" style={{ color: "#10b981" }}>check_circle</span>
                 <p style={{ color: "#10b981" }}>Sin errores</p>
                 <p style={{ fontSize: 12, opacity: 0.7 }}>Todos los requests fueron exitosos</p>
               </div>
             ) : failures.length === 0 ? (
               <div style={emptyStateStyle}>
-                <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>error</span>
+                <span className="material-symbols-outlined text-[48px]" aria-hidden="true" style={{ opacity: 0.3 }}>error</span>
                 <p>Tasa de error: {(metrics.errorRate * 100).toFixed(2)}%</p>
                 <p style={{ fontSize: 12, opacity: 0.7 }}>
                   {isLive ? "Los detalles de errores se actualizan cada 5 segundos" : "No hay detalles de errores disponibles"}

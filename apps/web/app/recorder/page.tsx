@@ -1,12 +1,22 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BrowserCanvas } from "../../lib/browser-canvas";
 import { MainLayout } from "../../lib/layout";
 
 type RecordingState = "setup" | "recording" | "completed" | "error";
+
+/** What the web tier persisted when the recording was stopped. */
+interface SavedRecording {
+  id: string;
+  name: string;
+  startUrl: string;
+  requestCount: number;
+  stepCount: number;
+  durationMs: number;
+}
 
 export default function RecorderPage() {
   const router = useRouter();
@@ -16,7 +26,13 @@ export default function RecorderPage() {
   const [startUrl, setStartUrl] = useState("https://example.com");
   const [recordingName, setRecordingName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const [saved, setSaved] = useState<SavedRecording | null>(null);
+  const [stopWarning, setStopWarning] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  const stoppingRef = useRef(false);
+  // Set once a stop cannot succeed by retrying (the recorder owns another session).
+  const stopPollingRef = useRef(false);
 
   const authToken = process.env.NEXT_PUBLIC_RECORDER_TOKEN || "dev-token";
 
@@ -37,9 +53,12 @@ export default function RecorderPage() {
 
     setIsStarting(true);
     setError(null);
+    setSaved(null);
+    setStopWarning(null);
+    // A refusal from an earlier recording must not disable this one's health poll.
+    stopPollingRef.current = false;
 
     try {
-      const newRecordingId = `rec-${Date.now()}`;
       const res = await fetch("/api/recorder/start", {
         method: "POST",
         headers: {
@@ -47,7 +66,7 @@ export default function RecorderPage() {
           Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
-          recordingId: newRecordingId,
+          name: recordingName,
           startUrl: startUrl.trim(),
           viewportWidth: 1280,
           viewportHeight: 720,
@@ -59,8 +78,16 @@ export default function RecorderPage() {
         throw new Error(data.error || `Error iniciando grabación: ${res.status}`);
       }
 
-      setRecordingId(newRecordingId);
-      setWsUrl(getWsUrl(newRecordingId));
+      const data = await res.json().catch(() => ({}));
+      // The recorder owns the id: the WebSocket, the stop and the capture lookup
+      // all use the one it minted. A response without it is a contract failure,
+      // never something to paper over with a client-made id.
+      if (typeof data.recordingId !== "string" || data.recordingId === "") {
+        throw new Error("El grabador no devolvió un identificador de grabación");
+      }
+
+      setRecordingId(data.recordingId);
+      setWsUrl(getWsUrl(data.recordingId));
       setState("recording");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error iniciando grabación");
@@ -69,28 +96,95 @@ export default function RecorderPage() {
     }
   };
 
-  const stopRecording = async () => {
+  /**
+   * Stop through the recorder and let the web tier persist the capture. Any
+   * failure keeps the session on screen instead of claiming it completed.
+   */
+  const finishRecording = useCallback(async (idToStop: string): Promise<void> => {
+    if (idToStop === "" || stoppingRef.current) return;
+    stoppingRef.current = true;
+    setStopping(true);
+    setError(null);
+
     try {
-      await fetch("/api/recorder/stop", {
+      // Bounded: a hung request must not leave the stop button disabled and the
+      // health poll short-circuited forever.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+      const res = await fetch("/api/recorder/stop", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ recordingId }),
-      });
+        body: JSON.stringify({
+          recordingId: idToStop,
+          name: recordingName,
+          startUrl,
+          viewport: { width: 1280, height: 720 },
+        }),
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const message = data && typeof data.error === "string"
+          ? data.error
+          : `No se pudo detener la grabación (HTTP ${res.status})`;
+        // 409 means this recording is not the live session: retrying it cannot help.
+        stopPollingRef.current = res.status === 409;
+        throw new Error(message);
+      }
+
+      if (data && data.recording) {
+        setSaved(data.recording as SavedRecording);
+        setStopWarning(null);
+      } else {
+        setSaved(null);
+        setStopWarning(
+          data && typeof data.warning === "string"
+            ? data.warning
+            : "La grabación se detuvo, pero no llegó ninguna captura para guardar",
+        );
+      }
       setState("completed");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error deteniendo grabación");
+      setError(e instanceof Error ? e.message : "No se pudo detener la grabación");
+    } finally {
+      stoppingRef.current = false;
+      setStopping(false);
     }
-  };
+  }, [authToken, recordingName, startUrl]);
 
-  const handleSessionEnd = useCallback(() => {
-    setState("completed");
-  }, []);
+  const stopRecording = () => void finishRecording(recordingId);
+
+  // The recorder can end a session on its own (inactivity, max duration). Polling
+  // its state keeps the page from showing "Grabando" forever, and the stop path
+  // is idempotent, so it still collects the capture.
+  useEffect(() => {
+    if (state !== "recording" || recordingId === "") return;
+
+    const timer = setInterval(async () => {
+      if (stoppingRef.current || stopPollingRef.current) return;
+      try {
+        const res = await fetch("/api/recorder/healthz", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const active = typeof data.recordingId === "string" ? data.recordingId : null;
+        if (active !== recordingId) {
+          await finishRecording(recordingId);
+        }
+      } catch {
+        // Advisory only: a failed poll must not interrupt an ongoing recording.
+      }
+    }, 4000);
+
+    return () => clearInterval(timer);
+  }, [state, recordingId, finishRecording]);
 
   const goToReview = () => {
-    router.push(`/recorder/review?id=${recordingId}&name=${encodeURIComponent(recordingName || "Grabación sin título")}&url=${encodeURIComponent(startUrl)}`);
+    const id = saved?.id ?? recordingId;
+    router.push(`/recorder/review?id=${encodeURIComponent(id)}`);
   };
 
   // Setup state - without MainLayout for cleaner look
@@ -102,7 +196,7 @@ export default function RecorderPage() {
             {/* Header */}
             <div className="flex flex-col gap-space-xs mb-space-xl">
               <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
-                <span className="material-symbols-outlined text-secondary text-[16px]">fiber_manual_record</span>
+                <span className="material-symbols-outlined text-secondary text-[16px]" aria-hidden="true">fiber_manual_record</span>
                 <span>Grabador de sesiones</span>
               </div>
               <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">
@@ -143,7 +237,7 @@ export default function RecorderPage() {
 
               {error && (
                 <div className="mb-space-lg p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm">
-                  <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle">error</span>
+                  <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle" aria-hidden="true">error</span>
                   {error}
                 </div>
               )}
@@ -160,7 +254,7 @@ export default function RecorderPage() {
                   </>
                 ) : (
                   <>
-                    <span className="material-symbols-outlined text-[18px]">fiber_manual_record</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">fiber_manual_record</span>
                     <span>Iniciar Grabación</span>
                   </>
                 )}
@@ -184,7 +278,7 @@ export default function RecorderPage() {
                       {item.step}
                     </span>
                     <div className="flex items-center gap-space-sm text-body-sm text-on-surface-variant">
-                      <span className="material-symbols-outlined text-[16px] text-on-surface-variant">{item.icon}</span>
+                      <span className="material-symbols-outlined text-[16px] text-on-surface-variant" aria-hidden="true">{item.icon}</span>
                       <span>{item.text}</span>
                     </div>
                   </div>
@@ -223,12 +317,33 @@ export default function RecorderPage() {
 
           <button
             onClick={stopRecording}
-            className="flex items-center gap-space-xs px-space-md py-space-sm bg-surface-container hover:bg-surface-container-high rounded-xl text-on-surface transition-colors"
+            disabled={stopping}
+            className="flex items-center gap-space-xs px-space-md py-space-sm bg-surface-container hover:bg-surface-container-high rounded-xl text-on-surface transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <span className="material-symbols-outlined text-[18px]">stop</span>
-            <span className="text-body-md font-medium">Detener Grabación</span>
+            {stopping ? (
+              <>
+                <div className="animate-spin w-4 h-4 border-2 border-on-surface border-t-transparent rounded-full" />
+                <span className="text-body-md font-medium">Deteniendo...</span>
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">stop</span>
+                <span className="text-body-md font-medium">Detener Grabación</span>
+              </>
+            )}
           </button>
         </header>
+
+        {/* A stop that did not happen is reported here, next to the live session */}
+        {error && (
+          <div className="mx-space-md mt-space-md p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm flex items-center gap-space-sm">
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">error</span>
+            <span className="flex-1">{error}</span>
+            <button onClick={stopRecording} className="btn-secondary py-space-xs">
+              Reintentar
+            </button>
+          </div>
+        )}
 
         {/* Browser canvas */}
         <div className="p-space-md">
@@ -254,18 +369,27 @@ export default function RecorderPage() {
         <div className="px-gutter-desktop py-space-xl">
           <div className="mx-auto max-w-2xl text-center">
             <div className="w-20 h-20 rounded-full bg-secondary/10 flex items-center justify-center mx-auto mb-space-lg">
-              <span className="material-symbols-outlined text-secondary text-[40px]">check_circle</span>
+              <span className="material-symbols-outlined text-secondary text-[40px]" aria-hidden="true">check_circle</span>
             </div>
             <h1 className="text-headline-lg text-on-surface font-semibold mb-space-sm">
               Grabación Completada
             </h1>
             <p className="text-body-md text-on-surface-variant mb-space-xl">
-              Tu sesión de navegador ha sido capturada. Revisa las peticiones y guarda como escenario.
+              {saved
+                ? `${saved.name} · ${saved.requestCount} peticiones · ${saved.stepCount} pasos · ${Math.round(saved.durationMs / 1000)}s`
+                : "Tu sesión de navegador ha sido capturada. Revisa las peticiones y guarda como escenario."}
             </p>
+
+            {stopWarning && (
+              <div className="mb-space-lg p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm text-left">
+                <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle" aria-hidden="true">warning</span>
+                {stopWarning}. Podés subir el archivo .ndjson a mano desde la pantalla de revisión.
+              </div>
+            )}
 
             <div className="flex justify-center gap-space-md">
               <button onClick={goToReview} className="btn-primary">
-                <span className="material-symbols-outlined text-[18px]">visibility</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">visibility</span>
                 <span>Revisar y Guardar</span>
               </button>
               <button
@@ -274,10 +398,12 @@ export default function RecorderPage() {
                   setRecordingId("");
                   setWsUrl("");
                   setError(null);
+                  setSaved(null);
+                  setStopWarning(null);
                 }}
                 className="btn-secondary"
               >
-                <span className="material-symbols-outlined text-[18px]">add</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">add</span>
                 <span>Nueva Grabación</span>
               </button>
             </div>
@@ -293,7 +419,7 @@ export default function RecorderPage() {
       <div className="px-gutter-desktop py-space-xl">
         <div className="mx-auto max-w-2xl text-center">
           <div className="w-20 h-20 rounded-full bg-error/10 flex items-center justify-center mx-auto mb-space-lg">
-            <span className="material-symbols-outlined text-error text-[40px]">error</span>
+            <span className="material-symbols-outlined text-error text-[40px]" aria-hidden="true">error</span>
           </div>
           <h1 className="text-headline-lg text-on-surface font-semibold mb-space-sm">
             Error en la Grabación
@@ -307,7 +433,7 @@ export default function RecorderPage() {
             }}
             className="btn-primary"
           >
-            <span className="material-symbols-outlined text-[18px]">refresh</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">refresh</span>
             <span>Intentar de Nuevo</span>
           </button>
         </div>

@@ -30,7 +30,7 @@ export function TopBar() {
       {/* Breadcrumb */}
       <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "13px", color: "var(--color-on-surface-variant)" }}>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: "12px" }}>k6flow</span>
-        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>chevron_right</span>
+        <span className="material-symbols-outlined text-[16px]" aria-hidden="true" >chevron_right</span>
         <span style={{ color: "var(--color-on-surface)", fontWeight: 500 }}>Plataforma</span>
       </div>
 
@@ -44,16 +44,16 @@ export function TopBar() {
           title={theme === "dark" ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
           onClick={toggleTheme}
         >
-          <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: "20px" }}>
+          <span aria-hidden="true" className="material-symbols-outlined text-[20px]" >
             {theme === "dark" ? "dark_mode" : "light_mode"}
           </span>
         </button>
         <Link href="/recorder" className="btn-primary">
-          <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>videocam</span>
+          <span className="material-symbols-outlined text-[18px]" aria-hidden="true" >videocam</span>
           <span>Grabar</span>
         </Link>
         <Link href="/editor" className="btn-secondary">
-          <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>edit_square</span>
+          <span className="material-symbols-outlined text-[18px]" aria-hidden="true" >edit_square</span>
           <span>Editor</span>
         </Link>
       </div>

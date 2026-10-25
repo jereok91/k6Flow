@@ -94,7 +94,7 @@ export default function HomePage() {
                   <span className="text-label-code-sm text-outline">Total activos</span>
                 </div>
                 <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary">
-                  <span className="material-symbols-outlined text-[18px]">account_tree</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">account_tree</span>
                 </div>
               </div>
               <div className="mt-space-md flex items-baseline gap-space-xs">
@@ -112,7 +112,7 @@ export default function HomePage() {
                   <span className="text-label-code-sm text-outline">Sesiones capturadas</span>
                 </div>
                 <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-secondary">
-                  <span className="material-symbols-outlined text-[18px]">videocam</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">videocam</span>
                 </div>
               </div>
               <div className="mt-space-md flex items-baseline gap-space-xs">
@@ -148,7 +148,7 @@ export default function HomePage() {
                   <span className="text-label-code-sm text-outline">Servicios</span>
                 </div>
                 <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface">
-                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">check_circle</span>
                 </div>
               </div>
               <div className="mt-space-md flex items-center gap-space-xs">
@@ -177,7 +177,7 @@ export default function HomePage() {
               <Link href="/editor" className="card group">
                 <div className="flex items-start justify-between mb-space-md">
                   <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center text-primary group-hover:bg-primary-container group-hover:text-on-primary-container transition-colors">
-                    <span className="material-symbols-outlined text-[22px]">account_tree</span>
+                    <span className="material-symbols-outlined text-[24px]" aria-hidden="true">account_tree</span>
                   </div>
                   <span className="badge-success">Visual Builder</span>
                 </div>
@@ -189,7 +189,7 @@ export default function HomePage() {
                 </p>
                 <div className="flex items-center gap-space-xs text-primary text-body-sm font-medium group-hover:gap-space-sm transition-all">
                   <span>Abrir Canvas Studio</span>
-                  <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                  <span className="material-symbols-outlined text-[16px]" aria-hidden="true">arrow_forward</span>
                 </div>
               </Link>
 
@@ -197,7 +197,7 @@ export default function HomePage() {
               <Link href="/recorder" className="card group">
                 <div className="flex items-start justify-between mb-space-md">
                   <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center text-secondary group-hover:bg-secondary-container group-hover:text-on-secondary-container transition-colors">
-                    <span className="material-symbols-outlined text-[22px]">fiber_manual_record</span>
+                    <span className="material-symbols-outlined text-[24px]" aria-hidden="true">fiber_manual_record</span>
                   </div>
                   <span className="badge-success">HAR Proxy</span>
                 </div>
@@ -209,7 +209,7 @@ export default function HomePage() {
                 </p>
                 <div className="flex items-center gap-space-xs text-secondary text-body-sm font-medium group-hover:gap-space-sm transition-all">
                   <span>Iniciar grabador web</span>
-                  <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                  <span className="material-symbols-outlined text-[16px]" aria-hidden="true">arrow_forward</span>
                 </div>
               </Link>
 
@@ -217,7 +217,7 @@ export default function HomePage() {
               <Link href="/scenarios" className="card group">
                 <div className="flex items-start justify-between mb-space-md">
                   <div className="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface group-hover:bg-surface-container-highest transition-colors">
-                    <span className="material-symbols-outlined text-[22px]">compare_arrows</span>
+                    <span className="material-symbols-outlined text-[24px]" aria-hidden="true">compare_arrows</span>
                   </div>
                   <span className="px-2 py-0.5 rounded-lg bg-surface-container-high text-on-surface-variant text-label-code-sm">
                     Biblioteca
@@ -231,7 +231,7 @@ export default function HomePage() {
                 </p>
                 <div className="flex items-center gap-space-xs text-on-surface text-body-sm font-medium group-hover:gap-space-sm transition-all">
                   <span>Ver biblioteca</span>
-                  <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                  <span className="material-symbols-outlined text-[16px]" aria-hidden="true">arrow_forward</span>
                 </div>
               </Link>
             </div>
@@ -269,7 +269,7 @@ export default function HomePage() {
                         className="flex items-center justify-between p-space-md hover:bg-surface-container transition-colors"
                       >
                         <div className="flex items-center gap-space-md">
-                          <span className="material-symbols-outlined text-primary text-[18px]">
+                          <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">
                             account_tree
                           </span>
                           <span className="text-body-md text-on-surface">{scenario.name}</span>
@@ -314,7 +314,7 @@ export default function HomePage() {
                         className="flex items-center justify-between p-space-md hover:bg-surface-container transition-colors"
                       >
                         <div className="flex items-center gap-space-md">
-                          <span className="material-symbols-outlined text-secondary text-[18px]">
+                          <span className="material-symbols-outlined text-secondary text-[18px]" aria-hidden="true">
                             videocam
                           </span>
                           <div className="flex flex-col">
@@ -340,7 +340,7 @@ export default function HomePage() {
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-space-lg">
               <div className="flex flex-col gap-space-xs">
                 <div className="flex items-center gap-space-sm">
-                  <span className="material-symbols-outlined text-primary text-[20px]">
+                  <span className="material-symbols-outlined text-primary text-[20px]" aria-hidden="true">
                     electric_bolt
                   </span>
                   <span className="text-label-code-sm text-on-surface-variant uppercase tracking-wider">
@@ -367,7 +367,7 @@ export default function HomePage() {
                       <span className="w-6 h-6 rounded-lg bg-surface-container-high flex items-center justify-center text-label-code-sm text-on-surface font-mono">
                         {item.step}
                       </span>
-                      <span className="material-symbols-outlined text-secondary text-[18px]">
+                      <span className="material-symbols-outlined text-secondary text-[18px]" aria-hidden="true">
                         {item.icon}
                       </span>
                     </div>

@@ -32,7 +32,20 @@ open http://127.0.0.1:3000
 
 Default admin credentials: `admin` / `change-me-min-12-chars`
 
-### Production
+### Published images (no clone needed)
+
+Every `vX.Y.Z` tag publishes `ghcr.io/jereok91/k6flow-{web,orchestrator,recorder,setup}`. To run
+K6Flow from the published images:
+
+```bash
+curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.release.yml
+printf 'POSTGRES_PASSWORD=change-me\nADMIN_PASSWORD=change-me-min-12-chars\nK6FLOW_VERSION=latest\n' > .env
+docker compose -f docker-compose.release.yml up -d
+```
+
+See [docs/RELEASES.md](docs/RELEASES.md) for cutting a release, pinning versions and upgrading.
+
+### Production from source
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full VPS deployment guide.
 
@@ -124,8 +137,13 @@ See [docs/DECISIONES.md](docs/DECISIONES.md) for detailed security practices.
 
 ## License
 
-[Your License Here]
+Apache License 2.0 — see [LICENSE](LICENSE).
+
+Third-party obligations (LGPL-3.0 libvips, MPL-2.0 lightningcss, CC-BY-4.0 caniuse data and the
+web fonts) are listed in [NOTICE](NOTICE).
 
 ## Contributing
 
-[Contributing guidelines]
+Issues and pull requests are welcome. Branches follow `type/description` (`feat/`, `fix/`, …),
+commits follow Conventional Commits, and `pnpm lint && pnpm test` must pass. Releases are cut by
+pushing a `vX.Y.Z` tag (see [docs/RELEASES.md](docs/RELEASES.md)).

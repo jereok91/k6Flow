@@ -2,8 +2,9 @@
  * Save a processed recording as a new scenario.
  */
 
+import { CONTRACT_VERSION } from "@k6flow/shared";
 import type { NDJSONNetworkEntry } from "@k6flow/shared";
-import type { HttpParameters, HttpNamedValue, HttpBody } from "@k6flow/shared";
+import type { HttpParameters, HttpNamedValue, HttpBody, GraphDraftComposition } from "@k6flow/shared";
 
 /**
  * Entry from review UI with step context.
@@ -21,15 +22,21 @@ export interface ReviewedEntry {
 export interface RecordingGraphNode {
   id: string;
   kind: "http-request";
-  references: Record<string, never>;
+  references: [];
+  label: string;
+  position: { x: number; y: number };
   parameters: HttpParameters;
-  meta: {
-    originalStatus: number;
-    stepId: string;
-    stepName: string;
-    thinkTime: number;
-  };
 }
+
+/** The editor lays nodes out left to right at this spacing. */
+const NODE_SPACING_X = 250;
+const INITIAL_POSITION = { x: 100, y: 100 };
+
+/** Node labels are shown in the editor and capped by the graph contract. */
+const MAX_LABEL_LENGTH = 120;
+
+/** Longest pause the connection schema accepts. */
+const MAX_WAIT_SECONDS = 3600;
 
 // Headers to exclude from recording
 const EXCLUDE_HEADERS = new Set([
@@ -70,14 +77,8 @@ export function reviewedEntriesToGraph(
     if (e.entry.request.postData) {
       const contentType = e.entry.request.headers["content-type"] || "";
       if (contentType.includes("application/json")) {
-        try {
-          body = {
-            kind: "json",
-            value: { kind: "literal", value: JSON.parse(e.entry.request.postData) },
-          };
-        } catch {
-          body = { kind: "text", value: { kind: "literal", value: e.entry.request.postData } };
-        }
+        // The contract keeps a JSON body as its JSON text, never as a parsed object.
+        body = { kind: "json", value: { kind: "literal", value: e.entry.request.postData } };
       } else if (contentType.includes("application/x-www-form-urlencoded")) {
         // Form data as text body
         body = { kind: "text", value: { kind: "literal", value: e.entry.request.postData } };
@@ -95,16 +96,15 @@ export function reviewedEntriesToGraph(
     };
 
     return {
-      id: `rec-${index}`,
+      id: `rec-${index + 1}`,
       kind: "http-request" as const,
-      references: {},
-      parameters,
-      meta: {
-        originalStatus: e.entry.response?.status ?? 0,
-        stepId: e.stepId,
-        stepName: e.stepName,
-        thinkTime: e.thinkTime,
+      references: [] as [],
+      label: labelFor(e.entry.request.method, baseUrl, index),
+      position: {
+        x: INITIAL_POSITION.x + index * NODE_SPACING_X,
+        y: INITIAL_POSITION.y,
       },
+      parameters,
     };
   });
 
@@ -117,55 +117,43 @@ export function reviewedEntriesToGraph(
   return { nodes, connections };
 }
 
+/** `GET /login` — short, stable and non-blank, as the graph contract requires. */
+function labelFor(method: string, baseUrl: string, index: number): string {
+  let pathname = "";
+  try {
+    pathname = new URL(baseUrl).pathname;
+  } catch {
+    pathname = "";
+  }
+  const label = `${method} ${pathname}`.trim();
+  return (label === "" ? `Request ${index + 1}` : label).slice(0, MAX_LABEL_LENGTH);
+}
+
 /**
  * Create a scenario graph from reviewed recording data.
+ *
+ * The result is a draft composition — the shape the editor loads — so a saved
+ * recording opens straight into the canvas. Each step's think time becomes the
+ * wait on the connection that leads into it, which is how the translator emits
+ * the pause in the k6 script.
  */
-export function createScenarioGraph(
-  entries: ReviewedEntry[],
-  metadata: {
-    name: string;
-    startUrl: string;
-    viewport: { width: number; height: number };
-    recordingId?: string;
-  }
-) {
+export function createScenarioGraph(entries: ReviewedEntry[]): GraphDraftComposition {
   const { nodes, connections } = reviewedEntriesToGraph(entries);
 
-  // Build graph structure matching editor format
-  const graph = {
-    version: 1,
-    metadata: {
-      name: metadata.name,
-      recordingSource: {
-        url: metadata.startUrl,
-        viewport: metadata.viewport,
-        recordingId: metadata.recordingId,
-        capturedAt: new Date().toISOString(),
-      },
-    },
-    nodes: Object.fromEntries(
-      nodes.map((node) => [
-        node.id,
-        {
-          kind: node.kind,
-          references: node.references,
-          parameters: node.parameters,
-        },
-      ])
-    ),
-    edges: connections.map((conn) => ({
-      id: `${conn.source}-${conn.target}`,
-      source: conn.source,
-      target: conn.target,
-    })),
-    // Position nodes vertically
-    positions: Object.fromEntries(
-      nodes.map((node, index) => [
-        node.id,
-        { x: 400, y: 100 + index * 100 },
-      ])
-    ),
+  return {
+    version: CONTRACT_VERSION,
+    nodes,
+    connections: connections.map((connection, index) => {
+      // The pause belongs to the step, not to the request: it is emitted once, on
+      // the connection that crosses into the next step (whose think time it is).
+      const crossesStep = entries[index]?.stepId !== entries[index + 1]?.stepId;
+      const thinkTime = crossesStep ? entries[index + 1]?.thinkTime ?? 0 : 0;
+      const waitSeconds = Math.min(MAX_WAIT_SECONDS, Math.max(0, Number(thinkTime) || 0));
+      return {
+        source: connection.source,
+        target: connection.target,
+        ...(waitSeconds > 0 && { waitSeconds }),
+      };
+    }),
   };
-
-  return graph;
 }

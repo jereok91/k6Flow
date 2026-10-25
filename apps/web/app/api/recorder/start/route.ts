@@ -1,36 +1,159 @@
 /**
- * POST /api/recorder/start - Proxy to recorder service
+ * POST /api/recorder/start — start a recording and reserve its library entry.
+ *
+ * The recorder owns the browser session; this route owns the claim. Reserving
+ * the recording here, with the caller as its owner, is what makes the stop
+ * authorization possible: only the user who started a recording can stop it and
+ * collect its capture.
  */
 
-const RECORDER_URL = process.env.RECORDER_UPSTREAM || "http://localhost:8081";
+import { eq, ne } from "drizzle-orm";
+import { getDb } from "../../../../lib/db/client";
+import { recordings } from "../../../../lib/db/schema";
+import { requireUser } from "../../../../lib/auth/require-user";
+import { jsonError } from "../../../../lib/auth/http";
+import { defaultRecordingName } from "../../../../lib/recorder/capture-summary";
+import { intField, stringField } from "../../../../lib/recorder/fields";
+import { recorderBaseUrl, recorderToken } from "../../../../lib/recorder/upstream";
+
+/** Cleanup of a session this route just created and cannot reserve. */
+async function abandonSession(recordingId: string, token: string): Promise<void> {
+  await fetch(`${recorderBaseUrl()}/stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ recordingId }),
+  }).catch(() => undefined);
+}
 
 export async function POST(request: Request): Promise<Response> {
-  try {
-    const body = await request.text();
-    const authHeader = request.headers.get("Authorization");
-
-    const res = await fetch(`${RECORDER_URL}/start`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(authHeader && { Authorization: authHeader }),
-      },
-      body,
-    });
-
-    const data = await res.text();
-    
-    return new Response(data, {
-      status: res.status,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  } catch (error) {
-    console.error("Recorder proxy error:", error);
-    return Response.json(
-      { error: "Failed to connect to recorder service" },
-      { status: 502 }
-    );
+  const user = await requireUser(request.headers.get("cookie"));
+  if (user === null) {
+    return jsonError(401, "Unauthorized");
   }
+
+  const rawBody = await request.text();
+  const parsed: unknown = (() => {
+    try {
+      return JSON.parse(rawBody || "{}");
+    } catch {
+      return null;
+    }
+  })();
+  // A literal `null` body parses fine and would blow up every later field read.
+  const body = (parsed !== null && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
+  const token = recorderToken(request);
+
+  // The recorder mints the recording id. Forwarding a client-supplied one would let
+  // a caller name another user's id (or replay a finished one) and leave a session
+  // this tier cannot stop behind.
+  const forwarded: Record<string, unknown> = { ...body };
+  delete forwarded.recordingId;
+
+  let answer: Record<string, unknown>;
+  let text = "";
+  try {
+    const res = await fetch(`${recorderBaseUrl()}/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(forwarded),
+    });
+    text = await res.text();
+    if (!res.ok) {
+      // 401/409/500 from the recorder are the caller's answer, not ours.
+      return new Response(text || JSON.stringify({ error: "Failed to start recording" }), {
+        status: res.status,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+  } catch (error) {
+    console.error("Recorder start proxy error:", error);
+    return jsonError(502, "Failed to connect to recorder service");
+  }
+
+  try {
+    answer = JSON.parse(text || "{}") as Record<string, unknown>;
+  } catch (error) {
+    // A 2xx with a malformed body is a recorder contract violation, not a
+    // connection problem: say so instead of blaming the network.
+    console.error("Recorder start answered a malformed body:", error);
+    return jsonError(502, "Recorder answered an invalid start response");
+  }
+
+  const recordingId = stringField(answer.recordingId);
+  if (recordingId === undefined) {
+    return jsonError(502, "Recorder did not return a recording id");
+  }
+
+  const startUrl = stringField(body.startUrl) ?? "";
+  const name = defaultRecordingName(stringField(body.name), startUrl);
+  // A reconnect answer means the recorder handed back a session that already
+  // exists: it is not ours to abandon.
+  const createdSession = answer.status !== "reconnected";
+
+  try {
+    const db = getDb();
+    const [existing] = await db
+      .select({ ownerId: recordings.ownerId, state: recordings.state })
+      .from(recordings)
+      .where(eq(recordings.id, recordingId))
+      .limit(1);
+
+    // A reconnect hands back a live session this request did not create, so only the
+    // owner of its recorded row may adopt it. Deciding ownership with a read then an
+    // insert would let whichever caller commits first claim a session it never
+    // started.
+    if (!createdSession && (!existing || (existing.ownerId !== user.id && user.role !== "admin"))) {
+      return jsonError(409, "Recorder is busy with another recording");
+    }
+    if (existing && existing.ownerId !== user.id && user.role !== "admin") {
+      return jsonError(409, "Recording belongs to another user");
+    }
+
+    // A finished recording can never become live again: answering 200 here would
+    // leave a running browser whose id the stop route short-circuits as done.
+    if (existing?.state === "completed") {
+      if (createdSession) await abandonSession(recordingId, token);
+      return jsonError(409, "Recording already finished");
+    }
+
+    await db
+      .insert(recordings)
+      .values({
+        id: recordingId,
+        ownerId: existing?.ownerId ?? user.id,
+        name,
+        startUrl,
+        // Reserved while it runs; a stop turns it into `completed`.
+        state: "recording",
+        viewportWidth: intField(body.viewportWidth, 1280),
+        viewportHeight: intField(body.viewportHeight, 720),
+      })
+      // A finished recording keeps its terminal state and its stored numbers.
+      .onConflictDoUpdate({
+        target: recordings.id,
+        set: { name, startUrl, state: "recording" },
+        setWhere: ne(recordings.state, "completed"),
+      });
+
+    // The upsert may have been skipped by its guard while a concurrent stop finished
+    // the row: never report a start the stop route will treat as already saved.
+    const [reserved] = await db
+      .select({ ownerId: recordings.ownerId, state: recordings.state })
+      .from(recordings)
+      .where(eq(recordings.id, recordingId))
+      .limit(1);
+    if (!reserved || reserved.ownerId !== user.id || reserved.state !== "recording") {
+      if (createdSession) await abandonSession(recordingId, token);
+      return jsonError(409, "Recording already finished");
+    }
+  } catch (error) {
+    console.error("Failed to reserve recording:", error);
+    if (createdSession) await abandonSession(recordingId, token);
+    return jsonError(503, "Recording store unavailable");
+  }
+
+  return Response.json(
+    { ...answer, name },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

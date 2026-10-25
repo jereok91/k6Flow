@@ -37,3 +37,5 @@ jobs:
       - run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config
       - run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml config
       - run: bash scripts/check-phase-0-compose.sh
+      # Release artifact: pull-only compose that users run without the repository.
+      - run: bash scripts/check-release-compose.sh
