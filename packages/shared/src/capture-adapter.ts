@@ -254,49 +254,36 @@ export interface StepGroup {
 }
 
 export function groupBySteps(events: NDJSONCaptureEvent[]): StepGroup[] {
-  const steps = extractSteps(events);
-  const entries = extractNetworkEntries(events);
-  const uiEvents = extractUIEvents(events);
-
-  // Sort everything by timestamp
-  const allEvents = [
-    ...steps.map((s) => ({ ...s, _type: "step" as const })),
-    ...entries.map((e) => ({ ...e, _type: "entry" as const, timestamp: e.request.timestamp })),
-    ...uiEvents.map((u) => ({ ...u, _type: "ui" as const })),
-  ].sort((a, b) => a.timestamp - b.timestamp);
-
+  // The capture is an append-only log, and its timestamps come from two clocks:
+  // CDP stamps network events monotonically while steps and UI events use wall
+  // clock time. Ordering by timestamp would put every request before the first
+  // marker (and drop it), so the log order decides which step owns what.
   const groups: StepGroup[] = [];
-  let currentStep: NDJSONStep["data"] | null = null;
-  let currentEntries: NDJSONNetworkEntry["data"][] = [];
-  let currentUIEvents: NDJSONUIEvent["data"][] = [];
+  const leading: {
+    entries: NDJSONNetworkEntry["data"][];
+    uiEvents: NDJSONUIEvent["data"][];
+  } = { entries: [], uiEvents: [] };
+  let current: StepGroup | null = null;
 
-  for (const event of allEvents) {
-    if (event._type === "step") {
-      // Save previous group
-      if (currentStep) {
-        groups.push({
-          step: currentStep,
-          entries: currentEntries,
-          uiEvents: currentUIEvents,
-        });
-      }
-      currentStep = event as unknown as NDJSONStep["data"];
-      currentEntries = [];
-      currentUIEvents = [];
-    } else if (event._type === "entry") {
-      currentEntries.push(event as unknown as NDJSONNetworkEntry["data"]);
-    } else if (event._type === "ui") {
-      currentUIEvents.push(event as unknown as NDJSONUIEvent["data"]);
+  for (const event of events) {
+    if (event.type === "step") {
+      // Whatever preceded the first marker is the page the user opened: it belongs
+      // to that first step, not to nowhere.
+      current = {
+        step: event.data,
+        entries: leading.entries,
+        uiEvents: leading.uiEvents,
+      };
+      leading.entries = [];
+      leading.uiEvents = [];
+      groups.push(current);
+    } else if (event.type === "network_entry") {
+      if (current) current.entries.push(event.data);
+      else leading.entries.push(event.data);
+    } else if (event.type === "ui_event") {
+      if (current) current.uiEvents.push(event.data);
+      else leading.uiEvents.push(event.data);
     }
-  }
-
-  // Don't forget the last group
-  if (currentStep) {
-    groups.push({
-      step: currentStep,
-      entries: currentEntries,
-      uiEvents: currentUIEvents,
-    });
   }
 
   return groups;
@@ -305,14 +292,22 @@ export function groupBySteps(events: NDJSONCaptureEvent[]): StepGroup[] {
 /**
  * Calculate think time between steps (in seconds).
  */
+/** Two stamps further apart than this cannot come from the same clock. */
+const SAME_CLOCK_WINDOW_MS = 60 * 60 * 1000;
+
 export function calculateThinkTimes(groups: StepGroup[]): number[] {
   const thinkTimes: number[] = [];
 
   for (let i = 1; i < groups.length; i++) {
-    const prevEnd = Math.max(
-      groups[i - 1].step.timestamp,
-      ...groups[i - 1].entries.map((e) => e.timing?.endTime ?? e.request.timestamp)
-    );
+    const previous = groups[i - 1];
+    const stepTimestamp = previous.step.timestamp;
+    // A network stamp from the other clock would otherwise turn the pause into a
+    // week-long wait: only stamps near the step are trusted.
+    const endStamps = previous.entries
+      .map((entry) => entry.timing?.endTime ?? entry.request.timestamp)
+      .filter((stamp) => Number.isFinite(stamp) && Math.abs(stamp - stepTimestamp) <= SAME_CLOCK_WINDOW_MS);
+
+    const prevEnd = Math.max(stepTimestamp, ...endStamps);
     const currStart = groups[i].step.timestamp;
     const thinkTimeMs = currStart - prevEnd;
     thinkTimes.push(Math.max(0, thinkTimeMs / 1000)); // Convert to seconds
