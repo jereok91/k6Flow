@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="K6Flow">
+  <rect width="96" height="96" rx="24" fill="#e9ddff"/>
+  <text x="48" y="62" text-anchor="middle" font-family="Inter, Geist, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size="38" font-weight="700" fill="#3c0091">k6</text>
+</svg>

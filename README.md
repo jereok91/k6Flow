@@ -1,23 +1,59 @@
-# K6Flow — Visual Load Testing Platform
+<div align="center">
+  <img src="docs/media/icon.svg" width="80" height="80" alt="K6Flow" />
 
-A visual editor for creating and executing K6 load tests. Draw your test scenario, capture real traffic, and run distributed load tests with live metrics.
+  <h1>K6Flow</h1>
 
-## Features
+  <p><strong>Visual load testing for k6.</strong><br />
+  Record a browser session, turn the captured traffic into a scenario, and run it with live metrics.</p>
 
-- **Visual Editor**: Drag-and-drop nodes to build test scenarios
-- **Traffic Recorder**: Capture real HTTP traffic and convert to test nodes
-- **K6 Integration**: Translate visual graphs to K6 scripts automatically
-- **Live Metrics**: Real-time VU counts, request rates, and latency percentiles
-- **User Pools**: CSV-based test data for parameterized tests
-- **Authentication**: Built-in auth nodes with token extraction
+</div>
 
-## Quick Start
+<div align="center">
+
+  [![CI](https://github.com/jereok91/k6Flow/actions/workflows/ci.yml/badge.svg)](https://github.com/jereok91/k6Flow/actions/workflows/ci.yml)
+  [![Release](https://img.shields.io/github/v/release/jereok91/k6Flow?sort=semver)](https://github.com/jereok91/k6Flow/releases)
+  [![Container](https://img.shields.io/badge/ghcr.io-k6flow--web-blue?logo=docker&logoColor=white)](https://github.com/jereok91?tab=packages&repo_name=k6Flow)
+  [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
+</div>
+
+## Demo
+
+The full loop in ~20 seconds: dashboard → recordings → review → editor.
+
+[![K6Flow demo](docs/media/demo.gif)](docs/media/demo.webm)
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Dashboard](docs/media/screens/dashboard.png)<br /><sub><b>Dashboard</b> — scenario and recording counters, quick actions</sub> | ![Editor](docs/media/screens/editor.png)<br /><sub><b>Editor</b> — request graph, script and history panels</sub> |
+| ![Review](docs/media/screens/review.png)<br /><sub><b>Recording review</b> — requests grouped by step, adjustable before saving</sub> | ![Recorder](docs/media/screens/recorder.png)<br /><sub><b>Recorder</b> — start a browser session to capture traffic</sub> |
+| ![Scenarios](docs/media/screens/scenarios.png)<br /><sub><b>Library</b> — every scenario, its versions and last run</sub> | ![Executions](docs/media/screens/executions.png)<br /><sub><b>Executions</b> — runs with live metrics per k6 container</sub> |
+
+## Quick start
+
+### From the published images (no clone)
+
+Every `vX.Y.Z` tag publishes `ghcr.io/jereok91/k6flow-{web,orchestrator,recorder,setup}`.
+
+```bash
+curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.release.yml
+printf 'POSTGRES_PASSWORD=change-me\nADMIN_PASSWORD=change-me-min-12-chars\nK6FLOW_VERSION=latest\n' > .env
+docker compose -f docker-compose.release.yml up -d
+```
+
+Open <http://localhost:3000> and sign in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`. The `setup`
+service applies migrations and creates the admin before `web` starts.
+
+Requirements: Docker with access to `/var/run/docker.sock` (the orchestrator launches one k6
+container per run). See [docs/RELEASES.md](docs/RELEASES.md) for pinning versions and upgrading.
 
 ### Development
 
 ```bash
 # Clone and setup
-git clone https://github.com/your-org/k6flow.git
+git clone https://github.com/jereok91/k6Flow.git
 cd k6flow
 
 # Start all services
@@ -32,22 +68,9 @@ open http://127.0.0.1:3000
 
 Default admin credentials: `admin` / `change-me-min-12-chars`
 
-### Published images (no clone needed)
-
-Every `vX.Y.Z` tag publishes `ghcr.io/jereok91/k6flow-{web,orchestrator,recorder,setup}`. To run
-K6Flow from the published images:
-
-```bash
-curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.release.yml
-printf 'POSTGRES_PASSWORD=change-me\nADMIN_PASSWORD=change-me-min-12-chars\nK6FLOW_VERSION=latest\n' > .env
-docker compose -f docker-compose.release.yml up -d
-```
-
-See [docs/RELEASES.md](docs/RELEASES.md) for cutting a release, pinning versions and upgrading.
-
 ### Production from source
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full VPS deployment guide.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full VPS deployment guide.
 
 ```bash
 # Quick production deploy
@@ -55,6 +78,16 @@ cp deploy/.env.example deploy/.env
 # Edit .env with your domain and passwords
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d
 ```
+
+## Features
+
+- **Visual Editor**: Drag-and-drop nodes to build test scenarios
+- **Traffic Recorder**: Capture real HTTP traffic from an embedded browser and convert it to nodes
+- **K6 Integration**: Translate visual graphs to K6 scripts automatically
+- **Live Metrics**: Real-time VU counts, request rates, and latency percentiles
+- **User Pools**: CSV-based test data for parameterized tests
+- **Authentication**: Built-in auth nodes with token extraction
+- **HAR import**: Turn an existing `.har` capture into a scenario
 
 ## Architecture
 
@@ -69,7 +102,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up
                     ▼                          ▼               ▼
              ┌─────────────┐          ┌─────────────┐   ┌─────────────┐
              │  Recorder   │          │ Orchestrator│   │  PostgreSQL │
-             │   (Go)      │          │    (Go)     │   │             │
+             │ (Node + PW) │          │    (Go)     │   │             │
              └─────────────┘          └──────┬──────┘   └─────────────┘
                                              │
                                              ▼
@@ -81,7 +114,9 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up
 
 ## Documentation
 
+- [Releases](docs/RELEASES.md) — Cutting a version, published images, upgrades
 - [Deployment Guide](docs/DEPLOYMENT.md) — Production installation
+- [UI conventions](docs/UI.md) — Typography and icon rules
 - [Architecture](docs/ARQUITECTURA.md) — System design decisions
 - [API Reference](docs/api/) — REST and WebSocket contracts
 - [Decisions](docs/DECISIONES.md) — Technical decisions and rationale
@@ -97,17 +132,29 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up
 ### Testing
 
 ```bash
-# TypeScript tests
+# TypeScript tests (web + shared)
 pnpm install --frozen-lockfile
 pnpm test
 
+# Recorder lifecycle tests (drive a real Chromium)
+pnpm --filter @k6flow/recorder exec playwright install chromium
+pnpm --filter @k6flow/recorder test
+
 # Go tests
-cd apps/orchestrator && go test ./...
-cd apps/recorder && go test ./...
+(cd apps/orchestrator && go test ./...)
 
 # Type checking and linting
 pnpm typecheck
 pnpm lint
+```
+
+### Media for this README
+
+The screenshots and the demo video are generated from the running app
+(`scripts/capture-media.mjs`), never hand-cropped:
+
+```bash
+node scripts/capture-media.mjs   # needs CAPTURE_SESSION, see the header of the script
 ```
 
 ### Project Structure
@@ -117,19 +164,17 @@ k6flow/
 ├── apps/
 │   ├── web/           # Next.js frontend + API
 │   ├── orchestrator/  # Go service for K6 execution
-│   └── recorder/      # Go service for traffic capture
+│   └── recorder/      # Node + Playwright capture service
 ├── packages/
 │   └── shared/        # TypeScript contracts and utilities
-├── deploy/            # Docker Compose and Caddy configs
-├── docs/              # Documentation
+├── deploy/            # Docker Compose, release compose and Caddy configs
+├── docs/              # Documentation and README media
 └── tests/             # E2E tests
 ```
 
 ## Security
 
 - **Allowed Targets**: Configure `ALLOWED_TARGETS` to restrict test destinations
-- **Endpoint Test Allow-List**: Configure `ENDPOINT_TEST_ALLOWED_TARGETS` with exact `host:port` entries to enable "Probar endpoint" on an HTTP node. An absent, empty or malformed list denies every target. The test sends one bounded request, never follows redirects, and masks sensitive headers and resolved secrets in everything it returns
-- **Run Confirmation**: Explicit confirmation required before executing tests
 - **Network Isolation**: K6 containers isolated from internal services
 - **Credential Handling**: Passwords hashed, tokens secure, no secrets in logs
 
