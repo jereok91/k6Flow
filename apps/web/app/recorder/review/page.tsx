@@ -58,10 +58,13 @@ function statusClass(status: number | undefined): string {
   return "badge-success";
 }
 
+/**
+ * Path only: a captured query string can carry tokens, session ids or emails, and
+ * the review list does not need them to be readable.
+ */
 function pathOf(url: string): string {
   try {
-    const parsed = new URL(url);
-    return `${parsed.pathname}${parsed.search}`;
+    return new URL(url).pathname;
   } catch {
     return url;
   }
@@ -275,7 +278,7 @@ export default function RecorderReviewPage() {
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving || scenarioName.trim() === "" || includedCount === 0}
+                disabled={saving || metadata === null || scenarioName.trim() === "" || includedCount === 0}
                 className="btn-primary"
               >
                 {saving ? (

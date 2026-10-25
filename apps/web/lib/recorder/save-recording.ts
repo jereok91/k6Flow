@@ -144,7 +144,10 @@ export function createScenarioGraph(entries: ReviewedEntry[]): GraphDraftComposi
     version: CONTRACT_VERSION,
     nodes,
     connections: connections.map((connection, index) => {
-      const thinkTime = entries[index + 1]?.thinkTime ?? 0;
+      // The pause belongs to the step, not to the request: it is emitted once, on
+      // the connection that crosses into the next step (whose think time it is).
+      const crossesStep = entries[index]?.stepId !== entries[index + 1]?.stepId;
+      const thinkTime = crossesStep ? entries[index + 1]?.thinkTime ?? 0 : 0;
       const waitSeconds = Math.min(MAX_WAIT_SECONDS, Math.max(0, Number(thinkTime) || 0));
       return {
         source: connection.source,

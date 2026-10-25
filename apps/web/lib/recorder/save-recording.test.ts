@@ -58,19 +58,21 @@ describe("createScenarioGraph", () => {
     expect(Array.isArray(graph.connections)).toBe(true);
   });
 
-  it("links the requests in order and turns each step's think time into a wait", () => {
-    const graph = createScenarioGraph(
-      [
-        reviewed("r1", "GET", "https://app.example.com/login"),
-        reviewed("r2", "POST", "https://app.example.com/api/session", { thinkTime: 2.5 }),
-        reviewed("r3", "GET", "https://app.example.com/admin", { thinkTime: 0 }),
-      ],
-    );
+  it("waits once when the flow crosses into another step", () => {
+    const graph = createScenarioGraph([
+      reviewed("r1", "GET", "https://app.example.com/login", { stepId: "step-1" }),
+      // Same step: no pause between two requests of one page.
+      reviewed("r2", "GET", "https://app.example.com/app.js", { stepId: "step-1" }),
+      // Crosses into the next step, whose pause is the one to emit.
+      reviewed("r3", "POST", "https://app.example.com/api/session", { stepId: "step-2", thinkTime: 2.5 }),
+      reviewed("r4", "GET", "https://app.example.com/admin", { stepId: "step-2", thinkTime: 2.5 }),
+    ]);
 
-    expect(graph.nodes.map((node) => node.id)).toEqual(["rec-1", "rec-2", "rec-3"]);
+    expect(graph.nodes.map((node) => node.id)).toEqual(["rec-1", "rec-2", "rec-3", "rec-4"]);
     expect(graph.connections).toEqual([
-      { source: "rec-1", target: "rec-2", waitSeconds: 2.5 },
-      { source: "rec-2", target: "rec-3" },
+      { source: "rec-1", target: "rec-2" },
+      { source: "rec-2", target: "rec-3", waitSeconds: 2.5 },
+      { source: "rec-3", target: "rec-4" },
     ]);
   });
 
@@ -102,9 +104,10 @@ describe("createScenarioGraph", () => {
   });
 
   it("clamps a wait the connection schema would reject", () => {
-    const graph = createScenarioGraph(
-      [reviewed("r1", "GET", "https://app.example.com/a"), reviewed("r2", "GET", "https://app.example.com/b", { thinkTime: 9_999 })],
-    );
+    const graph = createScenarioGraph([
+      reviewed("r1", "GET", "https://app.example.com/a", { stepId: "step-1" }),
+      reviewed("r2", "GET", "https://app.example.com/b", { stepId: "step-2", thinkTime: 9_999 }),
+    ]);
 
     expect(graph.connections[0].waitSeconds).toBe(3600);
   });
