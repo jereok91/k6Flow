@@ -34,8 +34,16 @@ S3 (versiones objetivo): `next@^16.4.3` · `node:22.23.4` en todas las imágenes
   ahora instala además `chromium-headless-shell`, que 1.64 ya no trae con `chromium`.
 - [x] P3b — devDependencies: vitest 4.1.12, yaml 2.9.1 y override de vite a 7.3.7. Evidencia:
   `cb74b29`.
-- P4 — Verificación: typecheck, suites, build de Next, rebuild de las dos variantes y arranque real
-  (login, proxies, flujo de grabación).
+- [x] P4 — Verificación: typecheck, suites, build de Next, rebuild de las dos variantes y arranque
+  real. Evidencia: `pnpm typecheck` limpio; 111 archivos / 2151 tests + 8 de compose + 28 del
+  grabador con Chromium 1.64.1; `next build` OK; stack de desarrollo reconstruido y verificado
+  (web node 22.23.4 / next 16.4.3, recorder node 22.23.4 / playwright 1.64.1, grabación real
+  `rec-1792920748625` con 18 requests y 1 paso, los 7 recordings del usuario intactos); imagen
+  todo-en-uno 17/17 y slim 8/8 contra las imágenes **publicadas** y descargadas sin credenciales.
+  El build local de la imagen del orchestrator sólo falla por red (proxy.golang.org resetea desde
+  los contenedores de este host); CI lo construye.
+- [x] P5 — Release: `v0.4.0` publicada; las 6 imágenes responden 200 anónimas en GHCR y la GitHub
+  Release trae las notas del cambio.
 
 ## Log
 
