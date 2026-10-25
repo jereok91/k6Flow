@@ -67,9 +67,7 @@ ENV NODE_ENV=production \
     PORT=3000 \
     ORCHESTRATOR_INTERNAL_URL=http://127.0.0.1:8080 \
     ORCHESTRATOR_WS_UPSTREAM=http://127.0.0.1:8080 \
-    RECORDER_UPSTREAM=http://127.0.0.1:8081 \
-    ORCHESTRATOR_SERVICE_TOKEN=k6flow-internal-token \
-    RECORDER_AUTH_TOKEN=dev-token
+    RECORDER_UPSTREAM=http://127.0.0.1:8081
 EXPOSE 3000
 
 # Sin grabador: la UI de grabación responde 502 al no haber servicio en :8081.
@@ -98,8 +96,6 @@ ENV NODE_ENV=production \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     ORCHESTRATOR_INTERNAL_URL=http://127.0.0.1:8080 \
     ORCHESTRATOR_WS_UPSTREAM=http://127.0.0.1:8080 \
-    RECORDER_UPSTREAM=http://127.0.0.1:8081 \
-    ORCHESTRATOR_SERVICE_TOKEN=k6flow-internal-token \
-    RECORDER_AUTH_TOKEN=dev-token
+    RECORDER_UPSTREAM=http://127.0.0.1:8081
 EXPOSE 3000
 ENTRYPOINT ["/app/start.sh"]
