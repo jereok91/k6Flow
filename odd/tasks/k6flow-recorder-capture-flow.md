@@ -241,6 +241,18 @@ S8 (verbatim, user): "ademas no se ve igual que el resto de apps" / "debes aline
   `entry ts 1792886516010` in the same clock. `50bc7f4` rebuilds the review screen on the app
   shell; both the new and the old recording answer HTTP 200 through the page. Suites: 109 test
   files / 2142 tests + 28 recorder tests green, `pnpm typecheck` clean.
+- L24 (eighth review, run as a **slice** because the whole branch no longer fits the reviewer
+  budget): the first attempt (`review-d4480e75f60a7114`, 28 files / 3852 lines) was refused at
+  preflight with `lens_context_budget_exceeded` — no authority was created — and re-declared as
+  `review-a56f1b582ae4dae9` with `baseRef=1f3121f` (10 files / 1096 lines, ~76KB per lens prompt
+  instead of ~197KB), which ran correctly. It returned `correction_required` for `R2-001`/`R3-001`/
+  `R4-001` (one finding, three lenses): `waitSeconds` was read per connection, so a step stamped
+  with 1.5s produced one 1.5s wait per intra-step edge (a 1.5s step with 8 requests became 10.5s).
+  Fixed in `ea7ea66`, 45 diff lines of a 20-line plan: the pause is emitted once, on the connection
+  that crosses into the next step, and the test now covers two requests of one step plus the
+  crossing. Warnings also fixed there: the list shows the path only (query strings can carry tokens
+  or emails) and Save is disabled without metadata. Warnings left: oversized captures have no TTL,
+  no "change file" action after a capture loads, `_cdpStart` is still untyped.
 - L23 (user report, verbatim): "cuando le doy guardar esenacrio deveulve esto" + screenshot of
   `/editor?scenario=d8afa742…` showing `composition.connections is not iterable`. Cause:
   `createScenarioGraph` emitted a graph the editor cannot load — `nodes` as an object map,
