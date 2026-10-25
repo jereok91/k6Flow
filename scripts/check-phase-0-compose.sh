@@ -113,6 +113,11 @@ run_stack() {
             $bindings == '{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"8080"}]}' ]]; then
         continue
       fi
+      # Dev only: the recorder may bind exactly loopback 8081 for direct WS access.
+      if [[ $mode == dev && $service == recorder &&
+            $bindings == '{"8081/tcp":[{"HostIp":"127.0.0.1","HostPort":"8081"}]}' ]]; then
+        continue
+      fi
       [[ $bindings == '{}' || $bindings == null ]] || {
         echo "$service unexpectedly publishes ports: $bindings" >&2; return 1;
       }
@@ -124,7 +129,7 @@ run_stack() {
   # Separate client process on the shared network: no host Go port is needed.
   compose exec -T web node -e \
     'fetch("http://orchestrator:8080/healthz", {signal: AbortSignal.timeout(10000)}).then(async r => { const j=await r.json(); if (!r.ok || j.status!=="ok" || Object.keys(j).length!==1) process.exit(1); }).catch(e => { console.error(e); process.exit(1); })'
-  echo "$mode: three healthy services, external web/internal Go probes passed, Go/DB unpublished."
+  echo "$mode: four healthy services, external web/internal Go probes passed, only the documented dev loopback ports are published."
 }
 
 run_stack production
