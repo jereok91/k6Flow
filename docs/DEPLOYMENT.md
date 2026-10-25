@@ -35,6 +35,10 @@ docker compose ps
 
 Your k6flow instance is now running at `https://your-domain.com`.
 
+> Si preferís no compilar nada, cada tag `vX.Y.Z` publica imágenes en GHCR y el repo incluye
+> `deploy/docker-compose.release.yml` para levantar K6Flow sólo con `docker compose`. Ver
+> [RELEASES.md](RELEASES.md).
+
 ## Environment Variables
 
 ### Required

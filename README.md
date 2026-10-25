@@ -32,7 +32,20 @@ open http://127.0.0.1:3000
 
 Default admin credentials: `admin` / `change-me-min-12-chars`
 
-### Production
+### Published images (no clone needed)
+
+Every `vX.Y.Z` tag publishes `ghcr.io/jereok91/k6flow-{web,orchestrator,recorder,setup}`. To run
+K6Flow from the published images:
+
+```bash
+curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.release.yml
+printf 'POSTGRES_PASSWORD=change-me\nADMIN_PASSWORD=change-me-min-12-chars\nK6FLOW_VERSION=latest\n' > .env
+docker compose -f docker-compose.release.yml up -d
+```
+
+See [docs/RELEASES.md](docs/RELEASES.md) for cutting a release, pinning versions and upgrading.
+
+### Production from source
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full VPS deployment guide.
 
