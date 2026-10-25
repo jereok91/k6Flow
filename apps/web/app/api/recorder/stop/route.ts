@@ -244,8 +244,9 @@ export async function POST(request: Request): Promise<Response> {
         return jsonError(rejection.status, "Failed to stop recording");
       }
       if (oversized) {
+        // The row stops claiming to be recording, but the file stays: it is the only
+        // copy of what the user captured, and the review screen offers to upload it.
         await markFailed(recordingId);
-        releaseCapture(recordingId, token);
         return Response.json(
           { status, recordingId, persisted: false, recording: null, warning: "Capture too large" },
           { headers: NO_STORE },
