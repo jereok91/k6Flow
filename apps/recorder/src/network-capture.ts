@@ -128,9 +128,12 @@ export class NetworkCapture {
   private handleRequestWillBeSent(params: any): void {
     const { requestId, request, timestamp, type } = params;
 
+    // The capture mixes this with step and UI events, which are wall-clock stamped:
+    // a CDP monotonic stamp here would push every request out of its step. The CDP
+    // value is kept only to measure the exchange duration.
     const captured: CapturedRequest = {
       id: requestId,
-      timestamp: timestamp * 1000, // Convert to ms
+      timestamp: Date.now(),
       method: request.method,
       url: request.url,
       headers: this.normalizeHeaders(request.headers),
@@ -138,6 +141,7 @@ export class NetworkCapture {
       resourceType: type || "Other",
     };
 
+    (captured as any)._cdpStart = timestamp * 1000;
     this.pendingRequests.set(requestId, captured);
     this.callbacks.onRequest(captured);
   }
@@ -154,7 +158,7 @@ export class NetworkCapture {
       statusText: response.statusText,
       headers: this.normalizeHeaders(response.headers),
       mimeType: response.mimeType || "",
-      timestamp: timestamp * 1000,
+      timestamp: Date.now(),
     };
   }
 
@@ -201,9 +205,11 @@ export class NetworkCapture {
         bodyTruncated,
       },
       timing: {
+        // Wall-clock window in the file; the duration comes from the CDP clock so
+        // the two never disagree about how long the exchange took.
         startTime: request.timestamp,
-        endTime: timestamp * 1000,
-        durationMs: (timestamp * 1000) - request.timestamp,
+        endTime: Date.now(),
+        durationMs: Math.max(0, (timestamp * 1000) - ((request as any)._cdpStart ?? timestamp * 1000)),
       },
     };
 
@@ -222,7 +228,7 @@ export class NetworkCapture {
       request,
       response: {
         id: requestId,
-        timestamp: timestamp * 1000,
+        timestamp: Date.now(),
         status: 0,
         statusText: errorText || "Failed",
         headers: {},
@@ -231,9 +237,11 @@ export class NetworkCapture {
         bodyTruncated: false,
       },
       timing: {
+        // Wall-clock window in the file; the duration comes from the CDP clock so
+        // the two never disagree about how long the exchange took.
         startTime: request.timestamp,
-        endTime: timestamp * 1000,
-        durationMs: (timestamp * 1000) - request.timestamp,
+        endTime: Date.now(),
+        durationMs: Math.max(0, (timestamp * 1000) - ((request as any)._cdpStart ?? timestamp * 1000)),
       },
     };
 
