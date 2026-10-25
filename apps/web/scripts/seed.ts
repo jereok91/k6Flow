@@ -40,12 +40,15 @@ export function validateSeedEnv(env: Record<string, string | undefined>): SeedEn
   return { ok: true, username, password };
 }
 
-async function main(): Promise<void> {
-  const env = validateSeedEnv(process.env);
-  if (!env.ok) {
-    console.error(env.error);
-    process.exitCode = 1;
-    return;
+/**
+ * Apply the admin seed and report the exit code. Shared with the release setup
+ * runner, which seeds right after applying migrations.
+ */
+export async function runSeed(env: Record<string, string | undefined> = process.env): Promise<number> {
+  const parsed = validateSeedEnv(env);
+  if (!parsed.ok) {
+    console.error(parsed.error);
+    return 1;
   }
 
   registerHooks({
@@ -72,11 +75,11 @@ async function main(): Promise<void> {
 
   const db = getDb();
   // Password material never reaches stdout/stderr — only username + role.
-  const passwordHash = hashPassword(env.password);
+  const passwordHash = hashPassword(parsed.password);
   const existing = await db
     .select()
     .from(schema.users)
-    .where(eq(schema.users.username, env.username))
+    .where(eq(schema.users.username, parsed.username))
     .limit(1);
   if (existing.length > 0) {
     await db
@@ -86,14 +89,19 @@ async function main(): Promise<void> {
   } else {
     await db
       .insert(schema.users)
-      .values({ id: randomUUID(), username: env.username, passwordHash, role: "admin" });
+      .values({ id: randomUUID(), username: parsed.username, passwordHash, role: "admin" });
   }
-  console.log(`Seeded admin user "${env.username}" (role=admin).`);
+  console.log(`Seeded admin user "${parsed.username}" (role=admin).`);
 
   // Close the cached pg Pool (same globalThis key as lib/db/client.ts) so the
   // process exits instead of hanging on open connections.
   const pool = (globalThis as { __k6flowPool?: { end(): Promise<void> } }).__k6flowPool;
   if (pool) await pool.end();
+  return 0;
+}
+
+async function main(): Promise<void> {
+  process.exitCode = await runSeed(process.env);
 }
 
 const isEntrypoint =

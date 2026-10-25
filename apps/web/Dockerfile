@@ -19,6 +19,16 @@ COPY packages/shared packages/shared
 COPY apps/web apps/web
 RUN pnpm --filter @k6flow/web build
 
+# Release setup runner: migrations + admin seed, executed once per deployment.
+# It needs the TypeScript sources and the database tooling, so it reuses the
+# dependency stage instead of duplicating scrypt or the migrations inside a
+# hand-written JS script.
+FROM dependencies AS setup
+COPY packages/shared packages/shared
+COPY apps/web apps/web
+WORKDIR /workspace/apps/web
+CMD ["node", "--experimental-strip-types", "scripts/release-setup.ts"]
+
 FROM node:22.22.0-alpine3.23 AS production
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
