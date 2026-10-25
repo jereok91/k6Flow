@@ -45,6 +45,11 @@ export function useScenario() {
       if (!res.ok) throw new Error(res.status === 404 ? "Escenario no encontrado" : "No se pudo cargar el escenario");
       const scenario: Scenario = await res.json();
       if (!session.isCurrent(epoch)) return null;
+      // A stored graph that predates the current composition shape would crash the
+      // canvas: say so instead of rendering nothing.
+      if (!Array.isArray(scenario.graph?.nodes) || !Array.isArray(scenario.graph?.connections)) {
+        throw new Error("Este escenario se guardó con un formato anterior y no se puede abrir. Volvé a guardarlo desde la revisión.");
+      }
       const graph = toReactFlowGraph(scenario.graph);
       setScenarioId(scenario.id);
       setScenarioName(scenario.name);
