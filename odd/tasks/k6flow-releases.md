@@ -48,6 +48,16 @@ corre migraciones + seed del admin y termina; `web` arranca sólo si terminó bi
 - [x] T5 gate `scripts/check-release-compose.sh` en CI — `5316652`
 - [x] T6 verificación — ver L5
 
+## Imagen todo en uno
+
+- T7 — `deploy/all-in-one/Dockerfile` + `start.sh`: web (standalone) + orchestrator (binario Go) +
+  grabador (Node/Playwright) + migraciones/seed en una imagen; `deploy/docker-compose.all-in-one.yml`
+  sólo agrega PostgreSQL. Publicada como `ghcr.io/jereok91/k6flow`.
+- Hallazgos de la construcción: los rewrites de Next se hornean en build (hay que fijar
+  `RECORDER_UPSTREAM`/`ORCHESTRATOR_WS_UPSTREAM` a loopback al compilar), el grabador necesita `tsx`
+  y un `PORT` propio (la imagen exporta `PORT=3000` para el web), y `.dockerignore` es allowlist
+  (hubo que permitir `deploy/all-in-one/start.sh`).
+
 ## Log
 - L1 (user, verbatim): "ahora qiero poder ir sacando releeses apartir de tag versiones, que se
   diponibilicen y que las perosas puedan usar dichas compilaiones en docker compose alogo como hace
@@ -80,3 +90,9 @@ corre migraciones + seed del admin y termina; `web` arranca sólo si terminó bi
   check-release-compose.sh · `R3-001`/`R3-002` check-release-compose.sh · `R3-003`
   release-setup.ts:34-41 · `R3-004` compose release:91-94 · `R3-005` compose release:57-58 ·
   `R4-001` release-setup.ts:31-39 · `R4-002` compose release:31 · `R4-003` release.yml:33-34.
+
+- L7 (todo en uno, verificado 2026-10-25): con la imagen local `ghcr.io/jereok91/k6flow:test` y el
+  compose de 2 servicios: `login 200`, `recorder healthz` y `orchestrator healthz` vía proxy del web
+  `200`, y flujo real de grabación dentro del contenedor: `start 200` → WebSocket abierto a través
+  del proxy de Next con frames binarios → `stop 200 persisted:true`. Tamaño de la imagen 4,5 GB
+  (base de Playwright + workspace); candidata a adelgazar más adelante.

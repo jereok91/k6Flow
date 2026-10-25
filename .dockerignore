@@ -19,6 +19,10 @@
 !packages/
 !packages/shared/
 !packages/shared/**
+# La imagen todo en uno arranca con este script.
+!deploy/
+!deploy/all-in-one/
+!deploy/all-in-one/start.sh
 # Keep unexpected credentials and generated files excluded even under source.
 **/.env*
 **/*.pem

@@ -12,6 +12,7 @@ el repositorio.
 | `ghcr.io/jereok91/k6flow-orchestrator` | Go | Ejecuta y monitorea los k6 |
 | `ghcr.io/jereok91/k6flow-recorder` | Playwright | Grabador visual |
 | `ghcr.io/jereok91/k6flow-setup` | Migraciones + seed del admin | Se corre una vez por deploy |
+| **`ghcr.io/jereok91/k6flow`** | **Todo en uno**: web + orchestrator + grabador + migraciones | El camino simple: una imagen, un servicio |
 
 Cada versión publica **cuatro tags** por imagen: `1.2.3`, `1.2`, `1` y `latest`.
 
@@ -66,7 +67,21 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u <usuario> --password-stdin
 
 ## Para el usuario: levantar K6Flow con las imágenes
 
-### Opción A — versión fija (recomendado)
+### Opción A — todo en uno (una sola imagen, la más simple)
+
+La imagen `k6flow` trae la app completa adentro. Sólo se agrega PostgreSQL, igual que yopass
+agrega redis:
+
+```bash
+curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.all-in-one.yml
+printf 'POSTGRES_PASSWORD=cambia-esta-clave\nADMIN_PASSWORD=cambia-esta-clave-de-12-o-mas\nK6FLOW_VERSION=0.1.1\n' > .env
+docker compose -f docker-compose.all-in-one.yml up -d
+```
+
+Al arrancar, el contenedor aplica las migraciones, crea el admin y levanta web, orchestrator y
+grabador. `docker compose logs -f k6flow` muestra ese arranque.
+
+### Opción B — versión fija con servicios separados (recomendado)
 
 ```bash
 mkdir k6flow && cd k6flow
@@ -84,7 +99,7 @@ docker compose -f docker-compose.release.yml up -d
 
 Abrí `http://localhost:3000` y entrá con `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
 
-### Opción B — siempre la última
+### Opción C — siempre la última
 
 ```bash
 # sin K6FLOW_VERSION en el .env, las imágenes quedan en :latest
@@ -92,7 +107,7 @@ docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d
 ```
 
-### Opción C — pegar el compose dentro de tu propio repo
+### Opción D — pegar los servicios dentro de tu propio repo
 
 ```yaml
 services:

@@ -27,25 +27,29 @@ jobs:
           echo "value=${tag#v}" >> "$GITHUB_OUTPUT"
 
   publish:
-    name: Publish ${{ matrix.image }}
+    name: Publish ${{ matrix.name }}
     needs: version
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - image: web
+          - name: k6flow-web
             dockerfile: apps/web/Dockerfile
             target: production
-          - image: orchestrator
+          - name: k6flow-orchestrator
             dockerfile: apps/orchestrator/Dockerfile
             target: production
-          - image: recorder
+          - name: k6flow-recorder
             dockerfile: apps/recorder/Dockerfile
             target: ""
-          - image: setup
+          - name: k6flow-setup
             dockerfile: apps/web/Dockerfile
             target: setup
+          # Todo en uno: web + orchestrator + recorder + migraciones en una sola imagen.
+          - name: k6flow
+            dockerfile: deploy/all-in-one/Dockerfile
+            target: 
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -57,7 +61,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/k6flow-${{ matrix.image }}
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
           # Una versión publica cuatro tags por imagen: 1.2.3, 1.2, 1 y latest.
           tags: |
             type=semver,pattern={{version}},value=v${{ needs.version.outputs.value }}
@@ -72,8 +76,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
   announce:
     name: Publish GitHub Release
@@ -102,9 +106,13 @@ jobs:
             echo "## Imágenes publicadas"
             echo
             echo '```'
-            for image in web orchestrator recorder setup; do
-              echo "ghcr.io/${owner}/k6flow-${image}:${version}   (también :${version%.*} , :${version%%.*} y :latest)"
+            for image in k6flow-web k6flow-orchestrator k6flow-recorder k6flow-setup k6flow; do
+              echo "ghcr.io/${owner}/${image}:${version}   (también :${version%.*} , :${version%%.*} y :latest)"
             done
+            echo
+            echo "\`k6flow\` es la imagen todo en uno (web + orchestrator + grabador + migraciones): con"
+            echo "\`deploy/docker-compose.all-in-one.yml\` sólo se agrega PostgreSQL."
+            
             echo '```'
             echo
             echo "## Cómo levantarlo"

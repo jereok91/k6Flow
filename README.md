@@ -33,9 +33,21 @@ The full loop in ~20 seconds: dashboard → recordings → review → editor.
 
 ## Quick start
 
-### From the published images (no clone)
+### Everything in one image (fastest)
 
-Every `vX.Y.Z` tag publishes `ghcr.io/jereok91/k6flow-{web,orchestrator,recorder,setup}`.
+The `k6flow` image already contains the web app, the orchestrator, the recorder and the
+migrations. Only PostgreSQL goes next to it, the way yopass brings redis:
+
+```bash
+curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.all-in-one.yml
+printf 'POSTGRES_PASSWORD=change-me\nADMIN_PASSWORD=change-me-min-12-chars\n' > .env
+docker compose -f docker-compose.all-in-one.yml up -d
+```
+
+### From the published images (one service per process)
+
+Every `vX.Y.Z` tag also publishes `ghcr.io/jereok91/k6flow-{web,orchestrator,recorder,setup}` for
+deployments that prefer one container per service.
 
 ```bash
 curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.release.yml
