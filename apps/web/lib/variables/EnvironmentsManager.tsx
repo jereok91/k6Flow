@@ -106,7 +106,7 @@ export function EnvironmentsManager() {
             className="btn-primary"
             style={{ ...controlButtonStyle, ...(createDisabled ? disabledStyle : null) }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
               add
             </span>
             <span>{creating ? "..." : "Crear"}</span>
@@ -115,7 +115,7 @@ export function EnvironmentsManager() {
 
         {actionError && (
           <div style={errorBoxStyle} role="alert">
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
               error
             </span>
             <span>{actionError}</span>
@@ -126,7 +126,7 @@ export function EnvironmentsManager() {
           <p style={mutedTextStyle}>Cargando entornos...</p>
         ) : envs.error ? (
           <div style={errorBoxStyle} role="alert">
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
               error
             </span>
             <div>
@@ -138,7 +138,7 @@ export function EnvironmentsManager() {
           </div>
         ) : envs.environments.length === 0 ? (
           <div style={emptyStateStyle}>
-            <span className="material-symbols-outlined" style={{ fontSize: 32, color: "var(--color-on-surface-variant)" }}>
+            <span className="material-symbols-outlined text-[32px]" aria-hidden="true" style={{ color: "var(--color-on-surface-variant)" }}>
               layers
             </span>
             <p style={{ ...mutedTextStyle, textAlign: "center" }}>
@@ -166,7 +166,7 @@ export function EnvironmentsManager() {
       <section style={{ ...cardStyle, ...detailCardStyle }}>
         {active === null ? (
           <div style={emptyStateStyle}>
-            <span className="material-symbols-outlined" style={{ fontSize: 32, color: "var(--color-on-surface-variant)" }}>
+            <span className="material-symbols-outlined text-[32px]" aria-hidden="true" style={{ color: "var(--color-on-surface-variant)" }}>
               data_object
             </span>
             <p style={{ ...mutedTextStyle, textAlign: "center" }}>
@@ -177,7 +177,7 @@ export function EnvironmentsManager() {
           <>
             <div style={detailHeaderStyle}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--color-primary)" }}>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true" style={{ color: "var(--color-primary)" }}>
                   layers
                 </span>
                 <h2 style={detailTitleStyle}>{active.name}</h2>
@@ -189,7 +189,7 @@ export function EnvironmentsManager() {
             </div>
             {variables.error && !variables.loading ? (
               <div style={errorBoxStyle} role="alert">
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
                   error
                 </span>
                 <div>
@@ -270,7 +270,7 @@ function EnvironmentItem({ env, active, usedInEditor, onSelect, onRename, onDele
             style={{ ...iconButtonStyle, color: "var(--color-secondary)", ...(busy ? disabledStyle : null) }}
             title="Guardar nombre"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
               check
             </span>
           </button>
@@ -283,7 +283,7 @@ function EnvironmentItem({ env, active, usedInEditor, onSelect, onRename, onDele
             style={iconButtonStyle}
             title="Cancelar"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
               close
             </span>
           </button>
@@ -300,8 +300,9 @@ function EnvironmentItem({ env, active, usedInEditor, onSelect, onRename, onDele
     >
       <button type="button" onClick={onSelect} style={itemSelectButtonStyle}>
         <span
-          className="material-symbols-outlined"
-          style={{ fontSize: 16, color: active ? "var(--color-primary)" : "var(--color-on-surface-variant)" }}
+          className="material-symbols-outlined text-[16px]"
+          style={{ color: active ? "var(--color-primary)" : "var(--color-on-surface-variant)" }}
+          aria-hidden="true"
         >
           layers
         </span>
@@ -322,7 +323,7 @@ function EnvironmentItem({ env, active, usedInEditor, onSelect, onRename, onDele
         title="Renombrar"
         aria-label={`Renombrar ${env.name}`}
       >
-        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+        <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
           edit
         </span>
       </button>
@@ -333,7 +334,7 @@ function EnvironmentItem({ env, active, usedInEditor, onSelect, onRename, onDele
         title="Eliminar"
         aria-label={`Eliminar ${env.name}`}
       >
-        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+        <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
           delete
         </span>
       </button>

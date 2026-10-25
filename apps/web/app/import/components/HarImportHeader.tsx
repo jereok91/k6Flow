@@ -5,7 +5,7 @@ export function HarImportHeader() {
   return (
     <section className="flex flex-col gap-space-xs">
       <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
-        <span className="material-symbols-outlined text-secondary text-[16px]">upload_file</span>
+        <span className="material-symbols-outlined text-secondary text-[16px]" aria-hidden="true">upload_file</span>
         <span>Importar tráfico</span>
       </div>
       <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">

@@ -58,9 +58,10 @@ function K6NodeComponent({ data, selected }: K6NodeProps) {
 
       {/* Node content */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <span 
-          className="material-symbols-outlined"
-          style={{ fontSize: "20px", color }}
+        <span
+          className="material-symbols-outlined text-[20px]"
+          style={{ color }}
+          aria-hidden="true"
         >
           {icon}
         </span>

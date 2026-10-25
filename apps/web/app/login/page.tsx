@@ -75,7 +75,7 @@ function LoginPage() {
           <div className="card">
             <div className="text-center mb-space-xl">
               <div className="w-16 h-16 rounded-xl bg-primary-container/20 flex items-center justify-center mx-auto mb-space-lg">
-                <span className="material-symbols-outlined text-primary text-[32px]">login</span>
+                <span className="material-symbols-outlined text-primary text-[32px]" aria-hidden="true">login</span>
               </div>
               <h1 className="text-headline-lg text-on-surface font-semibold mb-space-xs">
                 Bienvenido
@@ -88,7 +88,7 @@ function LoginPage() {
             <form onSubmit={handleSubmit} className="space-y-space-lg">
               {error && (
                 <div className="p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm">
-                  <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle">error</span>
+                  <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle" aria-hidden="true">error</span>
                   {error}
                 </div>
               )}
@@ -138,7 +138,7 @@ function LoginPage() {
                   </>
                 ) : (
                   <>
-                    <span className="material-symbols-outlined text-[18px]">login</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">login</span>
                     <span>Iniciar Sesión</span>
                   </>
                 )}
@@ -163,7 +163,7 @@ function LoginPage() {
               { icon: "speed", label: "Ejecutar pruebas" },
             ].map((item) => (
               <div key={item.icon} className="flex flex-col items-center gap-space-xs">
-                <span className="material-symbols-outlined text-on-surface-variant text-[24px]">
+                <span className="material-symbols-outlined text-on-surface-variant text-[24px]" aria-hidden="true">
                   {item.icon}
                 </span>
                 <span className="text-label-code-sm text-on-surface-variant">{item.label}</span>

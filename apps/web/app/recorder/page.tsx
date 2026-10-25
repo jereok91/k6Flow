@@ -196,7 +196,7 @@ export default function RecorderPage() {
             {/* Header */}
             <div className="flex flex-col gap-space-xs mb-space-xl">
               <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
-                <span className="material-symbols-outlined text-secondary text-[16px]">fiber_manual_record</span>
+                <span className="material-symbols-outlined text-secondary text-[16px]" aria-hidden="true">fiber_manual_record</span>
                 <span>Grabador de sesiones</span>
               </div>
               <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">
@@ -237,7 +237,7 @@ export default function RecorderPage() {
 
               {error && (
                 <div className="mb-space-lg p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm">
-                  <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle">error</span>
+                  <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle" aria-hidden="true">error</span>
                   {error}
                 </div>
               )}
@@ -254,7 +254,7 @@ export default function RecorderPage() {
                   </>
                 ) : (
                   <>
-                    <span className="material-symbols-outlined text-[18px]">fiber_manual_record</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">fiber_manual_record</span>
                     <span>Iniciar Grabación</span>
                   </>
                 )}
@@ -278,7 +278,7 @@ export default function RecorderPage() {
                       {item.step}
                     </span>
                     <div className="flex items-center gap-space-sm text-body-sm text-on-surface-variant">
-                      <span className="material-symbols-outlined text-[16px] text-on-surface-variant">{item.icon}</span>
+                      <span className="material-symbols-outlined text-[16px] text-on-surface-variant" aria-hidden="true">{item.icon}</span>
                       <span>{item.text}</span>
                     </div>
                   </div>
@@ -327,7 +327,7 @@ export default function RecorderPage() {
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-[18px]">stop</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">stop</span>
                 <span className="text-body-md font-medium">Detener Grabación</span>
               </>
             )}
@@ -337,7 +337,7 @@ export default function RecorderPage() {
         {/* A stop that did not happen is reported here, next to the live session */}
         {error && (
           <div className="mx-space-md mt-space-md p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm flex items-center gap-space-sm">
-            <span className="material-symbols-outlined text-[16px]">error</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">error</span>
             <span className="flex-1">{error}</span>
             <button onClick={stopRecording} className="btn-secondary py-space-xs">
               Reintentar
@@ -369,7 +369,7 @@ export default function RecorderPage() {
         <div className="px-gutter-desktop py-space-xl">
           <div className="mx-auto max-w-2xl text-center">
             <div className="w-20 h-20 rounded-full bg-secondary/10 flex items-center justify-center mx-auto mb-space-lg">
-              <span className="material-symbols-outlined text-secondary text-[40px]">check_circle</span>
+              <span className="material-symbols-outlined text-secondary text-[40px]" aria-hidden="true">check_circle</span>
             </div>
             <h1 className="text-headline-lg text-on-surface font-semibold mb-space-sm">
               Grabación Completada
@@ -382,14 +382,14 @@ export default function RecorderPage() {
 
             {stopWarning && (
               <div className="mb-space-lg p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm text-left">
-                <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle">warning</span>
+                <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle" aria-hidden="true">warning</span>
                 {stopWarning}. Podés subir el archivo .ndjson a mano desde la pantalla de revisión.
               </div>
             )}
 
             <div className="flex justify-center gap-space-md">
               <button onClick={goToReview} className="btn-primary">
-                <span className="material-symbols-outlined text-[18px]">visibility</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">visibility</span>
                 <span>Revisar y Guardar</span>
               </button>
               <button
@@ -403,7 +403,7 @@ export default function RecorderPage() {
                 }}
                 className="btn-secondary"
               >
-                <span className="material-symbols-outlined text-[18px]">add</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">add</span>
                 <span>Nueva Grabación</span>
               </button>
             </div>
@@ -419,7 +419,7 @@ export default function RecorderPage() {
       <div className="px-gutter-desktop py-space-xl">
         <div className="mx-auto max-w-2xl text-center">
           <div className="w-20 h-20 rounded-full bg-error/10 flex items-center justify-center mx-auto mb-space-lg">
-            <span className="material-symbols-outlined text-error text-[40px]">error</span>
+            <span className="material-symbols-outlined text-error text-[40px]" aria-hidden="true">error</span>
           </div>
           <h1 className="text-headline-lg text-on-surface font-semibold mb-space-sm">
             Error en la Grabación
@@ -433,7 +433,7 @@ export default function RecorderPage() {
             }}
             className="btn-primary"
           >
-            <span className="material-symbols-outlined text-[18px]">refresh</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">refresh</span>
             <span>Intentar de Nuevo</span>
           </button>
         </div>

@@ -22,7 +22,7 @@ export function HarRequestsTable({ entries, selection, onToggle }: HarRequestsTa
     <section className="card p-0 overflow-hidden">
       {entries.length === 0 ? (
         <div className="text-center py-space-xl">
-          <span className="material-symbols-outlined text-on-surface-variant text-[40px] mb-space-md">
+          <span className="material-symbols-outlined text-on-surface-variant text-[40px] mb-space-md" aria-hidden="true">
             filter_alt_off
           </span>
           <p className="text-body-md text-on-surface-variant">

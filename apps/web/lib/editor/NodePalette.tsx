@@ -83,8 +83,9 @@ export function NodePalette({ disabled }: NodePaletteProps) {
             }}
           >
             <span
-              className="material-symbols-outlined"
-              style={{ fontSize: "18px", color: disabled ? "var(--color-inactive)" : KIND_COLORS[kind] }}
+              className="material-symbols-outlined text-[18px]"
+              style={{ color: disabled ? "var(--color-inactive)" : KIND_COLORS[kind] }}
+              aria-hidden="true"
             >
               {KIND_ICONS[kind]}
             </span>

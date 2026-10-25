@@ -147,7 +147,7 @@ export function VariableTable({
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       {rows.length === 0 ? (
         <div style={emptyTableStyle}>
-          <span className="material-symbols-outlined" style={{ fontSize: 24 }}>
+          <span className="material-symbols-outlined text-[24px]" aria-hidden="true">
             data_object
           </span>
           <span>No variables yet.</span>
@@ -254,7 +254,7 @@ export function VariableTable({
                           aria-label="Secret"
                           style={visuallyHiddenStyle}
                         />
-                        <span className="material-symbols-outlined" style={{ fontSize: 16 }} aria-hidden="true">
+                        <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
                           {row.secret ? "lock" : "lock_open"}
                         </span>
                       </label>
@@ -267,7 +267,7 @@ export function VariableTable({
                         title="Delete variable"
                         aria-label={`Delete variable ${row.name}`}
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                        <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
                           delete
                         </span>
                       </button>
@@ -292,7 +292,7 @@ export function VariableTable({
 
       <div style={footerStyle}>
         <button type="button" onClick={addRow} style={textButtonStyle}>
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+          <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
             add
           </span>
           <span>Add variable</span>
@@ -300,7 +300,7 @@ export function VariableTable({
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           {savedAt !== null && !dirty && (
             <span style={savedStyle}>
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
                 check_circle
               </span>
               Saved
@@ -367,13 +367,13 @@ export function VariablesPanel({
     <div style={panelStyle}>
       <div style={headerStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--color-primary)" }}>
+          <span className="material-symbols-outlined text-[18px]" aria-hidden="true" style={{ color: "var(--color-primary)" }}>
             data_object
           </span>
           <h3 style={panelTitleStyle}>Variables</h3>
         </div>
         <button onClick={onClose} style={closeButtonStyle} aria-label="Close">
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+          <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
             close
           </span>
         </button>
@@ -408,7 +408,7 @@ export function VariablesPanel({
           )}
           {undefinedNames.length > 0 && (
             <p style={warningTextStyle}>
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
                 warning
               </span>
               <span>
@@ -453,7 +453,7 @@ export function VariablesPanel({
               Environment variables{environmentName ? ` · ${environmentName}` : ""}
             </h4>
             <Link href="/environments" style={manageLinkStyle}>
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
                 tune
               </span>
               Gestionar entornos
@@ -476,7 +476,7 @@ export function VariablesPanel({
                     title={overridden ? "Overridden by a scenario variable" : undefined}
                   >
                     {variable.secret && (
-                      <span className="material-symbols-outlined" style={{ fontSize: 12 }} aria-label="secret">
+                      <span className="material-symbols-outlined text-[12px]" aria-hidden="true" aria-label="secret">
                         lock
                       </span>
                     )}

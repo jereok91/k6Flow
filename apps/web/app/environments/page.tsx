@@ -13,7 +13,7 @@ export default function EnvironmentsPage() {
       <div style={containerStyle}>
         <header style={headerStyle}>
           <div style={eyebrowStyle}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-primary)" }}>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true" style={{ color: "var(--color-primary)" }}>
               layers
             </span>
             <span>Variables</span>

@@ -256,7 +256,7 @@ export default function RecorderReviewPage() {
         <section className="flex flex-col md:flex-row md:items-end justify-between gap-space-lg">
           <div className="flex flex-col gap-space-xs">
             <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
-              <span className="material-symbols-outlined text-secondary text-[16px]">fact_check</span>
+              <span className="material-symbols-outlined text-secondary text-[16px]" aria-hidden="true">fact_check</span>
               <span>Revisión de grabación</span>
             </div>
             <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">
@@ -271,7 +271,7 @@ export default function RecorderReviewPage() {
 
           <div className="flex items-center gap-space-sm">
             <Link href="/recordings" className="btn-secondary">
-              <span className="material-symbols-outlined text-[18px]">video_library</span>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">video_library</span>
               <span>Grabaciones</span>
             </Link>
             {captureData && (
@@ -288,7 +288,7 @@ export default function RecorderReviewPage() {
                   </>
                 ) : (
                   <>
-                    <span className="material-symbols-outlined text-[18px]">save</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">save</span>
                     <span>Guardar escenario</span>
                   </>
                 )}
@@ -299,7 +299,7 @@ export default function RecorderReviewPage() {
 
         {error && (
           <div className="p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm flex items-center gap-space-sm">
-            <span className="material-symbols-outlined text-[16px]">error</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">error</span>
             <span>{error}</span>
           </div>
         )}
@@ -315,7 +315,7 @@ export default function RecorderReviewPage() {
                 { icon: "http", label: "Peticiones", value: `${includedCount}/${totalCount}` },
               ].map((item) => (
                 <div key={item.label} className="flex items-start gap-space-sm">
-                  <span className="material-symbols-outlined text-[18px] text-on-surface-variant">{item.icon}</span>
+                  <span className="material-symbols-outlined text-[18px] text-on-surface-variant" aria-hidden="true">{item.icon}</span>
                   <div className="min-w-0">
                     <p className="text-label-code-sm text-on-surface-variant uppercase tracking-wider">{item.label}</p>
                     <p className="text-body-sm text-on-surface font-mono truncate">{item.value}</p>
@@ -347,13 +347,13 @@ export default function RecorderReviewPage() {
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-on-surface-variant text-[48px] mb-space-md">upload_file</span>
+                <span className="material-symbols-outlined text-on-surface-variant text-[48px] mb-space-md" aria-hidden="true">upload_file</span>
                 <h3 className="text-headline-sm text-on-surface font-medium mb-space-xs">Sin captura cargada</h3>
                 <p className="text-body-md text-on-surface-variant mb-space-lg">
                   Abrí esta pantalla desde una grabación, o subí el archivo <span className="font-mono">.ndjson</span> a mano.
                 </p>
                 <label className="btn-secondary mx-auto cursor-pointer">
-                  <span className="material-symbols-outlined text-[18px]">folder_open</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">folder_open</span>
                   <span>Elegir archivo</span>
                   <input type="file" accept=".ndjson" onChange={handleFileUpload} className="hidden" disabled={loading} />
                 </label>
@@ -385,11 +385,11 @@ export default function RecorderReviewPage() {
                 {reviewStep.entries.length > 0 && (
                   <div className="flex items-center gap-space-xs shrink-0">
                     <button type="button" onClick={() => setStepIncluded(stepIndex, true)} className="btn-secondary py-space-xs">
-                      <span className="material-symbols-outlined text-[16px]">done_all</span>
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">done_all</span>
                       <span>Todo</span>
                     </button>
                     <button type="button" onClick={() => setStepIncluded(stepIndex, false)} className="btn-secondary py-space-xs">
-                      <span className="material-symbols-outlined text-[16px]">remove_done</span>
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">remove_done</span>
                       <span>Nada</span>
                     </button>
                   </div>
@@ -421,7 +421,7 @@ export default function RecorderReviewPage() {
                           }`}
                         >
                           {reviewEntry.included && (
-                            <span className="material-symbols-outlined text-[12px] text-on-secondary">check</span>
+                            <span className="material-symbols-outlined text-[12px] text-on-secondary" aria-hidden="true">check</span>
                           )}
                         </span>
                         <span className="font-mono text-label-code-sm px-space-xs py-0.5 rounded bg-surface-container-high text-on-surface-variant shrink-0">

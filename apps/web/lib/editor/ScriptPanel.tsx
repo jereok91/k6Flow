@@ -77,7 +77,7 @@ export function ScriptPanel({ nodes, edges, initialVus, initialDuration, onClose
       {/* Header */}
       <div style={headerStyle}>
         <div style={headerLeftStyle}>
-          <span className="material-symbols-outlined" style={{ fontSize: "20px", color: "var(--color-primary)" }}>
+          <span className="material-symbols-outlined text-[20px]" aria-hidden="true" style={{ color: "var(--color-primary)" }}>
             code
           </span>
           <h3 style={titleStyle}>Script K6</h3>
@@ -95,19 +95,19 @@ export function ScriptPanel({ nodes, edges, initialVus, initialDuration, onClose
             }}
             title="Configuración"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>tune</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true" >tune</span>
           </button>
 
           {/* Copy */}
           <button onClick={handleCopy} style={iconButtonStyle} title={copied ? "¡Copiado!" : "Copiar"}>
-            <span className="material-symbols-outlined" style={{ fontSize: "18px", color: copied ? "var(--color-primary)" : undefined }}>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true" style={{ color: copied ? "var(--color-primary)" : undefined }}>
               {copied ? "check" : "content_copy"}
             </span>
           </button>
 
           {/* Download */}
           <button onClick={handleDownload} style={iconButtonStyle} title="Descargar">
-            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>download</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true" >download</span>
           </button>
 
           {/* Divider */}
@@ -115,7 +115,7 @@ export function ScriptPanel({ nodes, edges, initialVus, initialDuration, onClose
 
           {/* Close */}
           <button onClick={onClose} style={iconButtonStyle} title="Cerrar">
-            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>close</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true" >close</span>
           </button>
         </div>
       </div>
@@ -125,7 +125,7 @@ export function ScriptPanel({ nodes, edges, initialVus, initialDuration, onClose
         <div style={configPanelStyle}>
           <div style={configGroupStyle}>
             <label style={labelStyle}>
-              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>group</span>
+              <span className="material-symbols-outlined text-[16px]" aria-hidden="true" >group</span>
               VUs
             </label>
             <input
@@ -138,7 +138,7 @@ export function ScriptPanel({ nodes, edges, initialVus, initialDuration, onClose
           </div>
           <div style={configGroupStyle}>
             <label style={labelStyle}>
-              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>timer</span>
+              <span className="material-symbols-outlined text-[16px]" aria-hidden="true" >timer</span>
               Duración
             </label>
             <input
@@ -159,7 +159,7 @@ export function ScriptPanel({ nodes, edges, initialVus, initialDuration, onClose
       {result.warnings.length > 0 && (
         <div style={warningsContainerStyle}>
           <div style={warningsHeaderStyle}>
-            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>warning</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true" >warning</span>
             <span>{result.warnings.length} advertencia{result.warnings.length > 1 ? "s" : ""}</span>
           </div>
           <div style={warningsListStyle}>
@@ -173,7 +173,7 @@ export function ScriptPanel({ nodes, edges, initialVus, initialDuration, onClose
       {/* Required files */}
       {result.requiresFiles.length > 0 && (
         <div style={filesContainerStyle}>
-          <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>attach_file</span>
+          <span className="material-symbols-outlined text-[16px]" aria-hidden="true" >attach_file</span>
           <span>Archivos necesarios:</span>
           <div style={filesListStyle}>
             {result.requiresFiles.map((f, i) => (

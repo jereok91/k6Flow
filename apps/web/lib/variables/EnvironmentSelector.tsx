@@ -29,7 +29,7 @@ export function EnvironmentSelector({
   return (
     <div style={wrapperStyle} title={error ? `Entornos: ${error}` : "Entorno de ejecución"}>
       <div style={{ ...selectFrameStyle, ...(error ? { borderColor: "var(--color-error)" } : null) }}>
-        <span className="material-symbols-outlined" style={leadingIconStyle} aria-hidden="true">
+        <span className="material-symbols-outlined text-[16px] text-on-surface-variant" aria-hidden="true">
           layers
         </span>
         <select
@@ -54,7 +54,7 @@ export function EnvironmentSelector({
         title="Gestionar entornos"
         aria-label="Gestionar entornos"
       >
-        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+        <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
           tune
         </span>
       </Link>
@@ -81,10 +81,6 @@ const selectFrameStyle: React.CSSProperties = {
   color: "var(--color-on-surface)",
 };
 
-const leadingIconStyle: React.CSSProperties = {
-  fontSize: 16,
-  color: "var(--color-on-surface-variant)",
-};
 
 const selectStyle: React.CSSProperties = {
   maxWidth: "160px",

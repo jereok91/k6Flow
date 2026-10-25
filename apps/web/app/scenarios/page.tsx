@@ -92,7 +92,7 @@ export default function ScenariosPage() {
         <section className="flex flex-col md:flex-row md:items-end justify-between gap-space-lg">
           <div className="flex flex-col gap-space-xs">
             <div className="flex items-center gap-space-sm text-label-code-sm text-on-surface-variant uppercase tracking-wider">
-              <span className="material-symbols-outlined text-primary text-[16px]">account_tree</span>
+              <span className="material-symbols-outlined text-primary text-[16px]" aria-hidden="true">account_tree</span>
               <span>Biblioteca de escenarios</span>
             </div>
             <h1 className="text-headline-lg text-on-surface font-semibold tracking-tight">
@@ -105,11 +105,11 @@ export default function ScenariosPage() {
 
           <div className="flex items-center gap-space-md">
             <Link href="/recorder" className="btn-secondary">
-              <span className="material-symbols-outlined text-[18px]">videocam</span>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">videocam</span>
               <span>Grabar</span>
             </Link>
             <Link href="/editor" className="btn-primary">
-              <span className="material-symbols-outlined text-[18px]">add</span>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">add</span>
               <span>Nuevo escenario</span>
             </Link>
           </div>
@@ -119,7 +119,7 @@ export default function ScenariosPage() {
         <section className="flex flex-wrap items-center gap-space-md">
           <form onSubmit={handleSearch} className="flex-1 min-w-[200px] max-w-md">
             <div className="relative flex items-center">
-              <span className="material-symbols-outlined absolute left-space-md text-[18px] text-on-surface-variant">
+              <span className="material-symbols-outlined absolute left-space-md text-[18px] text-on-surface-variant" aria-hidden="true">
                 search
               </span>
               <input
@@ -153,7 +153,7 @@ export default function ScenariosPage() {
                   : "text-on-surface-variant hover:text-on-surface"
               }`}
             >
-              <span className="material-symbols-outlined text-[16px] mr-1">star</span>
+              <span className="material-symbols-outlined text-[16px] mr-1" aria-hidden="true">star</span>
               Favoritos
             </button>
           </div>
@@ -162,7 +162,7 @@ export default function ScenariosPage() {
         {/* Content */}
         {error ? (
           <div className="card text-center">
-            <span className="material-symbols-outlined text-error text-[32px] mb-space-md">error</span>
+            <span className="material-symbols-outlined text-error text-[32px] mb-space-md" aria-hidden="true">error</span>
             <p className="text-body-md text-error">{error}</p>
             <button
               type="button"
@@ -179,7 +179,7 @@ export default function ScenariosPage() {
           </div>
         ) : scenarios.length === 0 ? (
           <div className="card text-center py-space-xl">
-            <span className="material-symbols-outlined text-on-surface-variant text-[48px] mb-space-md">
+            <span className="material-symbols-outlined text-on-surface-variant text-[48px] mb-space-md" aria-hidden="true">
               account_tree
             </span>
             <h3 className="text-headline-sm text-on-surface font-medium mb-space-xs">
@@ -192,11 +192,11 @@ export default function ScenariosPage() {
             </p>
             <div className="flex justify-center gap-space-md">
               <Link href="/recorder" className="btn-secondary">
-                <span className="material-symbols-outlined text-[18px]">videocam</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">videocam</span>
                 <span>Grabar sesión</span>
               </Link>
               <Link href="/editor" className="btn-primary">
-                <span className="material-symbols-outlined text-[18px]">add</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">add</span>
                 <span>Crear escenario</span>
               </Link>
             </div>
@@ -223,7 +223,7 @@ export default function ScenariosPage() {
                           href={`/scenarios/${scenario.id}`}
                           className="flex items-center gap-space-md hover:text-primary transition-colors"
                         >
-                          <span className="material-symbols-outlined text-primary text-[18px]">
+                          <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">
                             account_tree
                           </span>
                           <span className="text-on-surface font-medium">{scenario.name}</span>
@@ -250,6 +250,7 @@ export default function ScenariosPage() {
                                 ? "'FILL' 1"
                                 : "'FILL' 0",
                             }}
+                            aria-hidden="true"
                           >
                             star
                           </span>
@@ -262,14 +263,14 @@ export default function ScenariosPage() {
                             className="p-space-xs hover:bg-surface-container rounded-lg transition-colors text-on-surface-variant hover:text-on-surface"
                             title="Editar"
                           >
-                            <span className="material-symbols-outlined text-[18px]">edit</span>
+                            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">edit</span>
                           </Link>
                           <Link
                             href={`/scenarios/${scenario.id}`}
                             className="p-space-xs hover:bg-surface-container rounded-lg transition-colors text-on-surface-variant hover:text-on-surface"
                             title="Ver detalles"
                           >
-                            <span className="material-symbols-outlined text-[18px]">
+                            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
                               visibility
                             </span>
                           </Link>
@@ -295,7 +296,7 @@ export default function ScenariosPage() {
                     disabled={page === 1}
                     className="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">chevron_left</span>
                   </button>
                   <span className="text-body-sm text-on-surface px-space-md">
                     {page} / {totalPages}
@@ -306,7 +307,7 @@ export default function ScenariosPage() {
                     disabled={page === totalPages}
                     className="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">chevron_right</span>
                   </button>
                 </div>
               </div>

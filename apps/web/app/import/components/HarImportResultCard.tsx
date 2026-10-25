@@ -17,7 +17,7 @@ export function HarImportResultCard({ result }: HarImportResultCardProps) {
   return (
     <div className="flex flex-col gap-space-sm p-space-md rounded-lg bg-surface-container-lowest border border-surface-container">
       <div className="flex items-center gap-space-sm">
-        <span className="material-symbols-outlined text-[18px] text-success">check_circle</span>
+        <span className="material-symbols-outlined text-[18px] text-success" aria-hidden="true">check_circle</span>
         <span className="text-body-md text-on-surface">
           Escenario «{result.name}» creado
         </span>
@@ -37,7 +37,7 @@ export function HarImportResultCard({ result }: HarImportResultCardProps) {
         </ul>
       )}
       <Link href={scenarioEditorHref(result.id)} className="btn-primary justify-center">
-        <span className="material-symbols-outlined text-[18px]">account_tree</span>
+        <span className="material-symbols-outlined text-[18px]" aria-hidden="true">account_tree</span>
         <span>Abrir en el editor</span>
       </Link>
     </div>

@@ -44,7 +44,7 @@ export function HarFileUploader({
       />
       {fileName !== null && (
         <p className="mt-space-sm text-body-sm text-on-surface-variant">
-          <span className="material-symbols-outlined text-[16px] align-middle mr-space-xs">
+          <span className="material-symbols-outlined text-[16px] align-middle mr-space-xs" aria-hidden="true">
             description
           </span>
           {fileName} — {totalRequests} peticiones detectadas
@@ -52,7 +52,7 @@ export function HarFileUploader({
       )}
       {fileError !== null && (
         <div className="mt-space-md p-space-md rounded-lg bg-error/10 border border-error/30 text-error text-body-sm">
-          <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle">
+          <span className="material-symbols-outlined text-[16px] mr-space-xs align-middle" aria-hidden="true">
             error
           </span>
           {fileError}

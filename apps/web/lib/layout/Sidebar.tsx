@@ -146,7 +146,7 @@ export function Sidebar() {
             }}
             title="Colapsar sidebar"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>dock_to_right</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true" >dock_to_right</span>
           </button>
         )}
       </div>
@@ -171,7 +171,7 @@ export function Sidebar() {
             }}
             title="Expandir sidebar"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>chevron_right</span>
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true" >chevron_right</span>
           </button>
         </div>
       )}
@@ -214,7 +214,7 @@ export function Sidebar() {
             }}
             title={collapsed ? item.label : undefined}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>{item.icon}</span>
+            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">{item.icon}</span>
             {!collapsed && <span>{item.label}</span>}
             {item.countable && activeRunsCount > 0 && (
               <span style={{
@@ -255,7 +255,7 @@ export function Sidebar() {
             color: "var(--color-on-surface-variant)",
           }}
         >
-          <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: "20px" }}>
+          <span aria-hidden="true" className="material-symbols-outlined text-[20px]" >
             {theme === "dark" ? "dark_mode" : "light_mode"}
           </span>
           {!collapsed && <span style={{ fontSize: "12px" }}>{theme === "dark" ? "Tema oscuro" : "Tema claro"}</span>}
@@ -328,7 +328,7 @@ export function Sidebar() {
                 padding: "4px",
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>more_vert</span>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true" >more_vert</span>
             </button>
           )}
 
@@ -368,7 +368,7 @@ export function Sidebar() {
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--color-surface-container-highest)")}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>logout</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true" >logout</span>
                 Cerrar sesión
               </button>
             </div>

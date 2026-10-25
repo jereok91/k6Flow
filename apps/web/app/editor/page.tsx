@@ -904,18 +904,18 @@ function EditorPage() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="card max-w-md text-center">
-          <span className="material-symbols-outlined text-error text-[48px] mb-space-md">lock</span>
+          <span className="material-symbols-outlined text-error text-[48px] mb-space-md" aria-hidden="true">lock</span>
           <h1 className="text-headline-lg text-on-surface font-semibold mb-space-sm">
             Acceso Restringido
           </h1>
           <p className="text-body-md text-on-surface-variant mb-space-lg">{auth.error}</p>
           <div className="flex justify-center gap-space-md">
             <Link href="/login" className="btn-primary">
-              <span className="material-symbols-outlined text-[18px]">login</span>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">login</span>
               <span>Iniciar Sesión</span>
             </Link>
             <Link href="/" className="btn-secondary">
-              <span className="material-symbols-outlined text-[18px]">home</span>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">home</span>
               <span>Inicio</span>
             </Link>
           </div>
@@ -995,7 +995,7 @@ function EditorPage() {
             </div>
           </Link>
           <span className="text-outline-variant">/</span>
-          <span className="material-symbols-outlined text-primary text-[18px]">edit_square</span>
+          <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">edit_square</span>
           <h1 className="text-headline-sm text-on-surface font-semibold">
             {scenario.scenarioName || "Nuevo Escenario"}
           </h1>
@@ -1028,7 +1028,7 @@ function EditorPage() {
             className={`btn-secondary ${showHistoryPanel ? 'bg-secondary/20' : ''}`}
             title="Ver historial de ejecuciones"
           >
-            <span className="material-symbols-outlined text-[16px]">history</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">history</span>
             <span>Historial</span>
             {runHistory.length > 0 && (
               <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-primary text-on-primary rounded-full">
@@ -1044,7 +1044,7 @@ function EditorPage() {
             className={`btn-secondary ${showScriptPanel ? 'bg-secondary/20' : ''}`}
             title="Ver script K6 generado"
           >
-            <span className="material-symbols-outlined text-[16px]">code</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">code</span>
             <span>Script</span>
           </button>
           <button
@@ -1063,7 +1063,7 @@ function EditorPage() {
                 : "Variables del escenario"
             }
           >
-            <span className="material-symbols-outlined text-[16px]">data_object</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">data_object</span>
             <span>Variables</span>
             {undefinedVariableCount > 0 && (
               <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-amber-500 text-black rounded-full">
@@ -1072,7 +1072,7 @@ function EditorPage() {
             )}
           </button>
           <button onClick={handleNew} className="btn-secondary">
-            <span className="material-symbols-outlined text-[16px]">add</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">add</span>
             <span>Nuevo</span>
           </button>
           <button
@@ -1080,7 +1080,7 @@ function EditorPage() {
             disabled={scenario.saving || scenario.loading}
             className="btn-primary"
           >
-            <span className="material-symbols-outlined text-[16px]">save</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">save</span>
             <span>{scenario.saving ? "Guardando..." : "Guardar"}</span>
           </button>
           <EnvironmentSelector
@@ -1097,7 +1097,7 @@ function EditorPage() {
             className="flex items-center gap-space-xs px-space-md py-space-sm bg-secondary-container text-on-secondary-container font-semibold rounded-xl shadow-glow-secondary transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             title={run.orchestratorAvailable === false ? "Orchestrator no disponible" : "Ejecutar escenario"}
           >
-            <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">play_arrow</span>
             <span>{run.running ? "Ejecutando..." : "Ejecutar"}</span>
           </button>
           <button
@@ -1106,7 +1106,7 @@ function EditorPage() {
             className="btn-secondary"
             title="Ejecución diagnóstica: 1 VU · 1 iteración, separada de la carga"
           >
-            <span className="material-symbols-outlined text-[16px]">troubleshoot</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">troubleshoot</span>
             <span>{diagnostic.state.busy === "diagnostic" ? "Diagnosticando..." : "Ejecución diagnóstica"}</span>
           </button>
         </div>
@@ -1115,7 +1115,7 @@ function EditorPage() {
       {/* Import analysis banner */}
       {importAnalysis && (
         <div className="flex items-center gap-space-lg px-space-lg py-space-sm bg-secondary/10 border-b border-secondary/30">
-          <span className="material-symbols-outlined text-secondary text-[20px]">check_circle</span>
+          <span className="material-symbols-outlined text-secondary text-[20px]" aria-hidden="true">check_circle</span>
           <span className="text-body-md text-on-surface font-medium">
             Importados {nodes.length} requests del grabador
           </span>
@@ -1184,7 +1184,7 @@ function EditorPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="card w-[450px]">
             <div className="flex items-center gap-space-sm mb-space-lg">
-              <span className="material-symbols-outlined text-amber-500 text-[24px]">warning</span>
+              <span className="material-symbols-outlined text-amber-500 text-[24px]" aria-hidden="true">warning</span>
               <h2 className="text-headline-md text-on-surface font-semibold">
                 {runConfirmationKind === "diagnostic" ? "Confirmar Ejecución Diagnóstica" : "Confirmar Prueba de Carga"}
               </h2>
@@ -1211,7 +1211,7 @@ function EditorPage() {
             </p>
             <div className="p-space-md rounded-lg bg-amber-500/10 border border-amber-500/30 mb-space-lg">
               <div className="flex items-start gap-space-sm">
-                <span className="material-symbols-outlined text-amber-500 text-[18px]">electric_bolt</span>
+                <span className="material-symbols-outlined text-amber-500 text-[18px]" aria-hidden="true">electric_bolt</span>
                 <p className="text-body-sm text-amber-200">
                   Esto generará tráfico HTTP real. Solo ejecuta pruebas contra sistemas que te pertenecen o tienes permiso para testear.
                 </p>
@@ -1225,7 +1225,7 @@ function EditorPage() {
                 onClick={runConfirmationKind === "diagnostic" ? handleDiagnosticConfirmed : handleRunConfirmed}
                 className="flex items-center gap-space-xs px-space-md py-space-sm bg-error text-on-error font-semibold rounded-xl transition-all hover:opacity-90"
               >
-                <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                <span className="material-symbols-outlined text-[16px]" aria-hidden="true">play_arrow</span>
                 <span>{runConfirmationKind === "diagnostic" ? "Ejecutar Diagnóstico" : "Ejecutar Prueba"}</span>
               </button>
             </div>
