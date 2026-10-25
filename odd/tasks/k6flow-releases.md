@@ -39,6 +39,15 @@ corre migraciones + seed del admin y termina; `web` arranca sólo si terminó bi
 - T6 — Verificación: `docker compose config`, build del stage `setup` y migración + seed contra una
   base limpia.
 
+## Estado de las tareas
+
+- [x] T1 `setup` runner (`apps/web/scripts/release-setup.ts` + stage `setup`) — `c301996`
+- [x] T2 compose de release pull-only — `5316652`
+- [x] T3 workflow `release.yml` (tag `vX.Y.Z` → 4 imágenes × 4 tags) — `5316652`
+- [x] T4 `docs/RELEASES.md` + README + DEPLOYMENT — `bece468`
+- [x] T5 gate `scripts/check-release-compose.sh` en CI — `5316652`
+- [x] T6 verificación — ver L5
+
 ## Log
 
 - L1 (user, verbatim): "ahora qiero poder ir sacando releeses apartir de tag versiones, que se
@@ -52,6 +61,12 @@ corre migraciones + seed del admin y termina; `web` arranca sólo si terminó bi
   migraciones ni seed; el seed es un CLI explícito (no auto-seed por diseño), así que un usuario
   nuevo no podría ni loguearse. El orchestrator necesita `/var/run/docker.sock` y la red de k6: se
   documenta como requisito, no se oculta.
+- L5 (verificación, 2026-10-25): `docker compose -f deploy/docker-compose.release.yml config` resuelve con
+  sólo `POSTGRES_PASSWORD` y `ADMIN_PASSWORD`, y `K6FLOW_VERSION=9.9.9` llega a las cuatro imágenes.
+  Se construyó el stage `setup` y se corrió contra una base **vacía**: 14 tablas migradas, admin
+  `releasecheck / admin` creado, y una segunda corrida dejó 1 usuario (idempotente). Base de prueba
+  eliminada después. `scripts/check-release-compose.sh` y el YAML de los workflows validados; el CI
+  del PR quedó verde con los arreglos de `check-phase-0-compose.sh`.
 - L4 (deviation, justified): el servicio de setup necesita TS + el código de `apps/web` (seed y
   hash de password), así que se publica una cuarta imagen `k6flow-setup` construida desde el stage
   `setup` del mismo Dockerfile. Mantiene una sola fuente de verdad para migraciones y hashing en
