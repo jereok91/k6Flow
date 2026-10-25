@@ -30,7 +30,7 @@ cleanup() {
       echo "Cleanup failed for owned project $project; inspect its labeled resources." >&2
       result=1
     fi
-    for service in web orchestrator; do
+    for service in web orchestrator recorder; do
       image="$project-$service:latest"
       if ! image_ids=$(docker image ls -q "$image"); then
         echo "Cannot inspect owned image $image for cleanup" >&2
@@ -65,7 +65,7 @@ run_stack() {
       return 1
     fi
   done
-  for service in web orchestrator; do
+  for service in web orchestrator recorder; do
     resources=$(docker image ls -q "$active_project-$service") || return 1
     if [[ -n $resources ]]; then
       echo "Image collision: $active_project-$service" >&2
@@ -86,6 +86,12 @@ run_stack() {
       --target "$target" --tag "$active_project-$service" \
       --file "apps/$service/Dockerfile" .
   done
+  # The recorder has a single-stage Dockerfile and is started with --no-build.
+  remaining=$((900 - SECONDS + started))
+  [[ $remaining -gt 0 ]] || { echo "Startup budget exhausted" >&2; return 1; }
+  timeout --foreground "$remaining" docker build --force-rm \
+    --tag "$active_project-recorder" \
+    --file apps/recorder/Dockerfile .
   remaining=$((900 - SECONDS + started))
   [[ $remaining -gt 0 ]] || { echo "Startup budget exhausted" >&2; return 1; }
   if ! WEB_PORT=0 timeout --foreground "$remaining" docker compose \
@@ -95,7 +101,7 @@ run_stack() {
     compose logs --tail 40
     return 1
   fi
-  for service in web orchestrator db; do
+  for service in web orchestrator db recorder; do
     id=$(compose ps -q "$service")
     [[ -n $id ]] || { echo "Missing $service" >&2; return 1; }
     state=$(docker inspect --format '{{.State.Health.Status}}' "$id")
