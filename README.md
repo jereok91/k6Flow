@@ -33,37 +33,61 @@ The full loop in ~20 seconds: dashboard → recordings → review → editor.
 
 ## Quick start
 
+You need Docker with Compose v2 and access to `/var/run/docker.sock` (the orchestrator starts
+one k6 container per run). Nothing is built locally: both options pull published images from
+GHCR.
+
 ### Everything in one image (fastest)
 
-The `k6flow` image already contains the web app, the orchestrator, the recorder and the
-migrations. Only PostgreSQL goes next to it, the way yopass brings redis:
+The `k6flow` image already contains the web app, the orchestrator, the recorder, the migrations
+and the admin seed. Only PostgreSQL goes next to it, the way yopass brings redis:
 
 ```bash
 curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.all-in-one.yml
-printf 'POSTGRES_PASSWORD=change-me\nADMIN_PASSWORD=change-me-min-12-chars\n' > .env
+cat > .env <<'EOF'
+POSTGRES_PASSWORD=change-me-to-a-strong-password
+ADMIN_PASSWORD=change-me-min-12-chars
+K6FLOW_VERSION=0.4.1
+EOF
 docker compose -f docker-compose.all-in-one.yml up -d
 ```
 
-Two variants are published: `k6flow` (with the browser recorder) and `k6flow-slim` (same app
-without Chromium, ~4x smaller). Pick the slim one with `K6FLOW_IMAGE=k6flow-slim` in `.env` when
-you only need the editor, runs and HAR import.
+`docker compose logs -f k6flow` shows the startup: migrations, admin seed, then web,
+orchestrator and recorder. When `docker compose ps` reports the service as `healthy`, open
+<http://localhost:3000> and sign in as `admin` with the `ADMIN_PASSWORD` you chose.
 
-### From the published images (one service per process)
+- `K6FLOW_VERSION` pins the release. Omit it and you follow `:latest`; the published versions are
+  listed in [releases](https://github.com/jereok91/k6Flow/releases).
+- `K6FLOW_IMAGE=k6flow-slim` swaps in the same app without Chromium (~4x smaller): the recording
+  screen answers `502` on purpose, and the editor, runs, library and HAR import keep working.
+- `WEB_PORT=8080` publishes the UI on another host port. Set it there: adding another compose file
+  with a `ports:` entry does not replace the mapping, Compose merges both.
 
-Every `vX.Y.Z` tag also publishes `ghcr.io/jereok91/k6flow-{web,orchestrator,recorder,setup}` for
-deployments that prefer one container per service.
+### One container per service (pinned, recommended for upgrades)
+
+Every `vX.Y.Z` tag also publishes `ghcr.io/jereok91/k6flow-{web,orchestrator,recorder,setup}`:
 
 ```bash
 curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.release.yml
-printf 'POSTGRES_PASSWORD=change-me\nADMIN_PASSWORD=change-me-min-12-chars\nK6FLOW_VERSION=latest\n' > .env
+cat > .env <<'EOF'
+POSTGRES_PASSWORD=change-me-to-a-strong-password
+ADMIN_PASSWORD=change-me-min-12-chars
+K6FLOW_VERSION=0.4.1
+EOF
 docker compose -f docker-compose.release.yml up -d
 ```
 
-Open <http://localhost:3000> and sign in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`. The `setup`
-service applies migrations and creates the admin before `web` starts.
+The one-shot `setup` service applies the migrations and creates the admin before `web` starts.
+Upgrading is the same two commands with a new `K6FLOW_VERSION`:
 
-Requirements: Docker with access to `/var/run/docker.sock` (the orchestrator launches one k6
-container per run). See [docs/RELEASES.md](docs/RELEASES.md) for pinning versions and upgrading.
+```bash
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+```
+
+See [docs/RELEASES.md](docs/RELEASES.md) for every published tag and
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for a VPS deployment with HTTPS, backups and a stack
+built from source.
 
 ### Development
 

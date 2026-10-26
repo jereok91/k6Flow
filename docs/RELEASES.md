@@ -75,12 +75,20 @@ agrega redis:
 
 ```bash
 curl -O https://raw.githubusercontent.com/jereok91/k6Flow/main/deploy/docker-compose.all-in-one.yml
-printf 'POSTGRES_PASSWORD=cambia-esta-clave\nADMIN_PASSWORD=cambia-esta-clave-de-12-o-mas\nK6FLOW_VERSION=0.1.1\n' > .env
+cat > .env <<'EOF'
+POSTGRES_PASSWORD=cambia-esta-clave
+ADMIN_PASSWORD=cambia-esta-clave-de-12-o-mas
+K6FLOW_VERSION=0.4.1
+EOF
 docker compose -f docker-compose.all-in-one.yml up -d
 ```
 
 Al arrancar, el contenedor aplica las migraciones, crea el admin y levanta web, orchestrator y
-grabador. `docker compose logs -f k6flow` muestra ese arranque.
+grabador. `docker compose logs -f k6flow` muestra ese arranque: esperá a que `docker compose ps`
+diga `healthy` y abrí `http://localhost:3000` con `admin` y la `ADMIN_PASSWORD` que elegiste.
+
+Sin `K6FLOW_VERSION` seguís `:latest`. Las versiones publicadas son las de
+[releases](https://github.com/jereok91/k6Flow/releases).
 
 Las imágenes con grabador emparejan la librería de Playwright (del lockfile) con los navegadores de
 la imagen base: las dos llevan la misma versión, y el `Dockerfile` lanza Chromium durante el build
@@ -104,13 +112,30 @@ cat > .env <<'EOF'
 POSTGRES_PASSWORD=cambia-esta-clave
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=cambia-esta-clave-de-12-o-mas
-K6FLOW_VERSION=1.2.3
+K6FLOW_VERSION=0.4.1
 EOF
 
 docker compose -f docker-compose.release.yml up -d
 ```
 
+El servicio `setup` aplica las migraciones y crea el admin antes de que arranque `web`.
 Abrí `http://localhost:3000` y entrá con `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+
+Reemplazá `0.4.1` por la versión que quieras fijar: los tags publicados son `X.Y.Z`, `X.Y`, `X` y
+`latest`, así que `K6FLOW_VERSION=0.4` sigue los parches de la línea.
+
+### Actualizar una versión fija
+
+```bash
+# cambiá K6FLOW_VERSION en el .env y después
+sed -i 's/^K6FLOW_VERSION=.*/K6FLOW_VERSION=0.5.0/' .env
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+```
+
+El `setup` vuelve a correr: las migraciones ya aplicadas se saltean y el admin se actualiza por
+usuario, así que repetirlo no duplica nada. La base de datos y las capturas viven en volúmenes y
+no se tocan.
 
 ### Opción C — siempre la última
 

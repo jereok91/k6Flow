@@ -74,6 +74,25 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
+  # Migraciones + seed del admin, una vez por despliegue. Sin esto el stack desde el código no
+  # tiene tablas ni usuario con el que entrar: `web` es el standalone de Next (sin pnpm ni fuentes),
+  # así que no puede correr el seed. Se ejecuta explícitamente antes de levantar el resto
+  # (`docker compose run --rm setup`); el stack de imágenes publicadas hace lo mismo con su propio
+  # servicio `setup`.
+  setup:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      target: setup
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-k6flow}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-k6flow}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD (min 12 chars) in an external env file}
+    networks: [backend]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
   db:
     image: postgres:17.7-alpine3.22
     environment:

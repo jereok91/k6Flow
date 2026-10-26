@@ -65,7 +65,7 @@ run_stack() {
       return 1
     fi
   done
-  for service in web orchestrator recorder; do
+  for service in web orchestrator recorder setup; do
     resources=$(docker image ls -q "$active_project-$service") || return 1
     if [[ -n $resources ]]; then
       echo "Image collision: $active_project-$service" >&2
@@ -86,6 +86,13 @@ run_stack() {
       --target "$target" --tag "$active_project-$service" \
       --file "apps/$service/Dockerfile" .
   done
+  # El servicio setup corre las migraciones y el seed: sale del target `setup` del Dockerfile web.
+  remaining=$((900 - SECONDS + started))
+  [[ $remaining -gt 0 ]] || { echo "Startup budget exhausted" >&2; return 1; }
+  timeout --foreground "$remaining" docker build --force-rm \
+    --target setup --tag "$active_project-setup" \
+    --file apps/web/Dockerfile .
+
   # The recorder has a single-stage Dockerfile and is started with --no-build.
   remaining=$((900 - SECONDS + started))
   [[ $remaining -gt 0 ]] || { echo "Startup budget exhausted" >&2; return 1; }

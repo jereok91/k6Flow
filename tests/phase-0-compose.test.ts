@@ -11,7 +11,7 @@ const load = (path: string) => parse(readFileSync(path, "utf8"));
 const ORCHESTRATOR_DEV_PORTS = ["127.0.0.1:8080:8080"];
 
 function checkServices(services: Record<string, any>, opts: { allowOrchestratorDevSocket?: boolean; allowOrchestratorDevPort?: boolean } = {}) {
-  assert.deepEqual(Object.keys(services).sort(), ["db", "orchestrator", "recorder", "web"]);
+  assert.deepEqual(Object.keys(services).sort(), ["db", "orchestrator", "recorder", "setup", "web"]);
   assert.equal(services.db.ports, undefined, "db must not publish ports");
   if (opts.allowOrchestratorDevPort && services.orchestrator.ports !== undefined) {
     assert.deepEqual(services.orchestrator.ports, ORCHESTRATOR_DEV_PORTS, "dev orchestrator may publish only loopback 8080");
@@ -19,6 +19,13 @@ function checkServices(services: Record<string, any>, opts: { allowOrchestratorD
     assert.equal(services.orchestrator.ports, undefined, "orchestrator must not publish ports");
   }
   for (const [name, service] of Object.entries(services)) {
+    if (name === "setup") {
+      // One-shot: aplica migraciones y siembra el admin, después sale. No tiene sonda de salud ni
+      // puede reiniciarse (volvería a correr el seed en cada arranque).
+      assert.equal(service.restart, "no", "setup must not restart");
+      assert.equal(service.privileged, undefined);
+      continue;
+    }
     assert.ok(service.healthcheck.test.length > 1);
     assert.equal(service.privileged, undefined);
     const hasSocket = (service.volumes ?? []).some((v: string) => v.includes("docker.sock"));
