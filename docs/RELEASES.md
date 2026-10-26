@@ -124,6 +124,17 @@ Abrí `http://localhost:3000` y entrá con `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
 Reemplazá `0.4.1` por la versión que quieras fijar: los tags publicados son `X.Y.Z`, `X.Y`, `X` y
 `latest`, así que `K6FLOW_VERSION=0.4` sigue los parches de la línea.
 
+### Dos instancias en el mismo host
+
+Los dos compose fijan `name: k6flow`, así que la segunda instancia reusaría los volúmenes de la
+primera (y la contraseña de Postgres no coincidiría). Dale su propio nombre con `-p` o con
+`COMPOSE_PROJECT_NAME` en el `.env`:
+
+```bash
+printf 'COMPOSE_PROJECT_NAME=k6flow-lab\n' >> .env
+docker compose -f docker-compose.all-in-one.yml up -d
+```
+
 ### Actualizar una versión fija
 
 ```bash

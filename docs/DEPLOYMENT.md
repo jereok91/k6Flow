@@ -77,6 +77,10 @@ docker compose --env-file deploy/.env \
 
 Your k6flow instance is now running at `https://your-domain.com`.
 
+Every shipped compose file names the project `k6flow`, so a second K6Flow stack on the same host
+would reuse the first one's volumes (and fail to authenticate against its PostgreSQL). Give it its
+own project name with `-p` on every command or `COMPOSE_PROJECT_NAME` in the env file.
+
 > Si preferís no compilar nada, cada tag `vX.Y.Z` publica imágenes en GHCR y el repo incluye
 > `deploy/docker-compose.release.yml` para levantar K6Flow sólo con `docker compose`. Es el camino
 > recomendado (y el que usan las pruebas de aceptación): ese stack ya monta el socket y su servicio

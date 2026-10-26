@@ -62,6 +62,9 @@ orchestrator and recorder. When `docker compose ps` reports the service as `heal
   screen answers `502` on purpose, and the editor, runs, library and HAR import keep working.
 - `WEB_PORT=8080` publishes the UI on another host port. Set it there: adding another compose file
   with a `ports:` entry does not replace the mapping, Compose merges both.
+- Both composes name the project `k6flow`, so two K6Flow stacks on one host would share the
+  database volume. Give a second instance its own name with `-p k6flow-lab` or
+  `COMPOSE_PROJECT_NAME=k6flow-lab` in `.env`.
 
 ### One container per service (pinned, recommended for upgrades)
 
